@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Nunito, Nunito_Sans } from "next/font/google";
+import { PWARegister } from "@/components/PWARegister";
 import "./globals.css";
 
 const nunito = Nunito({
@@ -53,6 +54,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           </defs>
         </svg>
         {children}
+        <PWARegister />
       </body>
     </html>
   );
