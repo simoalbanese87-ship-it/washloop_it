@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderStatus } from "@/lib/orders";
 
-/** Cliente: crea un ordine prenotando uno slot di ritiro. */
+/** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
+ *  Calcola l'ETA "pronto" = inizio ritiro + turnaround del piano attivo. */
 export async function createPickup(formData: FormData) {
   const supabase = await createClient();
   const {
@@ -15,8 +16,22 @@ export async function createPickup(formData: FormData) {
 
   const address_id = String(formData.get("address_id") ?? "");
   const pickup_slot_id = String(formData.get("pickup_slot_id") ?? "");
+  const laundry_id = String(formData.get("laundry_id") ?? "") || null;
   const bags = Number(formData.get("bags") ?? 1);
   if (!address_id || !pickup_slot_id) throw new Error("Indirizzo e slot obbligatori");
+
+  // ETA = inizio slot ritiro + turnaround del piano attivo (default 48h)
+  const [{ data: slot }, { data: sub }] = await Promise.all([
+    supabase.from("slots").select("starts_at").eq("id", pickup_slot_id).maybeSingle<{ starts_at: string }>(),
+    supabase
+      .from("subscriptions")
+      .select("plans(turnaround_hours)")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ plans: { turnaround_hours: number } | null }>(),
+  ]);
+  const turnaround = sub?.plans?.turnaround_hours ?? 48;
+  const eta = slot?.starts_at ? new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString() : null;
 
   const { data, error } = await supabase
     .from("orders")
@@ -24,6 +39,8 @@ export async function createPickup(formData: FormData) {
       customer_id: user.id,
       address_id,
       pickup_slot_id,
+      laundry_id,
+      eta_ready_at: eta,
       bags: Number.isFinite(bags) && bags > 0 ? bags : 1,
       notes: String(formData.get("notes") ?? "") || null,
       status: "pickup_scheduled" as OrderStatus,
@@ -92,4 +109,17 @@ export async function assignOrder(formData: FormData) {
   const { error } = await supabase.from("orders").update({ courier_id, laundry_id }).eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath(`/admin/ordini/${id}`);
+}
+
+/** Lavanderia/admin: imposta o affina la data "pronto" (ETA). */
+export async function setEta(formData: FormData) {
+  const supabase = await createClient();
+  const id = String(formData.get("order_id") ?? "");
+  const raw = String(formData.get("eta_ready_at") ?? "");
+  const eta = raw ? new Date(raw).toISOString() : null;
+
+  const { error } = await supabase.from("orders").update({ eta_ready_at: eta }).eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/admin/ordini/${id}`);
+  revalidatePath(`/app/ordini/${id}`);
 }

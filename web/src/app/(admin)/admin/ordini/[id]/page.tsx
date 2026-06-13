@@ -3,7 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
-import { advanceStatus, assignOrder } from "@/lib/actions/orders";
+import { advanceStatus, assignOrder, setEta } from "@/lib/actions/orders";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 
 type Order = {
@@ -14,9 +14,18 @@ type Order = {
   created_at: string;
   courier_id: string | null;
   laundry_id: string | null;
+  eta_ready_at: string | null;
   customer: { full_name: string | null; phone: string | null } | null;
   addresses: { street: string; intercom: string | null; floor: string | null; zones: { name: string } | null } | null;
 };
+
+/** ISO → valore per <input type="datetime-local"> in ora locale. */
+function toLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 type Event = { id: string; status: OrderStatus; created_at: string; note: string | null };
 type Person = { id: string; full_name: string | null };
 type Laundry = { id: string; name: string };
@@ -31,7 +40,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, status, bags, notes, created_at, courier_id, laundry_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name))")
+      .select("id, status, bags, notes, created_at, courier_id, laundry_id, eta_ready_at, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name))")
       .eq("id", id)
       .maybeSingle<Order>(),
     supabase.from("order_events").select("id, status, created_at, note").eq("order_id", id).order("created_at", { ascending: false }).returns<Event[]>(),
@@ -82,6 +91,18 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               </select>
               <Button type="submit" size="md" variant="ghost-navy" className="sm:col-span-2">
                 Salva assegnazione
+              </Button>
+            </form>
+          </Card>
+
+          <Card>
+            <span className="font-display text-sm font-extrabold text-navy">Pronto previsto (ETA)</span>
+            <p className="mt-1 text-xs font-medium text-muted">Quando saranno pronti i capi. Il cliente lo vede nel tracking.</p>
+            <form action={setEta} className="mt-3 flex gap-3">
+              <input type="hidden" name="order_id" value={order.id} />
+              <input type="datetime-local" name="eta_ready_at" defaultValue={toLocalInput(order.eta_ready_at)} className={input} />
+              <Button type="submit" size="md" variant="ghost-navy">
+                Salva ETA
               </Button>
             </form>
           </Card>

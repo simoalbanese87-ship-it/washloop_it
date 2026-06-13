@@ -86,7 +86,13 @@ export default async function CatalogoPage() {
         {/* SLOT */}
         <Card className="lg:col-span-2">
           <h2 className="font-display text-base font-extrabold text-navy">Slot (ritiro / consegna)</h2>
-          <form action={createSlot} className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <form action={createSlot} className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-7">
+            <select name="laundry_id" className={input} defaultValue="" required>
+              <option value="" disabled>Lavanderia…</option>
+              {(laundries ?? []).map((l) => (
+                <option key={l.id} value={l.id}>{l.name}</option>
+              ))}
+            </select>
             <select name="kind" className={input} defaultValue="pickup">
               <option value="pickup">Ritiro</option>
               <option value="delivery">Consegna</option>

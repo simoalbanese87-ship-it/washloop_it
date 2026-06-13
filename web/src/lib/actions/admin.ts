@@ -34,6 +34,7 @@ export async function createSlot(formData: FormData) {
 
   const { error } = await supabase.from("slots").insert({
     zone_id: String(formData.get("zone_id") ?? "") || null,
+    laundry_id: String(formData.get("laundry_id") ?? "") || null,
     kind: String(formData.get("kind") ?? "pickup"),
     starts_at: new Date(`${date}T${from}`).toISOString(),
     ends_at: new Date(`${date}T${to}`).toISOString(),

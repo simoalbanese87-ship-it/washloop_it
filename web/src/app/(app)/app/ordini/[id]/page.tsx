@@ -14,7 +14,10 @@ type Order = {
   notes: string | null;
   created_at: string;
   delivery_slot_id: string | null;
+  laundry_id: string | null;
+  eta_ready_at: string | null;
   addresses: { street: string; label: string | null } | null;
+  laundries: { name: string } | null;
 };
 type Slot = { id: string; starts_at: string; ends_at: string };
 
@@ -31,7 +34,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
 
   const { data: order } = await supabase
     .from("orders")
-    .select("id, status, bags, notes, created_at, delivery_slot_id, addresses(street, label)")
+    .select("id, status, bags, notes, created_at, delivery_slot_id, laundry_id, eta_ready_at, addresses(street, label), laundries(name)")
     .eq("id", id)
     .maybeSingle<Order>();
 
@@ -42,14 +45,13 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
   let deliverySlots: Slot[] = [];
   if (canBookDelivery) {
     const nowIso = new Date().toISOString();
-    const { data } = await supabase
+    let q = supabase
       .from("slots")
       .select("id, starts_at, ends_at")
       .eq("kind", "delivery")
-      .gte("starts_at", nowIso)
-      .order("starts_at")
-      .limit(12)
-      .returns<Slot[]>();
+      .gte("starts_at", nowIso);
+    if (order.laundry_id) q = q.eq("laundry_id", order.laundry_id);
+    const { data } = await q.order("starts_at").limit(12).returns<Slot[]>();
     deliverySlots = data ?? [];
   }
 
@@ -65,9 +67,17 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
           </div>
           <div className="mt-4 space-y-1.5 text-sm font-medium text-muted">
             <div>Ritiro: {order.addresses?.label ? `${order.addresses.label} — ` : ""}{order.addresses?.street}</div>
+            {order.laundries?.name && <div>Lavanderia: {order.laundries.name}</div>}
             <div>{order.bags} {order.bags === 1 ? "busta" : "buste"} · creato il {new Date(order.created_at).toLocaleDateString("it-IT")}</div>
             {order.notes && <div>Note: {order.notes}</div>}
           </div>
+
+          {order.eta_ready_at && statusIndex(order.status) < statusIndex("delivered") && (
+            <div className="mt-4 rounded-[14px] border border-cyan/30 bg-cyan/10 px-4 py-3">
+              <div className="font-display text-xs font-extrabold uppercase tracking-[0.12em] text-blue">Riceverai entro</div>
+              <div className="mt-0.5 font-display text-base font-black text-navy">{fmt(order.eta_ready_at)}</div>
+            </div>
+          )}
 
           {canBookDelivery && (
             <div className="mt-6 border-t border-line pt-5">
