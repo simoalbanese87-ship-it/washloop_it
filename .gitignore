@@ -1,0 +1,29 @@
+# dependencies
+web/node_modules/
+**/node_modules/
+
+# next.js
+web/.next/
+web/out/
+web/build/
+
+# env — mai committare i secret
+**/.env
+**/.env.*
+!**/.env.example
+
+# vercel
+web/.vercel
+.vercel
+
+# typescript / build artifacts
+web/*.tsbuildinfo
+web/next-env.d.ts
+
+# os
+.DS_Store
+**/.DS_Store
+
+# logs
+*.log
+npm-debug.log*

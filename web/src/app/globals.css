@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+/* ============================================================
+   WashLoop Design System — token dal Brandbook 2026
+   ============================================================ */
+@theme {
+  /* Brand colors */
+  --color-navy: #1b2d5e;
+  --color-navy-2: #142046;
+  --color-navy-hi: #24407e;
+  --color-blue: #2b7fd4;
+  --color-cyan: #00c8f0;
+  --color-cyan-soft: #a6f1ff;
+  --color-ice: #f4f9ff;
+  --color-ink: #1b2d5e;
+
+  /* Fonts (caricati in layout.tsx via next/font) */
+  --font-display: var(--font-nunito), system-ui, sans-serif;
+  --font-sans: var(--font-nunito-sans), system-ui, sans-serif;
+
+  /* Radius */
+  --radius-sm: 13px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  --radius-pill: 40px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 0 rgba(27, 45, 94, 0.04), 0 10px 24px -18px rgba(27, 45, 94, 0.5);
+  --shadow-md: 0 18px 44px -26px rgba(27, 45, 94, 0.55);
+  --shadow-cy: 0 18px 40px -16px rgba(43, 127, 212, 0.6);
+
+  /* Easing */
+  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root {
+  --muted: rgba(27, 45, 94, 0.62);
+  --line: rgba(27, 45, 94, 0.12);
+  --grad: linear-gradient(135deg, #2b7fd4, #00c8f0);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: #ffffff;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Utility helpers riusabili */
+.text-muted {
+  color: var(--muted);
+}
+.border-line {
+  border-color: var(--line);
+}
+.bg-grad {
+  background: var(--grad);
+}
+.text-grad {
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Bolle animate per hero/sfondo navy */
+@keyframes wl-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-18px);
+  }
+}
+.wl-bubble {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 32% 28%,
+    rgba(255, 255, 255, 0.9),
+    rgba(166, 241, 255, 0.5) 32%,
+    rgba(0, 200, 240, 0.22) 62%,
+    rgba(43, 127, 212, 0.08) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
