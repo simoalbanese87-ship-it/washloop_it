@@ -2,6 +2,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
 import { createZone, createLaundry, createSlot, updatePlanPrice } from "@/lib/actions/admin";
+import { fmtDateTime } from "@/lib/format";
 
 type Zone = { id: string; name: string };
 type Laundry = { id: string; name: string; zones: { name: string } | null };
@@ -114,7 +115,7 @@ export default async function CatalogoPage() {
               <div key={s.id} className="rounded-[14px] border border-line bg-ice px-3.5 py-2.5 text-sm">
                 <span className="font-display text-xs font-bold uppercase text-blue">{s.kind === "pickup" ? "Ritiro" : "Consegna"}</span>
                 <div className="font-semibold text-navy">
-                  {new Date(s.starts_at).toLocaleString("it-IT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  {fmtDateTime(s.starts_at)}
                 </div>
                 <div className="text-xs font-medium text-muted">{s.zones?.name ?? "Tutte le zone"}</div>
               </div>

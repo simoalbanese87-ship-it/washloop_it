@@ -5,6 +5,7 @@ import { ButtonLink } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import type { OrderStatus } from "@/lib/orders";
+import { fmtDate } from "@/lib/format";
 
 type OrderRow = { id: string; status: OrderStatus; created_at: string; bags: number };
 type SubRow = { status: string; current_period_end: string | null; plans: { name: string } | null };
@@ -43,7 +44,7 @@ export default async function Dashboard() {
               <div className="mt-2 font-display text-2xl font-black text-navy">{sub?.plans?.name ?? "Attivo"}</div>
               <p className="mt-1 text-sm font-medium text-muted">
                 {sub?.current_period_end
-                  ? `Rinnovo il ${new Date(sub.current_period_end).toLocaleDateString("it-IT")}`
+                  ? `Rinnovo il ${fmtDate(sub.current_period_end)}`
                   : "Abbonamento attivo"}
               </p>
             </>
@@ -87,7 +88,7 @@ export default async function Dashboard() {
                 <div>
                   <div className="font-display text-sm font-bold text-navy">Ordine #{o.id.slice(0, 8)}</div>
                   <div className="text-xs font-medium text-muted">
-                    {new Date(o.created_at).toLocaleDateString("it-IT")} · {o.bags} {o.bags === 1 ? "busta" : "buste"}
+                    {fmtDate(o.created_at)} · {o.bags} {o.bags === 1 ? "busta" : "buste"}
                   </div>
                 </div>
                 <StatusBadge status={o.status} />

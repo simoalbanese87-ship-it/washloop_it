@@ -2,6 +2,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
+import { fmtDate } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 
 type Row = {
@@ -39,7 +40,7 @@ export default async function CourierStorico() {
               <div>
                 <div className="font-display text-sm font-bold text-navy">{r.customer?.full_name ?? "Cliente"}</div>
                 <div className="text-xs font-medium text-muted">
-                  {r.addresses?.zones?.name ?? "—"} · {new Date(r.created_at).toLocaleDateString("it-IT")}
+                  {r.addresses?.zones?.name ?? "—"} · {fmtDate(r.created_at)}
                 </div>
               </div>
               <StatusBadge status={r.status} />

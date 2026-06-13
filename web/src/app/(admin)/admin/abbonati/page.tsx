@@ -1,5 +1,6 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { createClient } from "@/lib/supabase/server";
+import { fmtDate } from "@/lib/format";
 
 type Sub = {
   id: string;
@@ -51,7 +52,7 @@ export default async function AbbonatiPage() {
                 <span className={`inline-flex rounded-full px-2.5 py-1 font-display text-xs font-bold ${tone(s.status)}`}>{s.status}</span>
               </div>
               <div className="text-sm font-medium text-muted">
-                {s.current_period_end ? new Date(s.current_period_end).toLocaleDateString("it-IT") : "—"}
+                {s.current_period_end ? fmtDate(s.current_period_end) : "—"}
               </div>
             </div>
           ))}

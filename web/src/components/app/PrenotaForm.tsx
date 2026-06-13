@@ -3,21 +3,13 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { createPickup } from "@/lib/actions/orders";
+import { fmtSlot } from "@/lib/format";
 
 export type Address = { id: string; label: string | null; street: string; zone_id: string | null };
 export type Laundry = { id: string; name: string; zone_id: string | null };
 export type Slot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null };
 
 const input = "h-11 w-full rounded-[14px] border border-line bg-ice px-3.5 text-sm font-medium text-navy outline-none focus:border-blue";
-
-function fmtSlot(s: Slot) {
-  const d = new Date(s.starts_at);
-  const e = new Date(s.ends_at);
-  const day = d.toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" });
-  const from = d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
-  const to = e.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
-  return `${day} · ${from}–${to}`;
-}
 
 export function PrenotaForm({ addresses, laundries, slots }: { addresses: Address[]; laundries: Laundry[]; slots: Slot[] }) {
   const [addressId, setAddressId] = useState(addresses[0]?.id ?? "");
@@ -88,7 +80,7 @@ export function PrenotaForm({ addresses, laundries, slots }: { addresses: Addres
                 {laundrySlots.map((s, i) => (
                   <label key={s.id} className="flex cursor-pointer items-center gap-3 rounded-[14px] border border-line bg-ice px-4 py-3 has-[:checked]:border-blue has-[:checked]:bg-blue/5">
                     <input type="radio" name="pickup_slot_id" value={s.id} required defaultChecked={i === 0} className="accent-[#2b7fd4]" />
-                    <span className="text-sm font-semibold text-navy">{fmtSlot(s)}</span>
+                    <span className="text-sm font-semibold text-navy">{fmtSlot(s.starts_at, s.ends_at)}</span>
                   </label>
                 ))}
               </div>

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
 import { bookDelivery } from "@/lib/actions/orders";
 import { statusIndex, type OrderStatus } from "@/lib/orders";
+import { fmtDate, fmtDateTime } from "@/lib/format";
 
 type Order = {
   id: string;
@@ -22,11 +23,6 @@ type Order = {
 type Slot = { id: string; starts_at: string; ends_at: string };
 
 const input = "h-11 w-full rounded-[14px] border border-line bg-ice px-3.5 text-sm font-medium text-navy outline-none focus:border-blue";
-
-function fmt(iso: string) {
-  const d = new Date(iso);
-  return `${d.toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })} · ${d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`;
-}
 
 export default async function OrderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -68,14 +64,14 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
           <div className="mt-4 space-y-1.5 text-sm font-medium text-muted">
             <div>Ritiro: {order.addresses?.label ? `${order.addresses.label} — ` : ""}{order.addresses?.street}</div>
             {order.laundries?.name && <div>Lavanderia: {order.laundries.name}</div>}
-            <div>{order.bags} {order.bags === 1 ? "busta" : "buste"} · creato il {new Date(order.created_at).toLocaleDateString("it-IT")}</div>
+            <div>{order.bags} {order.bags === 1 ? "busta" : "buste"} · creato il {fmtDate(order.created_at)}</div>
             {order.notes && <div>Note: {order.notes}</div>}
           </div>
 
           {order.eta_ready_at && statusIndex(order.status) < statusIndex("delivered") && (
             <div className="mt-4 rounded-[14px] border border-cyan/30 bg-cyan/10 px-4 py-3">
               <div className="font-display text-xs font-extrabold uppercase tracking-[0.12em] text-blue">Riceverai entro</div>
-              <div className="mt-0.5 font-display text-base font-black text-navy">{fmt(order.eta_ready_at)}</div>
+              <div className="mt-0.5 font-display text-base font-black text-navy">{fmtDateTime(order.eta_ready_at)}</div>
             </div>
           )}
 
@@ -92,7 +88,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
                     </option>
                     {deliverySlots.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {fmt(s.starts_at)}
+                        {fmtDateTime(s.starts_at)}
                       </option>
                     ))}
                   </select>

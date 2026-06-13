@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderStatus } from "@/lib/orders";
+import { romeLocalToISO } from "@/lib/format";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
  *  Calcola l'ETA "pronto" = inizio ritiro + turnaround del piano attivo. */
@@ -116,7 +117,7 @@ export async function setEta(formData: FormData) {
   const supabase = await createClient();
   const id = String(formData.get("order_id") ?? "");
   const raw = String(formData.get("eta_ready_at") ?? "");
-  const eta = raw ? new Date(raw).toISOString() : null;
+  const eta = romeLocalToISO(raw);
 
   const { error } = await supabase.from("orders").update({ eta_ready_at: eta }).eq("id", id);
   if (error) throw new Error(error.message);

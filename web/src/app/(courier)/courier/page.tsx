@@ -2,6 +2,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { CourierJobCard, type Job } from "@/components/app/CourierJobCard";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
+import { fmtSlot } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 
 type Row = {
@@ -15,10 +16,7 @@ type Row = {
 };
 
 function fmt(s: { starts_at: string; ends_at: string } | null): string | null {
-  if (!s) return null;
-  const d = new Date(s.starts_at);
-  const e = new Date(s.ends_at);
-  return `${d.toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })} · ${d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}–${e.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`;
+  return s ? fmtSlot(s.starts_at, s.ends_at) : null;
 }
 
 function toJob(r: Row, kind: "pickup" | "delivery"): Job {

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
 import { advanceStatus, assignOrder, setEta } from "@/lib/actions/orders";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
+import { fmtFull, toRomeInputValue } from "@/lib/format";
 
 type Order = {
   id: string;
@@ -19,13 +20,6 @@ type Order = {
   addresses: { street: string; intercom: string | null; floor: string | null; zones: { name: string } | null } | null;
 };
 
-/** ISO → valore per <input type="datetime-local"> in ora locale. */
-function toLocalInput(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 type Event = { id: string; status: OrderStatus; created_at: string; note: string | null };
 type Person = { id: string; full_name: string | null };
 type Laundry = { id: string; name: string };
@@ -68,7 +62,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               {(order.addresses?.floor || order.addresses?.intercom) && (
                 <div>{order.addresses?.floor && `Piano ${order.addresses.floor}`} {order.addresses?.intercom && `· Citofono ${order.addresses.intercom}`}</div>
               )}
-              <div>{order.bags} {order.bags === 1 ? "busta" : "buste"} · {new Date(order.created_at).toLocaleString("it-IT")}</div>
+              <div>{order.bags} {order.bags === 1 ? "busta" : "buste"} · {fmtFull(order.created_at)}</div>
               {order.notes && <div>Note: {order.notes}</div>}
             </div>
           </Card>
@@ -100,7 +94,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
             <p className="mt-1 text-xs font-medium text-muted">Quando saranno pronti i capi. Il cliente lo vede nel tracking.</p>
             <form action={setEta} className="mt-3 flex gap-3">
               <input type="hidden" name="order_id" value={order.id} />
-              <input type="datetime-local" name="eta_ready_at" defaultValue={toLocalInput(order.eta_ready_at)} className={input} />
+              <input type="datetime-local" name="eta_ready_at" defaultValue={toRomeInputValue(order.eta_ready_at)} className={input} />
               <Button type="submit" size="md" variant="ghost-navy">
                 Salva ETA
               </Button>
@@ -132,7 +126,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                 <span className="mt-1.5 h-2 w-2 flex-none rounded-full bg-blue" />
                 <div>
                   <div className="font-display text-sm font-bold text-navy">{ORDER_STATUS_LABEL[e.status]}</div>
-                  <div className="text-xs font-medium text-muted">{new Date(e.created_at).toLocaleString("it-IT")}</div>
+                  <div className="text-xs font-medium text-muted">{fmtFull(e.created_at)}</div>
                 </div>
               </li>
             ))}
