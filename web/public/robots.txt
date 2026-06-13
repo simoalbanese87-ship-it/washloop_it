@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /admin
+Disallow: /courier
+
+Sitemap: https://washloop.it/sitemap.xml
