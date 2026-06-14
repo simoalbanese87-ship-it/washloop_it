@@ -4,6 +4,8 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
 import { advanceStatus, assignOrder, setEta } from "@/lib/actions/orders";
+import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
+import { AdminItems, type Item } from "@/components/app/AdminItems";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtFull, toRomeInputValue } from "@/lib/format";
 
@@ -12,6 +14,7 @@ type Order = {
   status: OrderStatus;
   bags: number;
   notes: string | null;
+  staff_notes: string | null;
   created_at: string;
   courier_id: string | null;
   laundry_id: string | null;
@@ -31,15 +34,16 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   const { id } = await params;
   const supabase = await createClient();
 
-  const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }] = await Promise.all([
+  const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }, { data: items }] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, status, bags, notes, created_at, courier_id, laundry_id, eta_ready_at, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name))")
+      .select("id, status, bags, notes, staff_notes, created_at, courier_id, laundry_id, eta_ready_at, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name))")
       .eq("id", id)
       .maybeSingle<Order>(),
     supabase.from("order_events").select("id, status, created_at, note").eq("order_id", id).order("created_at", { ascending: false }).returns<Event[]>(),
     supabase.from("profiles").select("id, full_name").eq("role", "courier").returns<Person[]>(),
     supabase.from("laundries").select("id, name").eq("active", true).returns<Laundry[]>(),
+    supabase.from("order_items").select("id, kind, status, photo_url").eq("order_id", id).order("created_at").returns<Item[]>(),
   ]);
 
   if (!order) notFound();
@@ -115,6 +119,29 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               </Button>
             </form>
           </Card>
+
+          <Card>
+            <AdminItems orderId={order.id} items={items ?? []} />
+          </Card>
+
+          <Card>
+            <span className="font-display text-sm font-extrabold text-navy">Note interne</span>
+            <p className="mt-1 text-xs font-medium text-muted">Visibili solo allo staff, mai al cliente.</p>
+            <form action={setStaffNotes} className="mt-3 space-y-2">
+              <input type="hidden" name="order_id" value={order.id} />
+              <textarea name="staff_notes" rows={3} defaultValue={order.staff_notes ?? ""} placeholder="Es. macchia ostinata sul colletto…" className={`${input} h-auto py-2`} />
+              <Button type="submit" size="md" variant="ghost-navy">Salva note</Button>
+            </form>
+          </Card>
+
+          {order.status !== "cancelled" && order.status !== "delivered" && order.status !== "completed" && (
+            <form action={cancelOrder}>
+              <input type="hidden" name="order_id" value={order.id} />
+              <button type="submit" className="font-display text-sm font-bold text-[#C0392B] hover:underline">
+                Annulla ordine
+              </button>
+            </form>
+          )}
         </div>
 
         {/* Timeline eventi */}

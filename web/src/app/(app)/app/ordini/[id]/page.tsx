@@ -5,8 +5,17 @@ import { OrderTimeline } from "@/components/app/OrderTimeline";
 import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
 import { bookDelivery } from "@/lib/actions/orders";
-import { statusIndex, type OrderStatus } from "@/lib/orders";
+import { statusIndex, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
 import { fmtDate, fmtDateTime } from "@/lib/format";
+
+type Item = { id: string; kind: string | null; status: ItemStatus; photo_url: string | null };
+
+const itemTone: Record<ItemStatus, string> = {
+  received: "bg-navy/10 text-navy",
+  washing: "bg-cyan/20 text-navy",
+  ready: "bg-[#1F8A5B]/15 text-[#1F8A5B]",
+  issue: "bg-[#C0392B]/12 text-[#C0392B]",
+};
 
 type Order = {
   id: string;
@@ -35,6 +44,13 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
     .maybeSingle<Order>();
 
   if (!order) notFound();
+
+  const { data: items } = await supabase
+    .from("order_items")
+    .select("id, kind, status, photo_url")
+    .eq("order_id", id)
+    .order("created_at")
+    .returns<Item[]>();
 
   // Consegna prenotabile da "ready" in poi, se non già fissata
   const canBookDelivery = statusIndex(order.status) >= statusIndex("ready") && !order.delivery_slot_id;
@@ -108,6 +124,27 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
           <OrderTimeline orderId={order.id} initialStatus={order.status} />
         </Card>
       </div>
+
+      {items && items.length > 0 && (
+        <Card className="mt-6">
+          <div className="font-display text-sm font-extrabold text-navy">I tuoi capi ({items.length})</div>
+          <p className="mt-1 text-xs font-medium text-muted">Ogni capo è tracciato singolarmente.</p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {items.map((it) => (
+              <div key={it.id} className="flex items-center gap-3 rounded-[14px] border border-line bg-ice px-3 py-2.5">
+                {it.photo_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={it.photo_url} alt="" className="h-10 w-10 rounded-[8px] object-cover" />
+                ) : (
+                  <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-white">👕</div>
+                )}
+                <div className="flex-1 text-sm font-semibold text-navy">{it.kind ?? "Capo"}</div>
+                <span className={`rounded-full px-2.5 py-1 font-display text-xs font-bold ${itemTone[it.status]}`}>{ITEM_STATUS_LABEL[it.status]}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </>
   );
 }

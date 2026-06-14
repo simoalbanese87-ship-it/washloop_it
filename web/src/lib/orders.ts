@@ -46,6 +46,15 @@ export function statusIndex(s: OrderStatus): number {
   return ORDER_FLOW.indexOf(s);
 }
 
+export type ItemStatus = "received" | "washing" | "ready" | "issue";
+
+export const ITEM_STATUS_LABEL: Record<ItemStatus, string> = {
+  received: "Ricevuto",
+  washing: "In lavaggio",
+  ready: "Pronto",
+  issue: "Problema",
+};
+
 export type UserRole = "customer" | "courier" | "partner" | "admin";
 
 /** Home di destinazione dopo il login, per ruolo. */
