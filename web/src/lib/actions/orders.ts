@@ -112,6 +112,17 @@ export async function assignOrder(formData: FormData) {
   revalidatePath(`/admin/ordini/${id}`);
 }
 
+/** Assegna solo il rider (preserva la lavanderia). Per azione rapida dal board. */
+export async function assignCourier(formData: FormData) {
+  const supabase = await createClient();
+  const id = String(formData.get("order_id") ?? "");
+  const courier_id = String(formData.get("courier_id") ?? "") || null;
+  const { error } = await supabase.from("orders").update({ courier_id }).eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin");
+  revalidatePath(`/admin/ordini/${id}`);
+}
+
 /** Lavanderia/admin: imposta o affina la data "pronto" (ETA). */
 export async function setEta(formData: FormData) {
   const supabase = await createClient();
