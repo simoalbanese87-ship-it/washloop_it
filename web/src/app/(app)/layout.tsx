@@ -5,9 +5,11 @@ import { roleHome } from "@/lib/orders";
 
 const customerNav: NavItem[] = [
   { href: "/app", label: "Dashboard" },
-  { href: "/app/prenota", label: "Prenota ritiro" },
+  { href: "/app/prenota", label: "Prenota" },
+  { href: "/app/ordini", label: "Ordini" },
   { href: "/app/indirizzi", label: "Indirizzi" },
   { href: "/app/abbonamento", label: "Abbonamento" },
+  { href: "/app/profilo", label: "Profilo" },
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {

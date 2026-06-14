@@ -72,6 +72,14 @@ export function CourierJobCard({ job }: { job: Job }) {
             📞 {job.phone}
           </a>
         )}
+        <a
+          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${job.address}, ${job.zone}, Milano`)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-bold text-blue hover:underline"
+        >
+          🧭 Naviga
+        </a>
       </div>
 
       {actions.length > 0 && (

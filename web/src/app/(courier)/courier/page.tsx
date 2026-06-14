@@ -46,8 +46,12 @@ export default async function CourierToday() {
     .returns<Row[]>();
 
   const rows = data ?? [];
-  const pickups = rows.filter((r) => r.status === "pickup_scheduled");
-  const deliveries = rows.filter((r) => r.status === "delivery_scheduled" || r.status === "out_for_delivery");
+  const pickups = rows
+    .filter((r) => r.status === "pickup_scheduled")
+    .sort((a, b) => (a.pickup_slot?.starts_at ?? "").localeCompare(b.pickup_slot?.starts_at ?? ""));
+  const deliveries = rows
+    .filter((r) => r.status === "delivery_scheduled" || r.status === "out_for_delivery")
+    .sort((a, b) => (a.delivery_slot?.starts_at ?? "").localeCompare(b.delivery_slot?.starts_at ?? ""));
 
   return (
     <>
