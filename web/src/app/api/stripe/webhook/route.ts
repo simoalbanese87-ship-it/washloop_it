@@ -23,7 +23,10 @@ export async function POST(request: NextRequest) {
   async function upsertFromSubscription(sub: Stripe.Subscription) {
     const userId = sub.metadata?.supabase_user_id;
     const planId = sub.metadata?.plan_id ?? null;
-    const periodEnd = (sub as unknown as { current_period_end?: number }).current_period_end;
+    // Stripe: current_period_end è top-level nelle vecchie API, sugli items nelle nuove.
+    const periodEnd =
+      (sub as unknown as { current_period_end?: number }).current_period_end ??
+      (sub.items?.data?.[0] as unknown as { current_period_end?: number } | undefined)?.current_period_end;
     await db.from("subscriptions").upsert(
       {
         user_id: userId,
