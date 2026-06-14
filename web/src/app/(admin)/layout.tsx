@@ -4,6 +4,7 @@ import { getCurrentProfile } from "@/lib/auth";
 
 const adminNav: NavItem[] = [
   { href: "/admin", label: "Ordini" },
+  { href: "/admin/archivio", label: "Archivio" },
   { href: "/admin/abbonati", label: "Abbonati" },
   { href: "/admin/catalogo", label: "Catalogo" },
 ];

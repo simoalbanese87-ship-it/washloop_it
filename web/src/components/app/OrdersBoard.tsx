@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { assignCourier, advanceStatus } from "@/lib/actions/orders";
+import { assignCourier, advanceStatus, bulkAssignCourier } from "@/lib/actions/orders";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, statusIndex, type OrderStatus } from "@/lib/orders";
 import { fmtDateTime } from "@/lib/format";
@@ -55,20 +55,20 @@ function Kpi({ label, value, tone }: { label: string; value: number; tone?: stri
 
 export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: BoardOrder[]; couriers: Opt[]; laundries: Opt[]; zones: Opt[] }) {
   const router = useRouter();
-  const [now, setNow] = useState(() => 0);
+  const [now, setNow] = useState(0);
   const [q, setQ] = useState("");
   const [zone, setZone] = useState("");
   const [laundry, setLaundry] = useState("");
   const [onlyUnassigned, setOnlyUnassigned] = useState(false);
+  const [onlyLate, setOnlyLate] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // now è impostato solo lato client per evitare mismatch di idratazione
   useEffect(() => {
     setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(t);
   }, []);
 
-  // Realtime: ad ogni cambio ordini, ricarica i dati server
   useEffect(() => {
     const supabase = createClient();
     const ch = supabase
@@ -80,32 +80,59 @@ export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: Bo
     };
   }, [router]);
 
+  const lateOf = (o: BoardOrder) => now > 0 && isLate(o, now);
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return orders.filter((o) => {
       if (zone && o.zone_name !== zone) return false;
       if (laundry && o.laundry_id !== laundry) return false;
       if (onlyUnassigned && o.courier_id) return false;
+      if (onlyLate && !lateOf(o)) return false;
       if (needle) {
         const hay = `${o.customer_name ?? ""} ${o.id} ${o.customer_phone ?? ""}`.toLowerCase();
         if (!hay.includes(needle)) return false;
       }
       return true;
     });
-  }, [orders, q, zone, laundry, onlyUnassigned]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, q, zone, laundry, onlyUnassigned, onlyLate, now]);
 
   const kpis = useMemo(() => {
     const active = orders.filter((o) => o.status !== "completed" && o.status !== "delivered");
     const toAssign = active.filter((o) => !o.courier_id && NEEDS_RIDER.includes(o.status)).length;
     const late = now > 0 ? orders.filter((o) => isLate(o, now)).length : 0;
-    const doneToday = orders.filter((o) => (o.status === "delivered" || o.status === "completed")).length;
-    return { active: active.length, toAssign, late, done: doneToday };
+    const done = orders.filter((o) => o.status === "delivered" || o.status === "completed").length;
+    return { active: active.length, toAssign, late, done };
   }, [orders, now]);
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
 
   const inputCls = "h-10 rounded-[12px] border border-line bg-white px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
   return (
-    <div>
+    <div className="pb-20">
+      {/* Alert ritardi */}
+      {kpis.late > 0 && (
+        <button
+          onClick={() => setOnlyLate((v) => !v)}
+          className="mb-4 flex w-full items-center gap-2 rounded-[14px] border border-[#C0392B]/30 bg-[#C0392B]/8 px-4 py-3 text-left"
+        >
+          <span className="text-lg">⚠️</span>
+          <span className="font-display text-sm font-extrabold text-[#C0392B]">
+            {kpis.late} {kpis.late === 1 ? "ordine è" : "ordini sono"} in ritardo sull&apos;ETA
+          </span>
+          <span className="ml-auto font-display text-xs font-bold text-[#C0392B] underline">{onlyLate ? "Mostra tutti" : "Mostra solo questi"}</span>
+        </button>
+      )}
+
       {/* KPI */}
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Ordini attivi" value={kpis.active} />
@@ -133,12 +160,18 @@ export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: Bo
           <input type="checkbox" checked={onlyUnassigned} onChange={(e) => setOnlyUnassigned(e.target.checked)} className="accent-[#2b7fd4]" />
           Solo da assegnare
         </label>
+        <label className="flex h-10 cursor-pointer items-center gap-2 rounded-[12px] border border-line bg-white px-3 text-sm font-semibold text-navy">
+          <input type="checkbox" checked={onlyLate} onChange={(e) => setOnlyLate(e.target.checked)} className="accent-[#C0392B]" />
+          Solo in ritardo
+        </label>
       </div>
 
       {/* Board */}
       <div className="grid gap-4 lg:grid-cols-4">
         {COLUMNS.map((col) => {
-          const items = filtered.filter((o) => col.statuses.includes(o.status));
+          const items = filtered
+            .filter((o) => col.statuses.includes(o.status))
+            .sort((a, b) => Number(lateOf(b)) - Number(lateOf(a)));
           return (
             <div key={col.key} className="rounded-[20px] bg-white/60 p-3">
               <div className="mb-3 flex items-center justify-between px-1">
@@ -147,7 +180,7 @@ export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: Bo
               </div>
               <div className="space-y-2.5">
                 {items.map((o) => (
-                  <BoardCard key={o.id} o={o} couriers={couriers} late={now > 0 && isLate(o, now)} />
+                  <BoardCard key={o.id} o={o} couriers={couriers} late={lateOf(o)} selected={selected.has(o.id)} onToggle={() => toggle(o.id)} />
                 ))}
                 {items.length === 0 && <div className="px-1 py-4 text-xs font-medium text-muted">Vuoto</div>}
               </div>
@@ -155,21 +188,46 @@ export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: Bo
           );
         })}
       </div>
+
+      {/* Barra assegnazione massiva */}
+      {selected.size > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-white/95 backdrop-blur">
+          <form action={bulkAssignCourier} className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-5 py-3">
+            <input type="hidden" name="order_ids" value={[...selected].join(",")} />
+            <span className="font-display text-sm font-extrabold text-navy">{selected.size} selezionati</span>
+            <select name="courier_id" required className={`${inputCls} ml-auto`} defaultValue="">
+              <option value="" disabled>Assegna rider…</option>
+              {couriers.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <button type="submit" className="h-10 rounded-[12px] bg-grad px-5 font-display text-sm font-extrabold text-white">
+              Assegna a {selected.size}
+            </button>
+            <button type="button" onClick={() => setSelected(new Set())} className="font-display text-sm font-bold text-muted hover:text-navy">
+              Deseleziona
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
 
-function BoardCard({ o, couriers, late }: { o: BoardOrder; couriers: Opt[]; late: boolean }) {
+function BoardCard({ o, couriers, late, selected, onToggle }: { o: BoardOrder; couriers: Opt[]; late: boolean; selected: boolean; onToggle: () => void }) {
   const needsRider = NEEDS_RIDER.includes(o.status) && !o.courier_id;
   const next = nextStatus(o.status);
   const slotAt = o.status === "ready" || o.status === "delivery_scheduled" || o.status === "out_for_delivery" ? o.delivery_at : o.pickup_at;
 
   return (
-    <div className={`rounded-[16px] border bg-white p-3.5 shadow-[var(--shadow-sm)] ${late ? "border-[#C0392B]/40" : "border-line"}`}>
+    <div className={`rounded-[16px] border bg-white p-3.5 shadow-[var(--shadow-sm)] ${selected ? "border-blue ring-2 ring-blue/20" : late ? "border-[#C0392B]/40" : "border-line"}`}>
       <div className="flex items-start justify-between gap-2">
-        <Link href={`/admin/ordini/${o.id}`} className="font-display text-sm font-extrabold text-navy hover:underline">
-          {o.customer_name ?? "Cliente"}
-        </Link>
+        <div className="flex items-center gap-2">
+          <input type="checkbox" checked={selected} onChange={onToggle} className="accent-[#2b7fd4]" />
+          <Link href={`/admin/ordini/${o.id}`} className="font-display text-sm font-extrabold text-navy hover:underline">
+            {o.customer_name ?? "Cliente"}
+          </Link>
+        </div>
         <span className="font-mono text-[10px] font-bold text-muted">#{o.id.slice(0, 6)}</span>
       </div>
 
@@ -187,7 +245,6 @@ function BoardCard({ o, couriers, late }: { o: BoardOrder; couriers: Opt[]; late
         {o.customer_phone && <a href={`tel:${o.customer_phone}`} className="font-bold text-blue hover:underline">📞 {o.customer_phone}</a>}
       </div>
 
-      {/* Azioni rapide */}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {couriers.length > 0 && (
           <form action={assignCourier}>

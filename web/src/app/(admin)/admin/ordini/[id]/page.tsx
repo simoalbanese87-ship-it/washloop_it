@@ -69,6 +69,9 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               <div>{order.bags} {order.bags === 1 ? "busta" : "buste"} · {fmtFull(order.created_at)}</div>
               {order.notes && <div>Note: {order.notes}</div>}
             </div>
+            <a href={`/admin/ordini/${order.id}/etichetta`} className="mt-3 inline-block font-display text-sm font-bold text-blue hover:underline">
+              🖨 Etichetta pacco
+            </a>
           </Card>
 
           <Card>

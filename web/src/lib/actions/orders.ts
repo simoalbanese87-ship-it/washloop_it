@@ -123,6 +123,18 @@ export async function assignCourier(formData: FormData) {
   revalidatePath(`/admin/ordini/${id}`);
 }
 
+/** Assegna lo stesso rider a più ordini (assegnazione massiva). */
+export async function bulkAssignCourier(formData: FormData) {
+  const supabase = await createClient();
+  const ids = String(formData.get("order_ids") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const courier_id = String(formData.get("courier_id") ?? "") || null;
+  if (ids.length === 0 || !courier_id) throw new Error("Seleziona ordini e rider");
+
+  const { error } = await supabase.from("orders").update({ courier_id }).in("id", ids);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin");
+}
+
 /** Lavanderia/admin: imposta o affina la data "pronto" (ETA). */
 export async function setEta(formData: FormData) {
   const supabase = await createClient();
