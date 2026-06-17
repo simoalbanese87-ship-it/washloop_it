@@ -57,6 +57,7 @@ const compare = [
 const plans = [
   {
     name: "Small",
+    code: "essential",
     price: "160",
     tagline: "Per chi vive da solo",
     features: ["1 sacco a settimana", "Ritiro 1 volta a settimana", "Fino a 3 camicie per sacchetto", "Lavaggio + stiratura inclusi", "Metti in pausa quando vuoi"],
@@ -64,6 +65,7 @@ const plans = [
   },
   {
     name: "Medium",
+    code: "plus",
     price: "280",
     tagline: "Il preferito dei professionisti",
     features: ["2 sacchi a settimana", "Ritiro 1 volta a settimana", "Cumuli i sacchi nel mese", "Lavaggio + stiratura premium", "Tracciabilità capo per capo"],
@@ -71,6 +73,7 @@ const plans = [
   },
   {
     name: "Large",
+    code: "family",
     price: "390",
     tagline: "Per coppie e famiglie",
     features: ["3 sacchi a settimana", "Ritiro 1 volta a settimana", "Cumuli i sacchi nel mese", "Capi delicati inclusi", "Slot prioritari"],
@@ -218,7 +221,7 @@ export default function Home() {
                   ))}
                 </ul>
                 <ButtonLink
-                  href="/login"
+                  href={`/login?mode=signup&plan=${p.code}`}
                   variant={p.popular ? "light" : "primary"}
                   className="mt-8 w-full"
                 >

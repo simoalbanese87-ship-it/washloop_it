@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/Button";
@@ -12,9 +12,15 @@ type Mode = "signin" | "signup";
 const input =
   "h-12 w-full rounded-[18px] border border-line bg-ice px-4 text-base font-medium text-navy outline-none focus:border-blue";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("signin");
+  const params = useSearchParams();
+  // Piano scelto sulla home (Attiva → iscrizione → pay) e destinazione post-auth.
+  const planCode = params.get("plan");
+  const nextParam = params.get("next");
+  const dest = planCode ? `/app/checkout?plan=${planCode}` : nextParam ?? "/app";
+
+  const [mode, setMode] = useState<Mode>(params.get("mode") === "signup" ? "signup" : "signin");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,16 +43,20 @@ export default function LoginPage() {
       });
       setLoading(false);
       if (error) return setError(error.message);
-      // Se la conferma email è disattivata, la sessione c'è subito
-      if (data.session) router.push("/app");
-      else setInfo("Account creato. Se richiesto, conferma l'email e poi accedi.");
+      // Se la conferma email è disattivata, la sessione c'è subito → vai al checkout/app.
+      if (data.session) {
+        router.push(dest);
+        router.refresh();
+      } else {
+        setInfo("Account creato. Se richiesto, conferma l'email e poi accedi.");
+      }
       return;
     }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) return setError(error.message);
-    router.push("/app");
+    router.push(dest);
     router.refresh();
   }
 
@@ -60,7 +70,11 @@ export default function LoginPage() {
           {mode === "signin" ? "Accedi a WashLoop" : "Crea il tuo account"}
         </div>
         <p className="mt-2 text-sm font-medium text-muted">
-          {mode === "signin" ? "Entra con email e password." : "Bastano email e password per iniziare."}
+          {mode === "signin"
+            ? "Entra con email e password."
+            : planCode
+              ? "Crea l'account: subito dopo attivi l'abbonamento."
+              : "Bastano email e password per iniziare."}
         </p>
 
         <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-3">
@@ -116,5 +130,13 @@ export default function LoginPage() {
         ← Torna al sito
       </Link>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }
