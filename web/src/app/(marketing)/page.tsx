@@ -56,34 +56,36 @@ const compare = [
 
 const plans = [
   {
-    name: "Essential",
-    price: "59",
+    name: "Small",
+    price: "160",
     tagline: "Per chi vive da solo",
-    features: ["1 ritiro a settimana", "Fino a 2 buste / settimana", "Lavaggio + stiratura", "Consegna in 48h"],
+    features: ["1 sacco a settimana", "Ritiro 1 volta a settimana", "Fino a 3 camicie per sacchetto", "Lavaggio + stiratura inclusi", "Metti in pausa quando vuoi"],
     popular: false,
   },
   {
-    name: "Plus",
-    price: "99",
+    name: "Medium",
+    price: "280",
     tagline: "Il preferito dei professionisti",
-    features: ["2 ritiri a settimana", "Buste illimitate ragionevoli", "Lavaggio + stiratura premium", "Consegna in 24h", "Tracciabilità capo per capo"],
+    features: ["2 sacchi a settimana", "Ritiro 1 volta a settimana", "Cumuli i sacchi nel mese", "Lavaggio + stiratura premium", "Tracciabilità capo per capo"],
     popular: true,
   },
   {
-    name: "Family",
-    price: "159",
+    name: "Large",
+    price: "390",
     tagline: "Per coppie e famiglie",
-    features: ["3 ritiri a settimana", "Volume famiglia", "Capi delicati inclusi", "Consegna in 24h", "Slot prioritari"],
+    features: ["3 sacchi a settimana", "Ritiro 1 volta a settimana", "Cumuli i sacchi nel mese", "Capi delicati inclusi", "Slot prioritari"],
     popular: false,
   },
 ];
 
 const faqs = [
-  { q: "In quanto tempo ricevo i capi?", a: "Da 24 a 48 ore a seconda del piano. Il tempo è garantito e lo vedi sempre aggiornato nell'app — niente attese a sorpresa." },
+  { q: "Quanti sacchi e ritiri sono inclusi?", a: "Dipende dal piano: Small 1 sacco a settimana, Medium 2, Large 3. Il ritiro è sempre una volta a settimana. Ogni sacchetto contiene fino a 3 camicie." },
+  { q: "Posso consegnare più sacchi insieme?", a: "Sì. Puoi cumulare i sacchi del tuo abbonamento nell'arco del mese: se una settimana non consegni, la successiva porti due sacchi insieme. Basta avvisare il driver il giorno prima." },
+  { q: "Mi serve un sacco extra. Quanto costa?", a: "Puoi aggiungere sacchi oltre quelli del piano a €45 l'uno. Li gestisci direttamente dall'app." },
+  { q: "E i capi da lavanderia o delicati?", a: "Mettili in un sacco separato apposito: li lavoriamo a prezzo di listino, fuori dal volume dell'abbonamento." },
+  { q: "Posso mettere in pausa l'abbonamento?", a: "Sì. Vai in vacanza? Metti in pausa per un mese intero dall'app, e lo riprendi quando vuoi. Paghi solo quando usi davvero il servizio." },
   { q: "Cosa succede se un capo si rovina?", a: "Abbiamo una policy danni trasparente: ogni capo è tracciato e fotografato. In caso di problema ti rimborsiamo secondo termini chiari, scritti nero su bianco." },
-  { q: "Posso mettere in pausa l'abbonamento?", a: "Sì. Vai in vacanza? Metti in pausa dall'app in un tap. Paghi solo quando usi davvero il servizio." },
   { q: "Quali zone coprite a Milano?", a: "Stiamo partendo dal centro e dai quartieri semicentrali di Milano. Inserisci il tuo indirizzo: ti diciamo subito se sei in zona o ti avvisiamo all'apertura." },
-  { q: "Come ritirate i capi?", a: "Prenoti una fascia oraria, il nostro corriere passa sotto casa tua. Tu consegni le buste, al resto pensiamo noi." },
 ];
 
 export default function Home() {
@@ -225,6 +227,9 @@ export default function Home() {
               </div>
             ))}
           </div>
+          <p className="mx-auto mt-8 max-w-2xl text-center text-sm font-medium text-muted">
+            Ogni sacchetto contiene fino a 3 camicie. Sacchi extra a €45 l&apos;uno. I capi da lavanderia (in un sacco separato) si lavorano a prezzo di listino. Metti in pausa e riprendi quando vuoi.
+          </p>
         </div>
       </section>
 
