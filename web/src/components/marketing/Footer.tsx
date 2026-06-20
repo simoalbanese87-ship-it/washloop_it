@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
+import { LEGAL } from "@/lib/legal";
 
 export function Footer() {
   return (
@@ -26,13 +27,14 @@ export function Footer() {
             <li><Link href="/login" className="hover:text-white">Area clienti</Link></li>
             <li><a href="mailto:ciao@washloop.it" className="hover:text-white">ciao@washloop.it</a></li>
             <li><Link href="/privacy" className="hover:text-white">Privacy</Link></li>
-            <li><Link href="/termini" className="hover:text-white">Termini</Link></li>
+            <li><Link href="/cookie" className="hover:text-white">Cookie Policy</Link></li>
+            <li><Link href="/termini" className="hover:text-white">Condizioni di vendita</Link></li>
           </ul>
         </div>
       </div>
       <div className="border-t border-white/10">
-        <div className="mx-auto max-w-6xl px-5 py-6 text-xs font-semibold uppercase tracking-[0.18em] text-white/35">
-          WashLoop © 2026 · Milano
+        <div className="mx-auto max-w-6xl px-5 py-6 text-xs font-medium text-white/35">
+          WashLoop © 2026 · {LEGAL.company} · P.IVA {LEGAL.vat} · {LEGAL.address}
         </div>
       </div>
     </footer>
