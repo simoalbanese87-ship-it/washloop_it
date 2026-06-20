@@ -5,13 +5,14 @@
  *  Stripe, Brevo): farle comunque validare da un legale/DPO prima del lancio. */
 export const LEGAL = {
   brand: "WashLoop",
-  company: "[RAGIONE SOCIALE — es. WashLoop S.r.l.]",
+  company: "Digital Consulting S.r.l.",
   vat: "[PARTITA IVA]",
   fiscalCode: "[CODICE FISCALE]",
   rea: "[REA / Camera di Commercio]",
   address: "[SEDE LEGALE — via e civico, CAP, città]",
   city: "[Città]",
-  email: "ciao@washloop.it",
+  email: "amministrazione@washloop.it",
+  phone: "+39 392 514 8696",
   pec: "[PEC]",
   privacyEmail: "privacy@washloop.it",
   // Data ultimo aggiornamento dei documenti legali.
