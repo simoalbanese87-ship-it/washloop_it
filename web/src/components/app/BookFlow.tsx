@@ -12,7 +12,7 @@ export type Slot = { id: string; starts_at: string; ends_at: string; laundry_id:
 export type SpecialItem = { name: string; price_cli_cents: number };
 export type SpecialCategory = { id: string; name: string; emoji: string; items: SpecialItem[] };
 
-const eur = (cents: number) => "€" + (cents / 100).toLocaleString("it-IT", { minimumFractionDigits: 0 });
+const eur = (cents: number) => "€" + (cents / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const TOTAL = 3;
 const TITLES = ["Quando ritiriamo?", "Hai capi speciali?", "Conferma"];
