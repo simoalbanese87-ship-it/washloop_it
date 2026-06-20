@@ -65,7 +65,7 @@ export function roleHome(role: UserRole): string {
     case "courier":
       return "/courier";
     case "partner":
-      return "/admin"; // partner usa la dashboard ops filtrata
+      return "/laundry"; // portale lavanderia dedicato (dati anonimizzati)
     default:
       return "/app";
   }
