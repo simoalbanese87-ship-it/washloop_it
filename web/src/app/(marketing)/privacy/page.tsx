@@ -18,7 +18,7 @@ export default function PrivacyPage() {
         <p>
           Titolare del trattamento è <strong>{LEGAL.company}</strong>, con sede legale in {LEGAL.address}, P.IVA {LEGAL.vat}.
           Per ogni questione relativa ai dati personali puoi scrivere a{" "}
-          <a href={`mailto:${LEGAL.privacyEmail}`} className="text-blue hover:underline">{LEGAL.privacyEmail}</a> (PEC: {LEGAL.pec}).
+          <a href={`mailto:${LEGAL.privacyEmail}`} className="text-blue hover:underline">{LEGAL.privacyEmail}</a>{LEGAL.pec ? ` (PEC: ${LEGAL.pec})` : ""}.
         </p>
       </LegalSection>
 

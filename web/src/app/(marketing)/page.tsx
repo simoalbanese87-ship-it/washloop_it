@@ -245,15 +245,8 @@ export default function Home() {
               Partiamo da Milano.
             </h2>
             <p className="mt-4 max-w-md text-base font-medium text-white/65">
-              Centro e quartieri semicentrali. Inserisci il tuo indirizzo quando attivi: ti diciamo subito se sei in zona, o ti avvisiamo appena apriamo da te.
+              Partiamo dal centro di Milano. Inserisci il tuo indirizzo quando attivi: ti diciamo subito se sei in zona, o ti avvisiamo appena apriamo da te.
             </p>
-            <ul className="mt-6 flex flex-wrap gap-2.5">
-              {["Centro", "Brera", "Porta Romana", "Navigli", "Isola", "Città Studi", "Porta Venezia", "Sempione"].map((z) => (
-                <li key={z} className="rounded-full border border-white/15 bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/80">
-                  {z}
-                </li>
-              ))}
-            </ul>
           </div>
           <div className="rounded-[24px] border border-white/10 bg-white/5 p-10 text-center">
             <Logo variant="white" size={44} />
