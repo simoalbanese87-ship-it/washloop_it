@@ -77,11 +77,12 @@ Aggiunto di recente:
 - **Email transazionali** via SMTP (Brevo) — `lib/email.ts` + `lib/notify.ts`. Richiede env SMTP su Vercel.
 - **Stripe LIVE**: prodotti/prezzi live creati (migration 0011), webhook live `we_1TkNt5...` su `https://washloop.it/api/stripe/webhook`, addebito off-session capi speciali (`lib/actions/charge.ts` + bottone admin order detail).
 - **Pannello sicurezza admin** `/admin/sicurezza` (migration 0010, function `security_audit()`). Admin layout ristretto ai soli admin.
-- **Webapp cliente — rework mobile (in corso)**: allineamento ai mockup `Washloop(4).zip` (estrai in `design-reference/`, gitignorato). Fase 1 fatta (`MobileShell.tsx` bottom-tab + Home). Mancano fasi: prenota, ordini+dettaglio, profilo (fatture/invita-amico), onboarding scuro. AI assistant rimandato. Piani `bags_per_week` 1/2/3 (migration 0012).
+- **Webapp cliente — rework mobile (in corso)**: allineamento ai mockup `Washloop(4).zip` (estrai in `design-reference/`, gitignorato). Fase 1 (`MobileShell.tsx` bottom-tab + Home) e **Fase 2** fatte: restyle mobile di **ordini list** (seg Attivi/Storico), **dettaglio ordine** (back bar + hero stato/ETA + timeline realtime), **profilo**, **prenota/abbonamento/indirizzi** (layout mobile). Dati reali, backend invariato. Mancano: **onboarding scuro**, **flusso prenota mockup** (daystrip+slot+capi speciali — serve decisione modello: ordine singolo vs ricorrente), profilo sub-pagine (fatture/invita-amico → serve backend). AI assistant rimandato. Piani `bags_per_week` 1/2/3 (migration 0012).
+- **Lavanderia reale**: `Centro Pulitura Bergamo di Narisi Giuseppe & C. Snc` — uso **solo interno** (ops/portale `/laundry`/corriere), **mai mostrata ai clienti**: il nome è stato rimosso da tutte le schermate cliente (prenota non fa più scegliere la lavanderia, routing automatico alla prima attiva della zona). Inserita via **migration 0013** (idempotente). Da fare: **creare l'account partner** (ruolo `partner`, `profiles.laundry_id` → lavanderia) che vede gli ordini; pre-lancio disattivare le lavanderie di prova (snippet commentato in 0013).
 
-**Migrazioni** (Supabase SQL Editor o Management API): applicate fino a **0012**. Se reinstalli il DB, applica 0001→0012 in ordine.
+**Migrazioni** (Supabase SQL Editor o Management API): applicate fino a **0012**; **0013 da applicare** (lavanderia reale). Se reinstalli il DB, applica 0001→0013 in ordine.
 
-**Da fare per il lancio**: ruotare `sk_live` (esposta in chat) e aggiornare env Vercel; impostare env SMTP su Vercel; aggiungere PEC in `legal.ts`; confermare dati lavanderia reale; pulizia dati di prova; 2FA TOTP; continuare fasi webapp.
+**Da fare per il lancio**: applicare migration 0013; creare account lavanderia partner; ruotare `sk_live` (esposta in chat) e aggiornare env Vercel; impostare env SMTP su Vercel (Brevo); aggiungere PEC in `legal.ts`; pulizia dati di prova; 2FA TOTP; continuare fasi webapp (onboarding scuro, flusso prenota).
 
 ## Comandi utili
 ```bash
