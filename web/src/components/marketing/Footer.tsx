@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { LEGAL } from "@/lib/legal";
+import { CookiePrefsLink } from "./CookiePrefsLink";
 
 export function Footer() {
   return (
@@ -28,6 +29,7 @@ export function Footer() {
             <li><a href="mailto:ciao@washloop.it" className="hover:text-white">ciao@washloop.it</a></li>
             <li><Link href="/privacy" className="hover:text-white">Privacy</Link></li>
             <li><Link href="/cookie" className="hover:text-white">Cookie Policy</Link></li>
+            <li><CookiePrefsLink className="hover:text-white" /></li>
             <li><Link href="/termini" className="hover:text-white">Condizioni di vendita</Link></li>
           </ul>
         </div>
