@@ -1,21 +1,25 @@
 import { redirect } from "next/navigation";
 import { AppShell, type NavItem } from "@/components/app/AppShell";
 import { getCurrentProfile } from "@/lib/auth";
+import { roleHome } from "@/lib/orders";
 
 const adminNav: NavItem[] = [
   { href: "/admin", label: "Ordini" },
   { href: "/admin/archivio", label: "Archivio" },
   { href: "/admin/abbonati", label: "Abbonati" },
   { href: "/admin/catalogo", label: "Catalogo" },
+  { href: "/admin/sicurezza", label: "Sicurezza" },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login?next=/admin");
-  if (profile.role !== "admin" && profile.role !== "partner") redirect("/app");
+  // Solo admin: il partner (lavanderia) ha il portale dedicato /laundry e l'area
+  // ops espone dati cliente completi → niente accesso partner qui.
+  if (profile.role !== "admin") redirect(roleHome(profile.role));
 
   return (
-    <AppShell nav={adminNav} userName={profile.full_name ?? "Ops"} badge={profile.role === "partner" ? "Partner" : "Ops"}>
+    <AppShell nav={adminNav} userName={profile.full_name ?? "Ops"} badge="Ops">
       {children}
     </AppShell>
   );
