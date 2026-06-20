@@ -1,106 +1,133 @@
 import Link from "next/link";
-import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatusBadge } from "@/components/app/StatusBadge";
-import { ButtonLink } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentProfile } from "@/lib/auth";
-import type { OrderStatus } from "@/lib/orders";
-import { fmtDate } from "@/lib/format";
+import { ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
+import { fmtDate, fmtFull } from "@/lib/format";
 
-type OrderRow = { id: string; status: OrderStatus; created_at: string; bags: number };
-type SubRow = { status: string; current_period_end: string | null; plans: { name: string } | null };
+type OrderRow = { id: string; status: OrderStatus; created_at: string; bags: number; eta_ready_at: string | null };
+type SubRow = { status: string; current_period_end: string | null; plans: { name: string; bags_per_week: number } | null };
 
-export default async function Dashboard() {
-  const profile = await getCurrentProfile();
+const ACTIVE_ORDER: OrderStatus[] = ["pickup_scheduled", "picked_up", "at_laundry", "washing", "ready", "delivery_scheduled", "out_for_delivery"];
+
+export default async function Home() {
   const supabase = await createClient();
-
   const [{ data: sub }, { data: orders }] = await Promise.all([
     supabase
       .from("subscriptions")
-      .select("status, current_period_end, plans(name)")
+      .select("status, current_period_end, plans(name, bags_per_week)")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle<SubRow>(),
     supabase
       .from("orders")
-      .select("id, status, created_at, bags")
+      .select("id, status, created_at, bags, eta_ready_at")
       .order("created_at", { ascending: false })
-      .limit(5)
+      .limit(6)
       .returns<OrderRow[]>(),
   ]);
 
   const active = sub?.status === "active" || sub?.status === "trialing";
+  const ongoing = (orders ?? []).find((o) => ACTIVE_ORDER.includes(o.status));
 
   return (
-    <>
-      <PageTitle kicker={`Ciao ${profile?.full_name ?? ""}`.trim()} title="La tua dashboard" sub="Tutto il tuo bucato, sotto controllo." />
-
-      <div className="grid gap-5 md:grid-cols-3">
-        {/* Abbonamento */}
-        <Card className="md:col-span-1">
-          <div className="font-display text-xs font-extrabold uppercase tracking-[0.16em] text-blue">Abbonamento</div>
-          {active ? (
-            <>
-              <div className="mt-2 font-display text-2xl font-black text-navy">{sub?.plans?.name ?? "Attivo"}</div>
-              <p className="mt-1 text-sm font-medium text-muted">
-                {sub?.current_period_end
-                  ? `Rinnovo il ${fmtDate(sub.current_period_end)}`
-                  : "Abbonamento attivo"}
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="mt-2 font-display text-xl font-black text-navy">Non ancora attivo</div>
-              <p className="mt-1 text-sm font-medium text-muted">Attiva un piano per iniziare a prenotare i ritiri.</p>
-              <ButtonLink href="/app/abbonamento" size="md" className="mt-4 w-full">
-                Scegli il piano →
-              </ButtonLink>
-            </>
-          )}
-        </Card>
-
-        {/* Azione rapida */}
-        <Card className="flex flex-col justify-between bg-navy text-white md:col-span-2">
-          <div>
-            <div className="font-display text-xs font-extrabold uppercase tracking-[0.16em] text-cyan">Prossimo passo</div>
-            <div className="mt-2 font-display text-2xl font-black">Prenota un ritiro</div>
-            <p className="mt-1 text-sm font-medium text-white/65">
-              Scegli giorno e fascia: passiamo noi sotto casa. {active ? "" : "Serve un abbonamento attivo."}
+    <div className="space-y-6">
+      {/* Status card */}
+      <section className="relative overflow-hidden rounded-[26px] bg-gradient-to-br from-[#26417a] to-[#16264f] p-6 text-white shadow-[0_18px_44px_-24px_rgba(27,45,94,0.7)]">
+        <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-cyan/20 blur-2xl" />
+        {ongoing ? (
+          <>
+            <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Il tuo bucato</div>
+            <div className="mt-2 font-display text-[26px] font-black leading-tight">{ORDER_STATUS_LABEL[ongoing.status]}</div>
+            <p className="mt-1.5 text-sm font-medium text-white/70">
+              {ongoing.eta_ready_at ? `Pronto entro ${fmtFull(ongoing.eta_ready_at)}` : `${ongoing.bags} ${ongoing.bags === 1 ? "sacco" : "sacchi"} in lavorazione`}
             </p>
+            <Link href={`/app/ordini/${ongoing.id}`} className="mt-4 inline-flex rounded-full bg-white/15 px-4 py-2 font-display text-sm font-extrabold text-white backdrop-blur transition-colors hover:bg-white/25">
+              Segui l&apos;ordine →
+            </Link>
+          </>
+        ) : active ? (
+          <>
+            <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Tutto pronto</div>
+            <div className="mt-2 font-display text-[26px] font-black leading-tight">Prenota il prossimo ritiro</div>
+            <p className="mt-1.5 text-sm font-medium text-white/70">Scegli giorno e fascia: passiamo noi sotto casa.</p>
+            <Link href="/app/prenota" className="mt-4 inline-flex rounded-full bg-gradient-to-br from-blue to-cyan px-5 py-2.5 font-display text-sm font-extrabold text-white shadow-[0_10px_24px_-10px_rgba(0,200,240,0.7)]">
+              Prenota ritiro →
+            </Link>
+          </>
+        ) : (
+          <>
+            <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Inizia qui</div>
+            <div className="mt-2 font-display text-[26px] font-black leading-tight">Attiva un abbonamento</div>
+            <p className="mt-1.5 text-sm font-medium text-white/70">Scegli il piano e inizia a prenotare i ritiri.</p>
+            <Link href="/app/abbonamento" className="mt-4 inline-flex rounded-full bg-gradient-to-br from-blue to-cyan px-5 py-2.5 font-display text-sm font-extrabold text-white shadow-[0_10px_24px_-10px_rgba(0,200,240,0.7)]">
+              Scegli il piano →
+            </Link>
+          </>
+        )}
+      </section>
+
+      {/* Azioni rapide */}
+      <section className="grid grid-cols-2 gap-3">
+        <QuickAction href="/app/prenota" title="Prenota" sub="Nuovo ritiro" />
+        <QuickAction href="/app/ordini" title="Ordini" sub="Storico e tracking" />
+        <QuickAction href="/app/indirizzi" title="Indirizzi" sub="Dove ritiriamo" />
+        <QuickAction href="/app/abbonamento" title="Abbonamento" sub={active ? "Gestisci piano" : "Attiva"} />
+      </section>
+
+      {/* Uso del mese */}
+      {active && sub?.plans && (
+        <section className="rounded-[22px] border border-line bg-white p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-blue">Il tuo piano</div>
+              <div className="mt-1 font-display text-xl font-black text-navy">{sub.plans.name}</div>
+            </div>
+            <div className="text-right">
+              <div className="font-display text-2xl font-black text-navy">{sub.plans.bags_per_week}</div>
+              <div className="text-[11px] font-bold text-muted">{sub.plans.bags_per_week === 1 ? "sacco/sett" : "sacchi/sett"}</div>
+            </div>
           </div>
-          <ButtonLink href={active ? "/app/prenota" : "/app/abbonamento"} variant="light" className="mt-5 w-fit">
-            {active ? "Prenota ritiro →" : "Attiva abbonamento →"}
-          </ButtonLink>
-        </Card>
-      </div>
+          {sub.current_period_end && (
+            <p className="mt-3 border-t border-line pt-3 text-xs font-semibold text-muted">Rinnovo il {fmtDate(sub.current_period_end)}</p>
+          )}
+        </section>
+      )}
 
       {/* Ordini recenti */}
-      <div className="mt-8">
-        <h2 className="mb-4 font-display text-lg font-extrabold text-navy">Ordini recenti</h2>
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-display text-lg font-extrabold text-navy">Ordini recenti</h2>
+          {orders && orders.length > 0 && (
+            <Link href="/app/ordini" className="font-display text-sm font-bold text-blue">Tutti</Link>
+          )}
+        </div>
         {orders && orders.length > 0 ? (
-          <div className="overflow-hidden rounded-[24px] border border-line bg-white">
+          <div className="space-y-2.5">
             {orders.map((o) => (
-              <Link
-                key={o.id}
-                href={`/app/ordini/${o.id}`}
-                className="flex items-center justify-between border-b border-line px-6 py-4 transition-colors last:border-0 hover:bg-ice"
-              >
+              <Link key={o.id} href={`/app/ordini/${o.id}`} className="flex items-center justify-between rounded-[18px] border border-line bg-white px-4 py-3.5 transition-colors active:bg-ice">
                 <div>
                   <div className="font-display text-sm font-bold text-navy">Ordine #{o.id.slice(0, 8)}</div>
-                  <div className="text-xs font-medium text-muted">
-                    {fmtDate(o.created_at)} · {o.bags} {o.bags === 1 ? "busta" : "buste"}
-                  </div>
+                  <div className="text-xs font-medium text-muted">{fmtDate(o.created_at)} · {o.bags} {o.bags === 1 ? "sacco" : "sacchi"}</div>
                 </div>
                 <StatusBadge status={o.status} />
               </Link>
             ))}
           </div>
         ) : (
-          <Card>
-            <p className="text-sm font-medium text-muted">Nessun ordine ancora. Quando prenoti un ritiro lo trovi qui.</p>
-          </Card>
+          <div className="rounded-[18px] border border-line bg-white px-4 py-6 text-center text-sm font-medium text-muted">
+            Nessun ordine ancora. Prenota il tuo primo ritiro col tasto ➕.
+          </div>
         )}
-      </div>
-    </>
+      </section>
+    </div>
+  );
+}
+
+function QuickAction({ href, title, sub }: { href: string; title: string; sub: string }) {
+  return (
+    <Link href={href} className="rounded-[18px] border border-line bg-white p-4 transition-colors active:bg-ice">
+      <div className="font-display text-base font-extrabold text-navy">{title}</div>
+      <div className="mt-0.5 text-xs font-medium text-muted">{sub}</div>
+    </Link>
   );
 }

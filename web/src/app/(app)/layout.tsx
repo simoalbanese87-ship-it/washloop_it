@@ -1,16 +1,7 @@
 import { redirect } from "next/navigation";
-import { AppShell, type NavItem } from "@/components/app/AppShell";
+import { MobileShell } from "@/components/app/MobileShell";
 import { getCurrentProfile } from "@/lib/auth";
 import { roleHome } from "@/lib/orders";
-
-const customerNav: NavItem[] = [
-  { href: "/app", label: "Dashboard" },
-  { href: "/app/prenota", label: "Prenota" },
-  { href: "/app/ordini", label: "Ordini" },
-  { href: "/app/indirizzi", label: "Indirizzi" },
-  { href: "/app/abbonamento", label: "Abbonamento" },
-  { href: "/app/profilo", label: "Profilo" },
-];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const profile = await getCurrentProfile();
@@ -18,9 +9,5 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Staff/admin hanno una loro area
   if (profile.role !== "customer") redirect(roleHome(profile.role));
 
-  return (
-    <AppShell nav={customerNav} userName={profile.full_name ?? "Il mio account"}>
-      {children}
-    </AppShell>
-  );
+  return <MobileShell userName={profile.full_name ?? "Il mio account"}>{children}</MobileShell>;
 }
