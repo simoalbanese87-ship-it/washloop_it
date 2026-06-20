@@ -21,14 +21,13 @@ export function PrenotaForm({ addresses, laundries, slots }: { addresses: Addres
     [laundries, address?.zone_id],
   );
 
-  const [laundryId, setLaundryId] = useState(zoneLaundries[0]?.id ?? "");
-  // Se cambia la zona e la lavanderia scelta non è più valida, ripiega sulla prima
-  const effectiveLaundryId = zoneLaundries.some((l) => l.id === laundryId) ? laundryId : zoneLaundries[0]?.id ?? "";
+  // Routing interno: la lavanderia non è scelta né mostrata al cliente.
+  // Usiamo la prima lavanderia attiva nella zona dell'indirizzo.
+  const effectiveLaundryId = zoneLaundries[0]?.id ?? "";
 
   const laundrySlots = slots.filter((s) => s.laundry_id === effectiveLaundryId);
 
   const noLaundry = zoneLaundries.length === 0;
-  const single = zoneLaundries.length === 1;
 
   return (
     <form action={createPickup} className="space-y-5">
@@ -48,27 +47,10 @@ export function PrenotaForm({ addresses, laundries, slots }: { addresses: Addres
 
       {noLaundry ? (
         <p className="rounded-[14px] bg-ice p-3 text-sm font-medium text-muted">
-          Zona non ancora coperta da una lavanderia. Stiamo arrivando — riprova presto.
+          Zona non ancora coperta. Stiamo arrivando — riprova presto.
         </p>
       ) : (
         <>
-          <div>
-            <label className="font-display text-sm font-extrabold text-navy">Lavanderia</label>
-            {single ? (
-              <div className="mt-2 rounded-[14px] border border-line bg-ice px-4 py-3 text-sm font-semibold text-navy">
-                {zoneLaundries[0].name}
-              </div>
-            ) : (
-              <select value={effectiveLaundryId} onChange={(e) => setLaundryId(e.target.value)} className={`${input} mt-2`}>
-                {zoneLaundries.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
           <div>
             <label className="font-display text-sm font-extrabold text-navy">Fascia di ritiro</label>
             {laundrySlots.length === 0 ? (

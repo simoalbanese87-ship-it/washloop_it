@@ -1,4 +1,3 @@
-import { PageTitle } from "@/components/app/AppShell";
 import { CustomerOrders, type CustOrder } from "@/components/app/CustomerOrders";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderStatus } from "@/lib/orders";
@@ -30,9 +29,9 @@ export default async function OrdiniPage() {
   }));
 
   return (
-    <>
-      <PageTitle kicker="Ordini" title="I tuoi ordini" sub="Storico completo dei ritiri." />
+    <div className="space-y-4">
+      <h1 className="font-display text-[23px] font-black tracking-[-0.03em] text-navy">I tuoi ordini</h1>
       <CustomerOrders rows={list} />
-    </>
+    </div>
   );
 }

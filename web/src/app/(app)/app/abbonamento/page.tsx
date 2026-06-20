@@ -1,5 +1,3 @@
-import { Card, PageTitle } from "@/components/app/AppShell";
-import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
 import { startCheckout, openPortal } from "@/lib/actions/billing";
 import { fmtDate } from "@/lib/format";
@@ -30,84 +28,80 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
   const active = sub?.status === "active" || sub?.status === "trialing";
 
   return (
-    <>
-      <PageTitle kicker="Abbonamento" title="Il tuo piano" sub="Cambia, metti in pausa o disdici quando vuoi." />
+    <div className="space-y-4">
+      <div>
+        <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.2em] text-blue">Abbonamento</div>
+        <h1 className="mt-1.5 font-display text-[26px] font-black tracking-[-0.02em] text-navy">Il tuo piano</h1>
+        <p className="mt-1.5 text-sm font-medium text-muted">Cambia, metti in pausa o disdici quando vuoi.</p>
+      </div>
 
       {need && !active && (
-        <Card className="mb-6 border-blue/30 bg-blue/5">
-          <p className="text-sm font-semibold text-navy">
-            Per prenotare un ritiro serve un abbonamento attivo. Scegli un piano qui sotto.
-          </p>
-        </Card>
+        <div className="rounded-[18px] border border-blue/30 bg-blue/5 p-4 text-sm font-semibold text-navy">
+          Per prenotare un ritiro serve un abbonamento attivo. Scegli un piano qui sotto.
+        </div>
       )}
 
+      {/* Piano attivo */}
       {active && (
-        <Card className="mb-6 bg-navy text-white">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <div className="font-display text-xs font-extrabold uppercase tracking-[0.16em] text-cyan">Piano attivo</div>
-              <div className="mt-1 font-display text-2xl font-black">{sub?.plans?.name ?? "Attivo"}</div>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-medium text-white/65">
-                <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-display text-xs font-bold text-cyan">{STATUS_LABEL[sub?.status ?? ""] ?? sub?.status}</span>
-                {sub?.current_period_end && <span>Rinnovo il {fmtDate(sub.current_period_end)}</span>}
-              </div>
-            </div>
-            <form action={openPortal}>
-              <Button variant="light" size="md" type="submit">Gestisci abbonamento →</Button>
-            </form>
+        <section className="relative overflow-hidden rounded-[24px] bg-gradient-to-br from-[#26417a] to-[#16264f] p-6 text-white shadow-[0_18px_44px_-26px_rgba(27,45,94,0.7)]">
+          <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-cyan/20 blur-2xl" />
+          <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.14em] text-cyan">Piano attivo</div>
+          <div className="mt-1 font-display text-[24px] font-black leading-tight">{sub?.plans?.name ?? "Attivo"}</div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-medium text-white/65">
+            <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-display text-xs font-bold text-cyan">{STATUS_LABEL[sub?.status ?? ""] ?? sub?.status}</span>
+            {sub?.current_period_end && <span>Rinnovo il {fmtDate(sub.current_period_end)}</span>}
           </div>
-          <p className="mt-3 text-sm font-medium text-white/55">Dal pannello gestisci pagamento, cambio piano, pausa e disdetta.</p>
-        </Card>
+          <form action={openPortal} className="mt-4">
+            <button type="submit" className="inline-flex rounded-full bg-white/15 px-4 py-2 font-display text-sm font-extrabold text-white backdrop-blur transition-colors hover:bg-white/25">
+              Gestisci abbonamento →
+            </button>
+          </form>
+        </section>
       )}
 
-      <div className="grid gap-5 md:grid-cols-3">
+      {/* Piani */}
+      <div className="space-y-3">
         {(plans ?? []).map((p) => {
           const isCurrent = active && sub?.plan_id === p.id;
           return (
-            <Card key={p.id} className={`flex flex-col ${isCurrent ? "ring-2 ring-cyan" : ""}`}>
+            <section key={p.id} className={`rounded-[22px] border bg-white p-5 ${isCurrent ? "border-cyan shadow-[0_18px_40px_-20px_rgba(0,200,240,0.45)]" : "border-line"}`}>
               <div className="flex items-center justify-between">
-                <div className="font-display text-xl font-black text-navy">{p.name}</div>
+                <div className="font-display text-lg font-black text-navy">{p.name}</div>
                 {isCurrent && <span className="rounded-full bg-cyan/15 px-2.5 py-0.5 font-display text-xs font-extrabold text-blue">Attuale</span>}
               </div>
-              <div className="mt-3 flex items-end gap-1">
-                <span className="font-display text-4xl font-black text-navy">€{euro(p.price_month_cents)}</span>
-                <span className="mb-1 text-sm font-semibold text-muted">/mese</span>
+              <div className="mt-2 flex items-end gap-1">
+                <span className="font-display text-[34px] font-black tracking-[-0.03em] text-navy">€{euro(p.price_month_cents)}</span>
+                <span className="mb-1.5 text-sm font-semibold text-muted">/mese</span>
               </div>
-              <p className="mt-2 text-sm font-medium text-muted">
+              <p className="mt-1.5 text-sm font-medium text-muted">
                 {p.pickups_per_week} {p.pickups_per_week === 1 ? "ritiro" : "ritiri"} a settimana · pronto in {p.turnaround_hours}h · ritiro e consegna inclusi
               </p>
               {isCurrent ? (
-                <Button size="md" variant="ghost-navy" className="mt-6 w-full" disabled>
-                  Piano attuale
-                </Button>
+                <div className="mt-4 rounded-full border-2 border-line py-3 text-center font-display text-sm font-extrabold text-muted">Piano attuale</div>
               ) : active ? (
-                <form action={openPortal} className="mt-6">
-                  <Button type="submit" size="md" variant="ghost-navy" className="w-full">Passa a {p.name} →</Button>
+                <form action={openPortal} className="mt-4">
+                  <button type="submit" className="w-full rounded-full border-2 border-line py-3 font-display text-sm font-extrabold text-navy">Passa a {p.name} →</button>
                 </form>
               ) : (
-                <form action={startCheckout} className="mt-6">
+                <form action={startCheckout} className="mt-4">
                   <input type="hidden" name="plan_id" value={p.id} />
-                  <Button type="submit" size="md" className="w-full">Attiva {p.name} →</Button>
+                  <button type="submit" className="w-full rounded-full bg-gradient-to-br from-blue to-cyan py-3 font-display text-sm font-extrabold text-white shadow-[0_10px_24px_-10px_rgba(0,200,240,0.7)]">Attiva {p.name} →</button>
                 </form>
               )}
-            </Card>
+            </section>
           );
         })}
         {(!plans || plans.length === 0) && (
-          <Card className="md:col-span-3">
-            <p className="text-sm font-medium text-muted">Piani non ancora disponibili.</p>
-          </Card>
+          <div className="rounded-[18px] border border-line bg-white p-5 text-sm font-medium text-muted">Piani non ancora disponibili.</div>
         )}
       </div>
 
-      {/* Recesso/disdetta — voluto discreto. Porta al Customer Portal Stripe:
-          ferma il rinnovo a fine periodo, nessun rimborso del periodo in corso
-          una volta avviato il servizio (art. 59 Cod. Consumo). */}
+      {/* Recesso/disdetta — discreto. Porta al Customer Portal Stripe. */}
       {active && (
-        <div className="mt-10 border-t border-line pt-5 text-center">
+        <div className="border-t border-line pt-5 text-center">
           <form action={openPortal}>
             <button type="submit" className="text-xs font-semibold text-muted underline-offset-2 hover:text-navy hover:underline">
-              Recedi dal contratto / disdici l'abbonamento
+              Recedi dal contratto / disdici l&apos;abbonamento
             </button>
           </form>
           <p className="mx-auto mt-2 max-w-md text-[11px] leading-relaxed text-muted/80">
@@ -115,6 +109,6 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
           </p>
         </div>
       )}
-    </>
+    </div>
   );
 }
