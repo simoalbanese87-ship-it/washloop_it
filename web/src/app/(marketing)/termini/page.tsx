@@ -55,7 +55,7 @@ export default function TerminiPage() {
         <ul className="list-disc space-y-1.5 pl-5">
           <li>Il Cliente può <strong>disdire l'abbonamento in qualsiasi momento, online dalla propria area personale</strong>, senza ostacoli né passaggi esterni (art. 54-bis Cod. Consumo). La disdetta ha effetto al termine del periodo già pagato e blocca i rinnovi successivi.</li>
           <li>Il consumatore ha diritto di <strong>recesso entro 14 giorni</strong> dalla conclusione del contratto, senza motivazione (art. 52 Cod. Consumo); WashLoop rimborsa i pagamenti ricevuti entro 14 giorni dalla comunicazione.</li>
-          <li>Chiedendo espressamente l'avvio del servizio durante il periodo di recesso, il Cliente riconosce che il diritto di recesso <strong>si estingue una volta che il servizio è stato integralmente eseguito</strong> (art. 59 Cod. Consumo); per le prestazioni parzialmente eseguite è dovuto l'importo proporzionale.</li>
+          <li>Chiedendo espressamente l'avvio del servizio durante il periodo di recesso, il Cliente riconosce che il diritto di recesso <strong>si estingue una volta che il servizio è stato eseguito</strong> (art. 59 Cod. Consumo). In particolare, <strong>con la presa in carico del primo ritiro del periodo</strong> il servizio del periodo mensile in corso si considera avviato: il relativo canone non è rimborsabile e l'abbonamento prosegue fino al termine del periodo, rinnovandosi poi automaticamente salvo disdetta.</li>
           <li>Ogni richiesta di recesso è confermata da WashLoop su supporto durevole (email).</li>
         </ul>
       </LegalSection>

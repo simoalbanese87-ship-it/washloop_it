@@ -99,6 +99,22 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
           </Card>
         )}
       </div>
+
+      {/* Recesso/disdetta — voluto discreto. Porta al Customer Portal Stripe:
+          ferma il rinnovo a fine periodo, nessun rimborso del periodo in corso
+          una volta avviato il servizio (art. 59 Cod. Consumo). */}
+      {active && (
+        <div className="mt-10 border-t border-line pt-5 text-center">
+          <form action={openPortal}>
+            <button type="submit" className="text-xs font-semibold text-muted underline-offset-2 hover:text-navy hover:underline">
+              Recedi dal contratto / disdici l'abbonamento
+            </button>
+          </form>
+          <p className="mx-auto mt-2 max-w-md text-[11px] leading-relaxed text-muted/80">
+            La disdetta ferma il rinnovo automatico a fine periodo. Il periodo già pagato non è rimborsabile una volta avviato il servizio.
+          </p>
+        </div>
+      )}
     </>
   );
 }
