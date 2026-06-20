@@ -70,8 +70,9 @@ Lo schema si applica via **Supabase SQL Editor** (incolla i file di `web/supabas
 - Rider: `rider.test@washloop.it`
 
 ## Stato del progetto
-MVP completo e live: vetrina, auth password, abbonamenti Stripe (test), prenota laundry-centrico con ETA, tracking capo-per-capo, board ops avanzato, catalogo con generatore slot, area cliente, corriere.
-**Da fare per il lancio**: go-live Stripe (prodotti+webhook live), pulizia dati di prova, 2FA TOTP, notifiche email (SMTP), eventuale gate prenota dietro abbonamento.
+MVP completo e live: vetrina, auth password, abbonamenti Stripe (test), prenota laundry-centrico con ETA, tracking capo-per-capo, board ops avanzato, catalogo con generatore slot, area cliente, corriere, **portale lavanderia** (`/laundry`, ruolo partner, dati anonimizzati + capi speciali), **gate prenota dietro abbonamento attivo**.
+**Da fare per il lancio**: go-live Stripe (prodotti+webhook live), pulizia dati di prova, 2FA TOTP, notifiche email (SMTP).
+**Migrazioni da applicare** (Supabase SQL Editor, in ordine): `0007`, `0008`, `0009` se non già fatto — il portale lavanderia dipende dalle viste `partner_orders`/`partner_order_specials` (0008) e `partner_special_items` (0009).
 
 ## Comandi utili
 ```bash
