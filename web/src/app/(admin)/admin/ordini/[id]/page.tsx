@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
 import { advanceStatus, assignOrder, setEta } from "@/lib/actions/orders";
 import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
+import { chargeOrderSpecials } from "@/lib/actions/charge";
 import { AdminItems, type Item } from "@/components/app/AdminItems";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtFull, toRomeInputValue } from "@/lib/format";
@@ -26,9 +27,11 @@ type Order = {
 type Event = { id: string; status: OrderStatus; created_at: string; note: string | null };
 type Person = { id: string; full_name: string | null };
 type Laundry = { id: string; name: string };
+type Special = { id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null };
 
 const input = "h-11 w-full rounded-[14px] border border-line bg-ice px-3.5 text-sm font-medium text-navy outline-none focus:border-blue";
 const STATUSES: OrderStatus[] = [...ORDER_FLOW, "cancelled"];
+const eur = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 
 export default async function AdminOrderPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -46,7 +49,17 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
     supabase.from("order_items").select("id, kind, status, photo_url").eq("order_id", id).order("created_at").returns<Item[]>(),
   ]);
 
+  const { data: specials } = await supabase
+    .from("order_specials")
+    .select("id, item_name, qty, price_cli_cents, charged_at")
+    .eq("order_id", id)
+    .order("created_at")
+    .returns<Special[]>();
+
   if (!order) notFound();
+
+  const specialRows = specials ?? [];
+  const pendingTotal = specialRows.filter((s) => !s.charged_at).reduce((t, s) => t + s.price_cli_cents * s.qty, 0);
 
   return (
     <>
@@ -125,6 +138,38 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
 
           <Card>
             <AdminItems orderId={order.id} items={items ?? []} />
+          </Card>
+
+          <Card>
+            <div className="flex items-center justify-between">
+              <span className="font-display text-sm font-extrabold text-navy">Capi speciali (addebito cliente)</span>
+              {pendingTotal > 0 && <span className="font-display text-sm font-black text-navy">{eur(pendingTotal)} da addebitare</span>}
+            </div>
+            {specialRows.length === 0 ? (
+              <p className="mt-3 text-sm font-medium text-muted">Nessun capo speciale su questo ordine.</p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {specialRows.map((s) => (
+                  <li key={s.id} className="flex items-center justify-between gap-3 rounded-[12px] border border-line bg-ice px-3 py-2 text-sm">
+                    <span className="font-semibold text-navy">{s.qty}× {s.item_name}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="font-display font-bold text-navy">{eur(s.price_cli_cents * s.qty)}</span>
+                      {s.charged_at ? (
+                        <span className="rounded-full bg-[#1F8A5B]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#1F8A5B]">addebitato</span>
+                      ) : (
+                        <span className="rounded-full bg-[#E08A00]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#E08A00]">in attesa</span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {pendingTotal > 0 && (
+              <form action={chargeOrderSpecials} className="mt-3">
+                <input type="hidden" name="order_id" value={order.id} />
+                <Button type="submit" size="md" className="w-full">Addebita {eur(pendingTotal)} sulla carta del cliente</Button>
+              </form>
+            )}
           </Card>
 
           <Card>
