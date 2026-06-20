@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
+import { notifyOrderStatus } from "@/lib/notify";
 import type { OrderStatus } from "@/lib/orders";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
@@ -43,6 +44,7 @@ export async function advanceStatus(formData: FormData) {
   const { error } = await supabase.from("orders").update({ status: next }).eq("id", orderId);
   if (error) throw new Error(error.message);
 
+  await notifyOrderStatus(orderId, next);
   revalidatePath("/laundry");
   revalidatePath(`/laundry/${orderId}`);
 }

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderStatus } from "@/lib/orders";
 import { romeLocalToISO } from "@/lib/format";
+import { notifyOrderStatus } from "@/lib/notify";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
  *  Calcola l'ETA "pronto" = inizio ritiro + turnaround del piano attivo. */
@@ -55,6 +56,7 @@ export async function createPickup(formData: FormData) {
     .single();
   if (error) throw new Error(error.message);
 
+  await notifyOrderStatus(data!.id, "pickup_scheduled");
   revalidatePath("/app");
   redirect(`/app/ordini/${data!.id}`);
 }
@@ -83,6 +85,7 @@ export async function advanceStatus(formData: FormData) {
 
   const { error } = await supabase.from("orders").update({ status }).eq("id", id);
   if (error) throw new Error(error.message);
+  await notifyOrderStatus(id, status);
   revalidatePath(`/admin/ordini/${id}`);
   revalidatePath("/admin");
   revalidatePath("/courier");
@@ -102,6 +105,7 @@ export async function courierAdvance(formData: FormData) {
   if (proofUrl) {
     await supabase.from("order_items").insert({ order_id: id, kind: "prova", photo_url: proofUrl });
   }
+  await notifyOrderStatus(id, status);
   revalidatePath("/courier");
 }
 
