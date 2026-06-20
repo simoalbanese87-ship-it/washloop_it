@@ -28,6 +28,31 @@ export function fmtSlot(start: string | Date, end: string | Date): string {
   return `${fmtDayShort(start)} · ${fmtTime(start)}–${fmtTime(end)}`;
 }
 
+/** Fascia oraria senza data: "08:00–10:00". */
+export function fmtTimeRange(start: string | Date, end: string | Date): string {
+  return `${fmtTime(start)}–${fmtTime(end)}`;
+}
+
+/** Chiave giorno stabile in ora di Roma: "YYYY-MM-DD" (per raggruppare gli slot). */
+export function romeDayKey(iso: string | Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+}
+
+/** Giorno della settimana abbreviato in italiano: "mar". */
+export function fmtDow(iso: string | Date): string {
+  return new Date(iso).toLocaleDateString(L, { timeZone: TZ, weekday: "short" });
+}
+
+/** Giorno della settimana esteso in italiano: "martedì". */
+export function fmtDowLong(iso: string | Date): string {
+  return new Date(iso).toLocaleDateString(L, { timeZone: TZ, weekday: "long" });
+}
+
+/** Numero del giorno del mese: "24". */
+export function fmtDayNum(iso: string | Date): string {
+  return new Date(iso).toLocaleDateString(L, { timeZone: TZ, day: "numeric" });
+}
+
 /** Offset di Europe/Rome rispetto a UTC (ms) all'istante dato. */
 function romeOffsetMs(date: Date): number {
   const p = new Intl.DateTimeFormat("en-US", {

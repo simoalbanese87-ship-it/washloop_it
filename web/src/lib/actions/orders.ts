@@ -61,6 +61,64 @@ export async function createPickup(formData: FormData) {
   redirect(`/app/ordini/${data!.id}`);
 }
 
+/** Cliente: come createPickup ma ritorna l'id invece di redirezionare,
+ *  così la UI multi-step può mostrare la schermata di conferma (mockup). */
+export async function bookPickup(input: {
+  address_id: string;
+  pickup_slot_id: string;
+  laundry_id: string | null;
+  bags: number;
+  notes?: string | null;
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Non autenticato" };
+
+  const { address_id, pickup_slot_id } = input;
+  const laundry_id = input.laundry_id || null;
+  const bags = Number.isFinite(input.bags) && input.bags > 0 ? input.bags : 1;
+  if (!address_id || !pickup_slot_id) return { ok: false, error: "Indirizzo e slot obbligatori" };
+
+  const [{ data: slot }, { data: sub }] = await Promise.all([
+    supabase.from("slots").select("starts_at").eq("id", pickup_slot_id).maybeSingle<{ starts_at: string }>(),
+    supabase
+      .from("subscriptions")
+      .select("status, plans(turnaround_hours)")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>(),
+  ]);
+
+  if (!sub || !["active", "trialing"].includes(sub.status)) {
+    return { ok: false, error: "Serve un abbonamento attivo." };
+  }
+  const turnaround = sub?.plans?.turnaround_hours ?? 48;
+  const eta = slot?.starts_at ? new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString() : null;
+
+  const { data, error } = await supabase
+    .from("orders")
+    .insert({
+      customer_id: user.id,
+      address_id,
+      pickup_slot_id,
+      laundry_id,
+      eta_ready_at: eta,
+      bags,
+      notes: input.notes || null,
+      status: "pickup_scheduled" as OrderStatus,
+    })
+    .select("id")
+    .single();
+  if (error) return { ok: false, error: error.message };
+
+  await notifyOrderStatus(data!.id, "pickup_scheduled");
+  revalidatePath("/app");
+  revalidatePath("/app/ordini");
+  return { ok: true, id: data!.id };
+}
+
 /** Cliente: prenota lo slot di consegna (disponibile da status=ready). */
 export async function bookDelivery(formData: FormData) {
   const supabase = await createClient();
