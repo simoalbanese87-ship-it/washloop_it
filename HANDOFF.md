@@ -69,10 +69,19 @@ Lo schema si applica via **Supabase SQL Editor** (incolla i file di `web/supabas
 - Cliente: `cliente.test@washloop.it` (abbonato Plus + 1 ordine)
 - Rider: `rider.test@washloop.it`
 
-## Stato del progetto
-MVP completo e live: vetrina, auth password, abbonamenti Stripe (test), prenota laundry-centrico con ETA, tracking capo-per-capo, board ops avanzato, catalogo con generatore slot, area cliente, corriere, **portale lavanderia** (`/laundry`, ruolo partner, dati anonimizzati + capi speciali), **gate prenota dietro abbonamento attivo**.
-**Da fare per il lancio**: go-live Stripe (prodotti+webhook live), pulizia dati di prova, 2FA TOTP, notifiche email (SMTP).
-**Migrazioni da applicare** (Supabase SQL Editor, in ordine): `0007`, `0008`, `0009` se non già fatto — il portale lavanderia dipende dalle viste `partner_orders`/`partner_order_specials` (0008) e `partner_special_items` (0009).
+## Stato del progetto (agg. 20 giu 2026)
+MVP live: vetrina, auth, abbonamenti Stripe, prenota laundry-centrico + ETA, tracking capo-per-capo, board ops, catalogo+slot, area cliente, corriere, **portale lavanderia** (`/laundry`, dati anonimizzati + capi speciali), **gate prenota dietro abbonamento**.
+
+Aggiunto di recente:
+- **Pagine legali**: `/privacy` `/cookie` `/termini` + **cookie banner** (Accetta tutti / Solo necessari) + dati legali reali in `src/lib/legal.ts` (Digital Consulting S.r.l. · P.IVA 09682420964 · Via Franco Russoli 9, 20143 Milano). Email pubblica: info@washloop.it. Manca solo PEC.
+- **Email transazionali** via SMTP (Brevo) — `lib/email.ts` + `lib/notify.ts`. Richiede env SMTP su Vercel.
+- **Stripe LIVE**: prodotti/prezzi live creati (migration 0011), webhook live `we_1TkNt5...` su `https://washloop.it/api/stripe/webhook`, addebito off-session capi speciali (`lib/actions/charge.ts` + bottone admin order detail).
+- **Pannello sicurezza admin** `/admin/sicurezza` (migration 0010, function `security_audit()`). Admin layout ristretto ai soli admin.
+- **Webapp cliente — rework mobile (in corso)**: allineamento ai mockup `Washloop(4).zip` (estrai in `design-reference/`, gitignorato). Fase 1 fatta (`MobileShell.tsx` bottom-tab + Home). Mancano fasi: prenota, ordini+dettaglio, profilo (fatture/invita-amico), onboarding scuro. AI assistant rimandato. Piani `bags_per_week` 1/2/3 (migration 0012).
+
+**Migrazioni** (Supabase SQL Editor o Management API): applicate fino a **0012**. Se reinstalli il DB, applica 0001→0012 in ordine.
+
+**Da fare per il lancio**: ruotare `sk_live` (esposta in chat) e aggiornare env Vercel; impostare env SMTP su Vercel; aggiungere PEC in `legal.ts`; confermare dati lavanderia reale; pulizia dati di prova; 2FA TOTP; continuare fasi webapp.
 
 ## Comandi utili
 ```bash
