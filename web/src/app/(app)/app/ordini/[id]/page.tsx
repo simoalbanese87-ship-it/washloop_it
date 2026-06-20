@@ -26,7 +26,6 @@ type Order = {
   laundry_id: string | null;
   eta_ready_at: string | null;
   addresses: { street: string; label: string | null } | null;
-  laundries: { name: string } | null;
 };
 type Slot = { id: string; starts_at: string; ends_at: string };
 
@@ -44,7 +43,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
 
   const { data: order } = await supabase
     .from("orders")
-    .select("id, status, bags, notes, created_at, delivery_slot_id, laundry_id, eta_ready_at, addresses(street, label), laundries(name)")
+    .select("id, status, bags, notes, created_at, delivery_slot_id, laundry_id, eta_ready_at, addresses(street, label)")
     .eq("id", id)
     .maybeSingle<Order>();
 

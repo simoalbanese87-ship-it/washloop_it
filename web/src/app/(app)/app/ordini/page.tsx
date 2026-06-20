@@ -8,14 +8,13 @@ type Row = {
   created_at: string;
   bags: number;
   eta_ready_at: string | null;
-  laundries: { name: string } | null;
 };
 
 export default async function OrdiniPage() {
   const supabase = await createClient();
   const { data: rows } = await supabase
     .from("orders")
-    .select("id, status, created_at, bags, eta_ready_at, laundries(name)")
+    .select("id, status, created_at, bags, eta_ready_at")
     .order("created_at", { ascending: false })
     .returns<Row[]>();
 
@@ -25,7 +24,7 @@ export default async function OrdiniPage() {
     created_at: r.created_at,
     bags: r.bags,
     eta_ready_at: r.eta_ready_at,
-    laundry_name: r.laundries?.name ?? null,
+    laundry_name: null,
   }));
 
   return (

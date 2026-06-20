@@ -7,7 +7,6 @@ import { bookPickup } from "@/lib/actions/orders";
 import { romeDayKey, fmtDow, fmtDayNum, fmtDowLong, fmtTimeRange } from "@/lib/format";
 
 export type Address = { id: string; label: string | null; street: string; zone_id: string | null };
-export type Laundry = { id: string; name: string; zone_id: string | null };
 export type Slot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null };
 export type SpecialItem = { name: string; price_cli_cents: number };
 export type SpecialCategory = { id: string; name: string; emoji: string; items: SpecialItem[] };
@@ -29,12 +28,10 @@ const Check = ({ size = 20 }: { size?: number }) => (<svg width={size} height={s
 
 export function BookFlow({
   addresses,
-  laundries,
   slots,
   categories,
 }: {
   addresses: Address[];
-  laundries: Laundry[];
   slots: Slot[];
   categories: SpecialCategory[];
 }) {
@@ -52,21 +49,11 @@ export function BookFlow({
 
   const address = addresses.find((a) => a.id === addressId);
 
-  // Routing interno: lavanderia non scelta né mostrata. Prima attiva della zona.
-  const effectiveLaundryId = useMemo(() => {
-    const zl = laundries.filter((l) => !address?.zone_id || l.zone_id === address.zone_id);
-    return zl[0]?.id ?? "";
-  }, [laundries, address?.zone_id]);
-
-  const laundrySlots = useMemo(
-    () => slots.filter((s) => s.laundry_id === effectiveLaundryId),
-    [slots, effectiveLaundryId],
-  );
-
-  // Giorni disponibili (raggruppo gli slot per giorno di Roma)
+  // Giorni disponibili (raggruppo gli slot per giorno di Roma). La lavanderia
+  // non è scelta né mostrata: si ricava dallo slot selezionato (routing interno).
   const days = useMemo(() => {
     const map = new Map<string, Slot[]>();
-    for (const s of laundrySlots) {
+    for (const s of slots) {
       const k = romeDayKey(s.starts_at);
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(s);
@@ -74,13 +61,12 @@ export function BookFlow({
     return [...map.entries()]
       .map(([key, list]) => ({ key, ref: list[0].starts_at, slots: list.sort((a, b) => a.starts_at.localeCompare(b.starts_at)) }))
       .sort((a, b) => a.key.localeCompare(b.key));
-  }, [laundrySlots]);
+  }, [slots]);
 
   const selectedDay = days.find((d) => d.key === dayKey) ?? null;
   const daySlots = selectedDay?.slots ?? [];
-  const selectedSlot = laundrySlots.find((s) => s.id === slotId) ?? null;
+  const selectedSlot = slots.find((s) => s.id === slotId) ?? null;
 
-  const noLaundry = effectiveLaundryId === "";
   const canNext = step === 0 ? !!selectedSlot : true;
 
   async function confirm() {
@@ -90,7 +76,7 @@ export function BookFlow({
     const res = await bookPickup({
       address_id: address.id,
       pickup_slot_id: selectedSlot.id,
-      laundry_id: effectiveLaundryId || null,
+      laundry_id: selectedSlot.laundry_id ?? null,
       bags,
       notes: notes.trim() || null,
     });
@@ -127,14 +113,6 @@ export function BookFlow({
           </Link>
         </div>
       </section>
-    );
-  }
-
-  if (noLaundry) {
-    return (
-      <div className="rounded-[18px] border border-line bg-white p-5 text-sm font-medium text-muted">
-        Zona non ancora coperta. Stiamo arrivando — riprova presto.
-      </div>
     );
   }
 
