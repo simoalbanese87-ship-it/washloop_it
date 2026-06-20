@@ -25,3 +25,18 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 
   return (data as Profile) ?? null;
 }
+
+/** Stati Stripe che abilitano la prenotazione. */
+const ACTIVE_SUB_STATUSES = ["active", "trialing"];
+
+/** True se l'utente corrente ha un abbonamento attivo (o in prova). */
+export async function hasActiveSubscription(): Promise<boolean> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("subscriptions")
+    .select("status")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ status: string }>();
+  return !!data && ACTIVE_SUB_STATUSES.includes(data.status);
+}

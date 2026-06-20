@@ -26,11 +26,16 @@ export async function createPickup(formData: FormData) {
     supabase.from("slots").select("starts_at").eq("id", pickup_slot_id).maybeSingle<{ starts_at: string }>(),
     supabase
       .from("subscriptions")
-      .select("plans(turnaround_hours)")
+      .select("status, plans(turnaround_hours)")
       .order("created_at", { ascending: false })
       .limit(1)
-      .maybeSingle<{ plans: { turnaround_hours: number } | null }>(),
+      .maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>(),
   ]);
+
+  // Gate: la prenotazione richiede un abbonamento attivo (difesa lato server).
+  if (!sub || !["active", "trialing"].includes(sub.status)) {
+    redirect("/app/abbonamento?need=1");
+  }
   const turnaround = sub?.plans?.turnaround_hours ?? 48;
   const eta = slot?.starts_at ? new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString() : null;
 

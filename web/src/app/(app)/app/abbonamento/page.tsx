@@ -19,9 +19,10 @@ const STATUS_LABEL: Record<string, string> = {
   incomplete: "Da completare",
 };
 
-export default async function AbbonamentoPage() {
+export default async function AbbonamentoPage({ searchParams }: { searchParams: Promise<{ need?: string }> }) {
   const supabase = await createClient();
-  const [{ data: plans }, { data: sub }] = await Promise.all([
+  const [{ need }, { data: plans }, { data: sub }] = await Promise.all([
+    searchParams,
     supabase.from("plans").select("id, code, name, price_month_cents, pickups_per_week, turnaround_hours").eq("active", true).order("sort").returns<Plan[]>(),
     supabase.from("subscriptions").select("status, current_period_end, plan_id, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
   ]);
@@ -31,6 +32,14 @@ export default async function AbbonamentoPage() {
   return (
     <>
       <PageTitle kicker="Abbonamento" title="Il tuo piano" sub="Cambia, metti in pausa o disdici quando vuoi." />
+
+      {need && !active && (
+        <Card className="mb-6 border-blue/30 bg-blue/5">
+          <p className="text-sm font-semibold text-navy">
+            Per prenotare un ritiro serve un abbonamento attivo. Scegli un piano qui sotto.
+          </p>
+        </Card>
+      )}
 
       {active && (
         <Card className="mb-6 bg-navy text-white">
