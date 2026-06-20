@@ -5,31 +5,44 @@ import type { OrderStatus } from "@/lib/orders";
 
 /** Testo email per gli stati ordine rilevanti per il cliente.
  *  Gli stati non elencati non generano email (evita spam). */
-const TEMPLATES: Partial<Record<OrderStatus, { subject: string; title: string; body: (bags: number) => string }>> = {
+const TEMPLATES: Partial<
+  Record<OrderStatus, { subject: string; title: string; emoji: string; preheader: string; body: (bags: number) => string }>
+> = {
   pickup_scheduled: {
     subject: "Ritiro prenotato ✅",
     title: "Ritiro prenotato",
-    body: (b) => `Abbiamo registrato il tuo ritiro (${b} ${b === 1 ? "sacco" : "sacchi"}). Tieni il bucato pronto per l'orario scelto: ci pensiamo noi.`,
+    emoji: "✅",
+    preheader: "Tieni il bucato pronto per l'orario scelto: al resto pensiamo noi.",
+    body: (b) =>
+      `Abbiamo registrato il tuo ritiro di <strong>${b} ${b === 1 ? "sacco" : "sacchi"}</strong>. Tieni il bucato pronto per l'orario scelto: al ritiro, lavaggio e riconsegna pensiamo noi.`,
   },
   picked_up: {
     subject: "Bucato ritirato 🧺",
     title: "Abbiamo ritirato il tuo bucato",
-    body: () => `Il corriere ha ritirato il tuo bucato. Ora va in lavanderia: ti avvisiamo appena è pronto.`,
+    emoji: "🧺",
+    preheader: "Il bucato è in viaggio verso la lavanderia.",
+    body: () => `Il corriere ha ritirato il tuo bucato. Ora va in lavanderia per il trattamento: ti avvisiamo appena è pronto.`,
   },
   ready: {
     subject: "Il tuo bucato è pronto ✨",
     title: "Bucato pronto",
-    body: () => `Il tuo bucato è lavato e pronto. A breve programmiamo la riconsegna: trovi tutto nella tua area.`,
+    emoji: "✨",
+    preheader: "Lavato e pronto: a breve programmiamo la riconsegna.",
+    body: () => `Il tuo bucato è lavato, piegato e pronto. A breve programmiamo la riconsegna: trovi i dettagli nella tua area personale.`,
   },
   out_for_delivery: {
     subject: "In consegna oggi 🚚",
     title: "Il tuo bucato è in consegna",
+    emoji: "🚚",
+    preheader: "Il corriere è in viaggio con il tuo bucato pulito.",
     body: () => `Il corriere è in viaggio con il tuo bucato pulito. Ci siamo quasi!`,
   },
   delivered: {
     subject: "Consegnato — a presto 👋",
     title: "Bucato consegnato",
-    body: () => `Il tuo bucato è stato consegnato. Grazie per aver scelto WashLoop!`,
+    emoji: "👋",
+    preheader: "Grazie per aver scelto WashLoop.",
+    body: () => `Il tuo bucato è stato consegnato. Grazie per aver scelto WashLoop — a presto!`,
   },
 };
 
@@ -56,6 +69,8 @@ export async function notifyOrderStatus(orderId: string, status: OrderStatus) {
     const html = renderEmail({
       title: tpl.title,
       body: tpl.body(order.bags ?? 1),
+      emoji: tpl.emoji,
+      preheader: tpl.preheader,
       cta: { label: "Vedi l'ordine", href: `${site}/app/ordini/${orderId}` },
     });
     await sendMail({ to: email, subject: tpl.subject, html });

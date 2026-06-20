@@ -50,27 +50,70 @@ function stripHtml(html: string) {
 }
 
 /** Layout email brand WashLoop (bianco + navy, coerente con l'app). */
-export function renderEmail({ title, body, cta }: { title: string; body: string; cta?: { label: string; href: string } }) {
+/** Layout email brand WashLoop — responsive, table-based (compatibile con la
+ *  maggior parte dei client). Palette: navy #0B1F3A, cyan #7FE3D6, blu #2D7DD2.
+ *  `body` può contenere HTML semplice. `preheader` = testo di anteprima inbox. */
+export function renderEmail({
+  title,
+  body,
+  cta,
+  preheader,
+  emoji,
+}: {
+  title: string;
+  body: string;
+  cta?: { label: string; href: string };
+  preheader?: string;
+  emoji?: string;
+}) {
   const site = clean(process.env.NEXT_PUBLIC_SITE_URL) || "https://washloop.it";
+  const host = site.replace(/^https?:\/\//, "");
+  const pre = (preheader ?? stripHtml(body)).slice(0, 140);
+
   const button = cta
-    ? `<a href="${cta.href}" style="display:inline-block;background:#0B1F3A;color:#7FE3D6;text-decoration:none;font-weight:800;font-family:Arial,sans-serif;padding:14px 28px;border-radius:40px;font-size:15px">${cta.label}</a>`
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 4px"><tr><td style="border-radius:40px;background:#0B1F3A">
+         <a href="${cta.href}" style="display:inline-block;padding:15px 32px;font-family:'Nunito',Arial,sans-serif;font-size:15px;font-weight:800;color:#7FE3D6;text-decoration:none;border-radius:40px">${cta.label} &nbsp;→</a>
+       </td></tr></table>`
     : "";
-  return `<!doctype html><html><body style="margin:0;background:#F4F7FB;padding:32px 0;font-family:Arial,Helvetica,sans-serif">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:24px;border:1px solid #E5EBF2;overflow:hidden">
-      <tr><td style="padding:28px 32px 0">
-        <div style="font-size:22px;font-weight:900;color:#0B1F3A;letter-spacing:-0.5px">WashLoop</div>
-      </td></tr>
-      <tr><td style="padding:20px 32px 8px">
-        <h1 style="margin:0;font-size:22px;font-weight:900;color:#0B1F3A">${title}</h1>
-      </td></tr>
-      <tr><td style="padding:4px 32px 24px">
-        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#4A5A6E">${body}</p>
-        ${button}
-      </td></tr>
-      <tr><td style="padding:20px 32px;border-top:1px solid #E5EBF2">
-        <p style="margin:0;font-size:12px;color:#8A99AC">WashLoop · <a href="${site}" style="color:#2D7DD2;text-decoration:none">${site.replace(/^https?:\/\//, "")}</a></p>
-      </td></tr>
-    </table>
-  </td></tr></table></body></html>`;
+
+  return `<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<title>${title}</title></head>
+<body style="margin:0;padding:0;background:#EEF3F9;-webkit-font-smoothing:antialiased;font-family:'Nunito',Arial,Helvetica,sans-serif">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#EEF3F9;font-size:1px;line-height:1px">${pre}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF3F9;padding:32px 16px">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px">
+        <!-- brand -->
+        <tr><td style="padding:4px 8px 18px">
+          <span style="font-size:22px;font-weight:900;color:#0B1F3A;letter-spacing:-0.5px">Wash<span style="color:#2D7DD2">Loop</span></span>
+        </td></tr>
+        <!-- card -->
+        <tr><td style="background:#ffffff;border:1px solid #E1E8F1;border-radius:24px;overflow:hidden">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="height:5px;background:#7FE3D6;line-height:5px;font-size:5px">&nbsp;</td></tr>
+            <tr><td style="padding:32px 36px 8px">
+              ${emoji ? `<div style="font-size:34px;line-height:1;margin-bottom:10px">${emoji}</div>` : ""}
+              <h1 style="margin:0;font-size:24px;line-height:1.25;font-weight:900;color:#0B1F3A;letter-spacing:-0.3px">${title}</h1>
+            </td></tr>
+            <tr><td style="padding:10px 36px 28px">
+              <p style="margin:0 0 22px;font-size:15px;line-height:1.65;color:#46586E">${body}</p>
+              ${button}
+            </td></tr>
+          </table>
+        </td></tr>
+        <!-- footer -->
+        <tr><td style="padding:22px 16px 8px;text-align:center">
+          <p style="margin:0 0 4px;font-size:12px;line-height:1.6;color:#8597AB">
+            WashLoop · lavanderia a domicilio · <a href="${site}" style="color:#2D7DD2;text-decoration:none">${host}</a>
+          </p>
+          <p style="margin:0;font-size:11px;line-height:1.6;color:#A6B4C5">
+            Ricevi questa email perché hai un account WashLoop. Gestisci tutto nella tua <a href="${site}/app" style="color:#8597AB">area personale</a>.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
 }
