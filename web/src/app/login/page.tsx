@@ -59,6 +59,20 @@ function LoginForm() {
     router.refresh();
   }
 
+  async function forgotPassword() {
+    if (!email) return setError("Inserisci prima la tua email qui sopra.");
+    setLoading(true);
+    setError(null);
+    setInfo(null);
+    const supabase = createClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset`,
+    });
+    setLoading(false);
+    if (error) return setError(error.message);
+    setInfo("Ti abbiamo inviato un'email per reimpostare la password.");
+  }
+
   const isSignup = mode === "signup";
 
   return (
@@ -136,6 +150,17 @@ function LoginForm() {
             {loading ? "Attendi…" : isSignup ? "Crea account →" : "Accedi →"}
           </button>
         </form>
+
+        {!isSignup && (
+          <button
+            type="button"
+            onClick={forgotPassword}
+            disabled={loading}
+            className="mt-3 w-full text-center text-sm font-semibold text-white/60 transition-colors hover:text-white disabled:opacity-40"
+          >
+            Password dimenticata?
+          </button>
+        )}
 
         {isSignup && (
           <p className="mt-4 text-left text-xs font-medium leading-relaxed text-white/55">
