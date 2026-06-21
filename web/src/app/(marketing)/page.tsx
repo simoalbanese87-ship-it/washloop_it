@@ -221,7 +221,7 @@ export default function Home() {
                   ))}
                 </ul>
                 <ButtonLink
-                  href={`/login?mode=signup&plan=${p.code}`}
+                  href={`/onboarding?plan=${p.code}`}
                   variant={p.popular ? "light" : "primary"}
                   className="mt-8 w-full"
                 >
