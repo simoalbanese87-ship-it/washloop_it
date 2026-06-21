@@ -87,7 +87,11 @@ Aggiunto di recente:
 
 **Migrazioni** (Supabase SQL Editor o Management API): **0013, 0014, 0015 GIÀ applicate in prod** via Management API. Se reinstalli il DB, applica 0001→0015 in ordine.
 
-**Ancora da fare (mockup)**: onboarding wizard scuro completo (welcome→indirizzo→modalità ritiro→piano→pagamento→success; ora `/login` è scuro + pagine reali separate); **referral** (invita un amico); **modalità di ritiro** (porta/casa/portineria); righe profilo mockup mancanti (metodo pagamento, supporto, impostazioni); AI assistant (rimandato).
+- **Onboarding wizard scuro** (`/onboarding`): Welcome → Registrazione (signUp) → Indirizzo+Modalità ritiro → Piano → Pagamento (Stripe Checkout). CTA piani del marketing puntano a `/onboarding?plan=code`. Verificato end-to-end in prod.
+- **Modalità di ritiro** (porta/casa/portineria + nota): migration 0016, in Indirizzi, conferma prenota e card corriere.
+- **Extra capi speciali**: invoice items sulla prossima fattura abbonamento (no SCA, addebito automatico col mandato accettato) — `lib/actions/charge.ts`.
+
+**Ancora da fare (mockup)**: **referral** (invita un amico — riusare `client_code`); righe profilo minori (metodo pagamento, supporto, impostazioni); AI assistant (rimandato).
 
 **Da fare per il lancio**:
 - Admin → Catalogo: **generare slot** per la lavanderia reale (ora gli unici slot futuri puntano alla lavanderia di **test** "WashLoop Lab — Centro"); **disattivare** la lavanderia di test e cancellarne gli slot.
