@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderStatus } from "@/lib/orders";
-import { romeLocalToISO } from "@/lib/format";
+import { romeLocalToISO, romeWeekday, romeHHMM } from "@/lib/format";
 import { notifyOrderStatus } from "@/lib/notify";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
@@ -69,6 +69,7 @@ export async function bookPickup(input: {
   laundry_id: string | null;
   bags: number;
   notes?: string | null;
+  recurring?: boolean;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const supabase = await createClient();
   const {
@@ -113,10 +114,38 @@ export async function bookPickup(input: {
     .single();
   if (error) return { ok: false, error: error.message };
 
+  // Ricorrenza settimanale opzionale: salva il pattern (giorno+ora di Roma) e
+  // lega l'ordine appena creato. Il cron genererà le settimane successive.
+  if (input.recurring && slot?.starts_at) {
+    const { data: rec } = await supabase
+      .from("recurring_pickups")
+      .insert({
+        customer_id: user.id,
+        address_id,
+        weekday: romeWeekday(slot.starts_at),
+        hhmm: romeHHMM(slot.starts_at),
+        bags,
+        notes: input.notes || null,
+        active: true,
+      })
+      .select("id")
+      .single();
+    if (rec) await supabase.from("orders").update({ recurring_id: rec.id }).eq("id", data!.id);
+  }
+
   await notifyOrderStatus(data!.id, "pickup_scheduled");
   revalidatePath("/app");
   revalidatePath("/app/ordini");
   return { ok: true, id: data!.id };
+}
+
+/** Cliente: disattiva una ricorrenza settimanale. */
+export async function cancelRecurring(formData: FormData) {
+  const supabase = await createClient();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  await supabase.from("recurring_pickups").update({ active: false }).eq("id", id);
+  revalidatePath("/app");
 }
 
 /** Cliente: prenota lo slot di consegna (disponibile da status=ready). */

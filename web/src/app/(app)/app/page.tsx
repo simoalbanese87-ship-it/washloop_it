@@ -2,16 +2,18 @@ import Link from "next/link";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { createClient } from "@/lib/supabase/server";
 import { ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
-import { fmtDate, fmtFull } from "@/lib/format";
+import { fmtDate, fmtFull, WEEKDAY_IT } from "@/lib/format";
+import { cancelRecurring } from "@/lib/actions/orders";
 
 type OrderRow = { id: string; status: OrderStatus; created_at: string; bags: number; eta_ready_at: string | null };
 type SubRow = { status: string; current_period_end: string | null; plans: { name: string; bags_per_week: number } | null };
+type RecRow = { id: string; weekday: number; hhmm: string; bags: number };
 
 const ACTIVE_ORDER: OrderStatus[] = ["pickup_scheduled", "picked_up", "at_laundry", "washing", "ready", "delivery_scheduled", "out_for_delivery"];
 
 export default async function Home() {
   const supabase = await createClient();
-  const [{ data: sub }, { data: orders }] = await Promise.all([
+  const [{ data: sub }, { data: orders }, { data: recs }] = await Promise.all([
     supabase
       .from("subscriptions")
       .select("status, current_period_end, plans(name, bags_per_week)")
@@ -24,7 +26,15 @@ export default async function Home() {
       .order("created_at", { ascending: false })
       .limit(6)
       .returns<OrderRow[]>(),
+    supabase
+      .from("recurring_pickups")
+      .select("id, weekday, hhmm, bags")
+      .eq("active", true)
+      .order("created_at", { ascending: false })
+      .returns<RecRow[]>(),
   ]);
+
+  const recurring = recs ?? [];
 
   const active = sub?.status === "active" || sub?.status === "trialing";
   const ongoing = (orders ?? []).find((o) => ACTIVE_ORDER.includes(o.status));
@@ -65,6 +75,27 @@ export default async function Home() {
           </>
         )}
       </section>
+
+      {/* Ritiri ricorrenti attivi */}
+      {recurring.length > 0 && (
+        <section className="rounded-[22px] border border-line bg-white p-5">
+          <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-blue">Ricorrente</div>
+          <div className="mt-2 space-y-3">
+            {recurring.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-display text-base font-black text-navy">Ogni {WEEKDAY_IT[r.weekday]} · {r.hhmm}</div>
+                  <div className="text-xs font-medium text-muted">{r.bags} {r.bags === 1 ? "sacco" : "sacchi"} · si ripete in automatico</div>
+                </div>
+                <form action={cancelRecurring}>
+                  <input type="hidden" name="id" value={r.id} />
+                  <button type="submit" className="flex-none font-display text-xs font-bold text-[#C0392B] hover:underline">Disattiva</button>
+                </form>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Azioni rapide */}
       <section className="grid grid-cols-2 gap-3">

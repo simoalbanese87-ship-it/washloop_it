@@ -42,6 +42,7 @@ export function BookFlow({
   const [slotId, setSlotId] = useState<string | null>(null);
   const [bags, setBags] = useState(1);
   const [notes, setNotes] = useState("");
+  const [recurring, setRecurring] = useState(false);
   const [openCat, setOpenCat] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +80,7 @@ export function BookFlow({
       laundry_id: selectedSlot.laundry_id ?? null,
       bags,
       notes: notes.trim() || null,
+      recurring,
     });
     setSubmitting(false);
     if (!res.ok) return setError(res.error);
@@ -96,10 +98,13 @@ export function BookFlow({
           <Check size={40} />
         </div>
         <h2 className="mt-5 font-display text-[26px] font-black">Tutto pronto!</h2>
-        <p className="mt-2 text-sm font-medium text-white/70">Ritiro prenotato. Ti avvisiamo prima di ogni passaggio.</p>
+        <p className="mt-2 text-sm font-medium text-white/70">
+          {recurring ? "Ritiro ricorrente impostato. Ti avvisiamo prima di ogni passaggio." : "Ritiro prenotato. Ti avvisiamo prima di ogni passaggio."}
+        </p>
 
         <div className="mt-6 rounded-[18px] border border-white/15 bg-white/[0.07] p-4 text-left">
           <Row k="Ritiro" v={selectedSlot ? `${cap(fmtDowLong(selectedSlot.starts_at))} · ${fmtTimeRange(selectedSlot.starts_at, selectedSlot.ends_at)}` : "—"} />
+          {recurring && <Row k="Ripetizione" v={selectedSlot ? `Ogni ${fmtDowLong(selectedSlot.starts_at)}` : "Ogni settimana"} />}
           <Row k="Indirizzo" v={address?.street ?? "—"} />
           <Row k="Consegna" v="Entro 72h — scegli la fascia quando è pronto" last />
         </div>
@@ -262,6 +267,29 @@ export function BookFlow({
             <RowEdit title={address?.label ?? "Indirizzo"} sub={address?.street ?? "—"} />
             <div className="my-3 h-px bg-line" />
             <RowEdit title="Consegna" sub="Entro 72h — scegli la fascia quando è pronto" />
+          </div>
+
+          {/* Singolo o ricorrente */}
+          <div className="rounded-[18px] border border-line bg-white p-4">
+            <div className="font-display text-sm font-extrabold text-navy">Ogni quanto?</div>
+            <div className="mt-3 grid grid-cols-2 gap-2.5">
+              <button
+                onClick={() => setRecurring(false)}
+                className={`rounded-[14px] border-2 px-3 py-3 text-left transition-all ${!recurring ? "border-cyan bg-cyan/[0.06]" : "border-line"}`}
+              >
+                <div className="font-display text-sm font-extrabold text-navy">Solo questa volta</div>
+                <div className="mt-0.5 text-xs font-medium text-muted">Un ritiro singolo</div>
+              </button>
+              <button
+                onClick={() => setRecurring(true)}
+                className={`rounded-[14px] border-2 px-3 py-3 text-left transition-all ${recurring ? "border-cyan bg-cyan/[0.06]" : "border-line"}`}
+              >
+                <div className="font-display text-sm font-extrabold text-navy">Ogni settimana</div>
+                <div className="mt-0.5 text-xs font-medium text-muted">
+                  {selectedSlot ? `Ogni ${fmtDowLong(selectedSlot.starts_at)}` : "Si ripete"}
+                </div>
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center justify-between rounded-[18px] border border-line bg-white p-4">

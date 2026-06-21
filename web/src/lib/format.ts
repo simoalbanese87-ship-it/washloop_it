@@ -53,6 +53,20 @@ export function fmtDayNum(iso: string | Date): string {
   return new Date(iso).toLocaleDateString(L, { timeZone: TZ, day: "numeric" });
 }
 
+/** Giorno della settimana in ora di Roma come indice 0=domenica … 6=sabato. */
+export function romeWeekday(iso: string | Date): number {
+  const wd = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" }).format(new Date(iso));
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wd);
+}
+
+/** Ora di inizio in ora di Roma, formato "HH:MM" 24h. */
+export function romeHHMM(iso: string | Date): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
+}
+
+/** Nome esteso del giorno della settimana da indice 0=domenica … 6=sabato. */
+export const WEEKDAY_IT = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"];
+
 /** Offset di Europe/Rome rispetto a UTC (ms) all'istante dato. */
 function romeOffsetMs(date: Date): number {
   const p = new Intl.DateTimeFormat("en-US", {
