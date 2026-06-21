@@ -78,11 +78,18 @@ Aggiunto di recente:
 - **Stripe LIVE**: prodotti/prezzi live creati (migration 0011), webhook live `we_1TkNt5...` su `https://washloop.it/api/stripe/webhook`, addebito off-session capi speciali (`lib/actions/charge.ts` + bottone admin order detail).
 - **Pannello sicurezza admin** `/admin/sicurezza` (migration 0010, function `security_audit()`). Admin layout ristretto ai soli admin.
 - **Webapp cliente — rework mobile (in corso)**: allineamento ai mockup `Washloop(4).zip` (estrai in `design-reference/`, gitignorato). Fase 1 (`MobileShell.tsx` bottom-tab + Home) e **Fase 2** fatte: restyle mobile di **ordini list** (seg Attivi/Storico), **dettaglio ordine** (back bar + hero stato/ETA + timeline realtime), **profilo**, **prenota/abbonamento/indirizzi** (layout mobile). Dati reali, backend invariato. Mancano: **onboarding scuro**, **flusso prenota mockup** (daystrip+slot+capi speciali — serve decisione modello: ordine singolo vs ricorrente), profilo sub-pagine (fatture/invita-amico → serve backend). AI assistant rimandato. Piani `bags_per_week` 1/2/3 (migration 0012).
-- **Lavanderia reale**: `Centro Pulitura Bergamo di Narisi Giuseppe & C. Snc` — uso **solo interno** (ops/portale `/laundry`/corriere), **mai mostrata ai clienti**: il nome è stato rimosso da tutte le schermate cliente (prenota non fa più scegliere la lavanderia, routing automatico alla prima attiva della zona). Inserita via **migration 0013** (idempotente). Da fare: **creare l'account partner** (ruolo `partner`, `profiles.laundry_id` → lavanderia) che vede gli ordini; pre-lancio disattivare le lavanderie di prova (snippet commentato in 0013).
+- **Flusso prenota = mockup** (`BookFlow.tsx`): step daystrip giorni → griglia slot → listino capi speciali reali (vetrina) → conferma (stepper sacchi+note) → success scura. Wired a slot/abbonamento reali (action `bookPickup` ritorna l'id). Verificato end-to-end in prod. **Routing lavanderia = dallo slot scelto** (niente più zona): admin crea slot per la lavanderia, il cliente non vede mai quale.
+- **Lavanderia reale**: `Centro Pulitura Bergamo di Narisi Giuseppe & C. Snc` — **solo interno**, **mai mostrata ai clienti**. Migration **0013** la inserisce; migration **0014** blinda la tabella `laundries` (drop policy "laundries read" → SELECT solo admin; partner usa viste 0008/0009, courier non legge). Nome rimosso da tutte le query/UI cliente (prenota/ordini/dettaglio). Account partner di **test** creato: `lavanderia.test@washloop.it` (ruolo partner, `laundry_id` → lavanderia reale) → portale `/laundry`. Zona di servizio = **tutta Milano** (zona unica); rider scelto a mano dall'admin.
+- **Slot (giorni/orari)**: gestiti da **admin → Catalogo** (generatore ricorrente: lavanderia + giorni + 2 fasce + capacità, e slot singolo). "Per tutti".
 
-**Migrazioni** (Supabase SQL Editor o Management API): applicate fino a **0012**; **0013 da applicare** (lavanderia reale). Se reinstalli il DB, applica 0001→0013 in ordine.
+**Migrazioni** (Supabase SQL Editor o Management API): **0013 e 0014 GIÀ applicate in prod** via Management API. Se reinstalli il DB, applica 0001→0014 in ordine.
 
-**Da fare per il lancio**: applicare migration 0013; creare account lavanderia partner; ruotare `sk_live` (esposta in chat) e aggiornare env Vercel; impostare env SMTP su Vercel (Brevo); aggiungere PEC in `legal.ts`; pulizia dati di prova; 2FA TOTP; continuare fasi webapp (onboarding scuro, flusso prenota).
+**Da fare per il lancio**:
+- Admin → Catalogo: **generare slot** per la lavanderia reale (ora gli unici slot futuri puntano alla lavanderia di **test** "WashLoop Lab — Centro"); **disattivare** la lavanderia di test e cancellarne gli slot.
+- Pulizia dati di prova (ordini test creati durante QA su `cliente.test`).
+- **Ruotare segreti esposti in chat**: token `sbp_a82b...` (Supabase → Account → Access Tokens) + password DB (Settings → Database → Reset); più `sk_live` Stripe già nota.
+- Env SMTP su Vercel (Brevo, sottodominio `send.washloop.it` consigliato); PEC in `legal.ts`; 2FA TOTP.
+- Webapp: onboarding wizard scuro completo (resta opzionale; `/login` è già scuro).
 
 ## Comandi utili
 ```bash
