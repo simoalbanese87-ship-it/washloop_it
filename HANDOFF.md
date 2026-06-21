@@ -85,7 +85,11 @@ Aggiunto di recente:
 - **Email**: env SMTP impostate su Vercel (prod+preview) — Brevo `smtp-relay.brevo.com:587`, FROM `noreply@send.washloop.it`, Reply-To `info@washloop.it` (gestito in `lib/email.ts`). Dominio `send.washloop.it` autenticato su Brevo (DKIM/SPF in Cloudflare).
 - **Fatture**: `/app/fatture` lista fatture reali da Stripe (link da Profilo). **Uso del mese** su Abbonamento (sacchi/extra/ordini del mese, dati reali).
 
-**Migrazioni** (Supabase SQL Editor o Management API): **0013, 0014, 0015 GIÀ applicate in prod** via Management API. Se reinstalli il DB, applica 0001→0015 in ordine.
+- **Notifiche**: email a **cliente** (email+push), **lavanderia** (su nuovo ordine + ritirato, senza dati personali cliente — privacy partner) e **rider** (all'assegnazione). `lib/notify.ts` + `notifyCourierAssigned`. Email lavanderia: colonna `laundries.email` (impostabile da Admin → Catalogo) con fallback all'email del profilo partner. Cron ricorrente ora notifica.
+- **Web Push reali**: VAPID (env `NEXT_PUBLIC_VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` su Vercel), `lib/push.ts` (web-push), `public/sw.js` handler push+notificationclick (cache v2), `/api/push/subscribe`, tabella `push_subscriptions` (migration 0017).
+- **PWA UX** (solo `/app`): `NotificationPrompt` (popup basso, chiede permesso, non ri-chiede se concesso/negato) + `InstallBanner` (alto, mobile; Android `beforeinstallprompt` / iOS istruzioni; nascosto se già installata). Montati in `MobileShell`.
+
+**Migrazioni** (Supabase SQL Editor o Management API): **0013→0017 GIÀ applicate in prod** via Management API. Se reinstalli il DB, applica 0001→0017 in ordine.
 
 - **Onboarding wizard scuro** (`/onboarding`): Welcome → Registrazione (signUp) → Indirizzo+Modalità ritiro → Piano → Pagamento (Stripe Checkout). CTA piani del marketing puntano a `/onboarding?plan=code`. Verificato end-to-end in prod.
 - **Modalità di ritiro** (porta/casa/portineria + nota): migration 0016, in Indirizzi, conferma prenota e card corriere.
