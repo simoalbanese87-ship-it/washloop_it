@@ -1,5 +1,5 @@
-// WashLoop service worker — shell cache + network-first per la navigazione.
-const CACHE = "washloop-v1";
+// WashLoop service worker — shell cache + network-first + Web Push.
+const CACHE = "washloop-v2";
 const SHELL = ["/", "/app", "/login", "/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -42,4 +42,32 @@ self.addEventListener("fetch", (event) => {
       })),
     );
   }
+});
+
+// Web Push: mostra la notifica
+self.addEventListener("push", (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data && event.data.text() }; }
+  const title = data.title || "WashLoop";
+  const options = {
+    body: data.body || "",
+    icon: "/icon.svg",
+    badge: "/icon.svg",
+    data: { url: data.url || "/app" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Click sulla notifica: porta sull'app (riusa una tab aperta se possibile)
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/app";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ("focus" in c) { c.navigate(url); return c.focus(); }
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
 });

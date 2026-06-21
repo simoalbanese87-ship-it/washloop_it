@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderStatus } from "@/lib/orders";
 import { romeLocalToISO, romeWeekday, romeHHMM } from "@/lib/format";
-import { notifyOrderStatus } from "@/lib/notify";
+import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
  *  Calcola l'ETA "pronto" = inizio ritiro + turnaround del piano attivo. */
@@ -205,6 +205,7 @@ export async function assignOrder(formData: FormData) {
 
   const { error } = await supabase.from("orders").update({ courier_id, laundry_id }).eq("id", id);
   if (error) throw new Error(error.message);
+  if (courier_id) await notifyCourierAssigned(id);
   revalidatePath(`/admin/ordini/${id}`);
 }
 
@@ -215,6 +216,7 @@ export async function assignCourier(formData: FormData) {
   const courier_id = String(formData.get("courier_id") ?? "") || null;
   const { error } = await supabase.from("orders").update({ courier_id }).eq("id", id);
   if (error) throw new Error(error.message);
+  if (courier_id) await notifyCourierAssigned(id);
   revalidatePath("/admin");
   revalidatePath(`/admin/ordini/${id}`);
 }
@@ -228,6 +230,7 @@ export async function bulkAssignCourier(formData: FormData) {
 
   const { error } = await supabase.from("orders").update({ courier_id }).in("id", ids);
   if (error) throw new Error(error.message);
+  await Promise.all(ids.map((id) => notifyCourierAssigned(id)));
   revalidatePath("/admin");
 }
 

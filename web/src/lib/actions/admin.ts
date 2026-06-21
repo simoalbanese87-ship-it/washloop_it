@@ -43,6 +43,7 @@ export async function createLaundry(formData: FormData) {
     zone_id: String(formData.get("zone_id") ?? "") || null,
     address: String(formData.get("address") ?? "") || null,
     phone: String(formData.get("phone") ?? "") || null,
+    email: String(formData.get("email") ?? "") || null,
   });
   if (error) throw new Error(error.message);
   revalidatePath(REV);
@@ -60,6 +61,7 @@ export async function updateLaundry(formData: FormData) {
       zone_id: String(formData.get("zone_id") ?? "") || null,
       address: String(formData.get("address") ?? "") || null,
       phone: String(formData.get("phone") ?? "") || null,
+      email: String(formData.get("email") ?? "") || null,
       active: formData.has("active"),
     })
     .eq("id", id);

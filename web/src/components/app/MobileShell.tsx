@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/lib/actions/auth";
+import { InstallBanner } from "@/components/app/InstallBanner";
+import { NotificationPrompt } from "@/components/app/NotificationPrompt";
 
 /** Shell mobile-first dell'app cliente: header + contenuto + bottom tab bar
  *  con FAB centrale per prenotare. Allineato ai mockup (design-reference). */
@@ -63,7 +65,12 @@ export function MobileShell({ userName, children }: { userName: string; children
       </header>
 
       {/* Contenuto */}
-      <main className="flex-1 px-5 pb-28 pt-1">{children}</main>
+      <main className="flex-1 px-5 pb-28 pt-1">
+        <InstallBanner />
+        {children}
+      </main>
+
+      <NotificationPrompt />
 
       {/* Bottom tab bar */}
       <nav className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-[460px]">

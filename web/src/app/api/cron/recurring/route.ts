@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { romeWeekday, romeHHMM } from "@/lib/format";
+import { notifyOrderStatus } from "@/lib/notify";
 
 /** Cron giornaliero: genera gli ordini delle ricorrenze settimanali attive,
  *  agganciandoli a uno slot reale con stesso giorno+ora (Europe/Rome) nei
@@ -61,7 +62,7 @@ export async function GET(req: Request) {
       if (existing) continue;
 
       const eta = new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString();
-      const { error } = await sb.from("orders").insert({
+      const { data: ins, error } = await sb.from("orders").insert({
         customer_id: rec.customer_id,
         address_id: rec.address_id,
         pickup_slot_id: slot.id,
@@ -71,8 +72,11 @@ export async function GET(req: Request) {
         notes: rec.notes,
         status: "pickup_scheduled",
         recurring_id: rec.id,
-      });
-      if (!error) created++;
+      }).select("id").single();
+      if (!error && ins) {
+        created++;
+        await notifyOrderStatus(ins.id, "pickup_scheduled"); // email+push cliente + heads-up lavanderia
+      }
     }
   }
 

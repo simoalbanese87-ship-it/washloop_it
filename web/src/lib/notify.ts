@@ -1,12 +1,16 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { sendMail, renderEmail } from "@/lib/email";
+import { sendPush } from "@/lib/push";
+import { fmtFull, fmtSlot } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 
-/** Testo email per gli stati ordine rilevanti per il cliente.
- *  Gli stati non elencati non generano email (evita spam). */
-const TEMPLATES: Partial<
-  Record<OrderStatus, { subject: string; title: string; emoji: string; preheader: string; body: (bags: number) => string }>
+const site = () => (process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it").replace(/\s+/g, "");
+
+/** Email + push al CLIENTE per gli stati rilevanti. Gli stati non elencati non
+ *  notificano (evita spam). */
+const CUSTOMER: Partial<
+  Record<OrderStatus, { subject: string; title: string; emoji: string; preheader: string; body: (bags: number) => string; push: string }>
 > = {
   pickup_scheduled: {
     subject: "Ritiro prenotato ✅",
@@ -14,7 +18,8 @@ const TEMPLATES: Partial<
     emoji: "✅",
     preheader: "Tieni il bucato pronto per l'orario scelto: al resto pensiamo noi.",
     body: (b) =>
-      `Abbiamo registrato il tuo ritiro di <strong>${b} ${b === 1 ? "sacco" : "sacchi"}</strong>. Tieni il bucato pronto per l'orario scelto: al ritiro, lavaggio e riconsegna pensiamo noi.`,
+      `Abbiamo registrato il tuo ritiro di <strong>${b} ${b === 1 ? "sacco" : "sacchi"}</strong>. Tieni il bucato pronto per l'orario scelto: a ritiro, lavaggio e riconsegna pensiamo noi.`,
+    push: "Ritiro registrato. Tieni pronto il bucato per l'orario scelto.",
   },
   picked_up: {
     subject: "Bucato ritirato 🧺",
@@ -22,6 +27,7 @@ const TEMPLATES: Partial<
     emoji: "🧺",
     preheader: "Il bucato è in viaggio verso la lavanderia.",
     body: () => `Il corriere ha ritirato il tuo bucato. Ora va in lavanderia per il trattamento: ti avvisiamo appena è pronto.`,
+    push: "Abbiamo ritirato il tuo bucato 🧺",
   },
   ready: {
     subject: "Il tuo bucato è pronto ✨",
@@ -29,6 +35,7 @@ const TEMPLATES: Partial<
     emoji: "✨",
     preheader: "Lavato e pronto: a breve programmiamo la riconsegna.",
     body: () => `Il tuo bucato è lavato, piegato e pronto. A breve programmiamo la riconsegna: trovi i dettagli nella tua area personale.`,
+    push: "Il tuo bucato è pronto ✨",
   },
   out_for_delivery: {
     subject: "In consegna oggi 🚚",
@@ -36,6 +43,7 @@ const TEMPLATES: Partial<
     emoji: "🚚",
     preheader: "Il corriere è in viaggio con il tuo bucato pulito.",
     body: () => `Il corriere è in viaggio con il tuo bucato pulito. Ci siamo quasi!`,
+    push: "Il tuo bucato è in consegna 🚚",
   },
   delivered: {
     subject: "Consegnato — a presto 👋",
@@ -43,38 +51,123 @@ const TEMPLATES: Partial<
     emoji: "👋",
     preheader: "Grazie per aver scelto WashLoop.",
     body: () => `Il tuo bucato è stato consegnato. Grazie per aver scelto WashLoop — a presto!`,
+    push: "Bucato consegnato 👋 Grazie!",
   },
 };
 
-/** Invia (best-effort) la notifica email al cliente per un cambio stato.
- *  Non lancia mai: un errore email non deve bloccare l'azione chiamante. */
+/** Email alla LAVANDERIA. Privacy partner: nessun dato personale del cliente
+ *  (no nome/indirizzo/telefono) — solo info di lavorazione. */
+const LAUNDRY: Partial<Record<OrderStatus, { subject: string; title: string; emoji: string }>> = {
+  pickup_scheduled: { subject: "Nuovo ordine in arrivo 🧺", title: "Nuovo ordine WashLoop", emoji: "🧺" },
+  picked_up: { subject: "Bucato in arrivo in lavanderia 🚚", title: "Bucato in arrivo", emoji: "🚚" },
+};
+
+async function userEmail(svc: ReturnType<typeof createServiceClient>, profileId: string | null): Promise<string | null> {
+  if (!profileId) return null;
+  const { data } = await svc.auth.admin.getUserById(profileId);
+  return data?.user?.email ?? null;
+}
+
+/** Email contatto della lavanderia: colonna `laundries.email`, altrimenti email
+ *  del profilo partner collegato. */
+async function laundryEmail(svc: ReturnType<typeof createServiceClient>, laundryId: string | null): Promise<string | null> {
+  if (!laundryId) return null;
+  const { data: l } = await svc.from("laundries").select("email").eq("id", laundryId).maybeSingle<{ email: string | null }>();
+  if (l?.email) return l.email;
+  const { data: p } = await svc.from("profiles").select("id").eq("role", "partner").eq("laundry_id", laundryId).limit(1).maybeSingle<{ id: string }>();
+  return p?.id ? userEmail(svc, p.id) : null;
+}
+
+/** Notifica (best-effort) cliente (email+push) e, se rilevante, la lavanderia.
+ *  Non lancia mai: un errore notifica non deve bloccare l'azione chiamante. */
 export async function notifyOrderStatus(orderId: string, status: OrderStatus) {
-  const tpl = TEMPLATES[status];
-  if (!tpl) return;
+  const cust = CUSTOMER[status];
+  const lav = LAUNDRY[status];
+  if (!cust && !lav) return;
 
   try {
     const svc = createServiceClient();
     const { data: order } = await svc
       .from("orders")
-      .select("id, bags, customer_id")
+      .select("id, bags, customer_id, laundry_id, service, fragrance, eta_ready_at")
       .eq("id", orderId)
       .single();
-    if (!order?.customer_id) return;
+    if (!order) return;
 
-    const { data: userRes } = await svc.auth.admin.getUserById(order.customer_id);
-    const email = userRes?.user?.email;
-    if (!email) return;
+    // ---- Cliente: email + push ----
+    if (cust && order.customer_id) {
+      const email = await userEmail(svc, order.customer_id);
+      if (email) {
+        const html = renderEmail({
+          title: cust.title,
+          body: cust.body(order.bags ?? 1),
+          emoji: cust.emoji,
+          preheader: cust.preheader,
+          cta: { label: "Vedi l'ordine", href: `${site()}/app/ordini/${orderId}` },
+        });
+        await sendMail({ to: email, subject: cust.subject, html });
+      }
+      await sendPush(order.customer_id, { title: cust.title, body: cust.push, url: `/app/ordini/${orderId}` });
+    }
 
-    const site = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it").replace(/\s+/g, "");
-    const html = renderEmail({
-      title: tpl.title,
-      body: tpl.body(order.bags ?? 1),
-      emoji: tpl.emoji,
-      preheader: tpl.preheader,
-      cta: { label: "Vedi l'ordine", href: `${site}/app/ordini/${orderId}` },
-    });
-    await sendMail({ to: email, subject: tpl.subject, html });
+    // ---- Lavanderia: email (solo info lavorazione, niente PII cliente) ----
+    if (lav && order.laundry_id) {
+      const to = await laundryEmail(svc, order.laundry_id);
+      if (to) {
+        const short = orderId.slice(0, 8);
+        const extras = [
+          `<strong>${order.bags ?? 1} ${order.bags === 1 ? "sacco" : "sacchi"}</strong>`,
+          order.service ? `servizio: ${order.service}` : null,
+          order.fragrance ? `fragranza: ${order.fragrance}` : null,
+          order.eta_ready_at ? `pronto entro ${fmtFull(order.eta_ready_at)}` : null,
+        ].filter(Boolean).join(" · ");
+        const html = renderEmail({
+          title: lav.title,
+          body: `Ordine <strong>#${short}</strong> — ${extras}.${status === "picked_up" ? " Il bucato è stato ritirato ed è in arrivo." : " Verrà ritirato a breve."}`,
+          emoji: lav.emoji,
+          preheader: lav.subject,
+          cta: { label: "Apri il portale", href: `${site()}/laundry` },
+        });
+        await sendMail({ to, subject: `${lav.subject} · #${short}`, html });
+      }
+    }
   } catch (err) {
     console.error(`[notify] notifyOrderStatus(${orderId}, ${status}) fallita:`, err);
+  }
+}
+
+/** Email al RIDER quando gli viene assegnato un ordine (ritiro o consegna). */
+export async function notifyCourierAssigned(orderId: string) {
+  try {
+    const svc = createServiceClient();
+    const { data: order } = await svc
+      .from("orders")
+      .select("id, bags, status, courier_id, addresses(street), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)")
+      .eq("id", orderId)
+      .single<{
+        id: string; bags: number; status: OrderStatus; courier_id: string | null;
+        addresses: { street: string } | null;
+        pickup_slot: { starts_at: string; ends_at: string } | null;
+        delivery_slot: { starts_at: string; ends_at: string } | null;
+      }>();
+    if (!order?.courier_id) return;
+    const email = await userEmail(svc, order.courier_id);
+    if (!email) return;
+
+    const isDelivery = order.status === "delivery_scheduled" || order.status === "out_for_delivery";
+    const slot = isDelivery ? order.delivery_slot : order.pickup_slot;
+    const kind = isDelivery ? "consegna" : "ritiro";
+    const when = slot ? fmtSlot(slot.starts_at, slot.ends_at) : "da programmare";
+    const html = renderEmail({
+      title: `Nuovo ${kind} assegnato`,
+      body: `Ti è stato assegnato un <strong>${kind}</strong>.<br/>Indirizzo: ${order.addresses?.street ?? "—"}<br/>Quando: ${when}<br/>Sacchi: ${order.bags ?? 1}`,
+      emoji: "📦",
+      preheader: `Nuovo ${kind} nel tuo giro`,
+      cta: { label: "Apri il giro", href: `${site()}/courier` },
+    });
+    await sendMail({ to: email, subject: `Nuovo ${kind} assegnato 📦`, html });
+    await sendPush(order.courier_id, { title: `Nuovo ${kind} assegnato`, body: `${order.addresses?.street ?? ""} · ${when}`, url: "/courier" });
+  } catch (err) {
+    console.error(`[notify] notifyCourierAssigned(${orderId}) fallita:`, err);
   }
 }

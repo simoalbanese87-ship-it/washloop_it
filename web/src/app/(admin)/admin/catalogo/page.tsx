@@ -16,7 +16,7 @@ import {
 import { fmtDateTime } from "@/lib/format";
 
 type Zone = { id: string; name: string; active: boolean };
-type Laundry = { id: string; name: string; zone_id: string | null; address: string | null; phone: string | null; active: boolean };
+type Laundry = { id: string; name: string; zone_id: string | null; address: string | null; phone: string | null; email: string | null; active: boolean };
 type Slot = { id: string; kind: string; starts_at: string; ends_at: string; laundries: { name: string } | null };
 type Plan = { id: string; name: string; price_month_cents: number; turnaround_hours: number; pickups_per_week: number; active: boolean; stripe_price_id: string | null };
 
@@ -31,7 +31,7 @@ export default async function CatalogoPage() {
   const nowIso = new Date().toISOString();
   const [{ data: zones }, { data: laundries }, { data: slots }, { data: plans }] = await Promise.all([
     supabase.from("zones").select("id, name, active").order("name").returns<Zone[]>(),
-    supabase.from("laundries").select("id, name, zone_id, address, phone, active").order("name").returns<Laundry[]>(),
+    supabase.from("laundries").select("id, name, zone_id, address, phone, email, active").order("name").returns<Laundry[]>(),
     supabase.from("slots").select("id, kind, starts_at, ends_at, laundries(name)").gte("starts_at", nowIso).order("starts_at").limit(60).returns<Slot[]>(),
     supabase.from("plans").select("id, name, price_month_cents, turnaround_hours, pickups_per_week, active, stripe_price_id").order("sort").returns<Plan[]>(),
   ]);
@@ -80,6 +80,7 @@ export default async function CatalogoPage() {
                 </select>
                 <input name="address" defaultValue={l.address ?? ""} placeholder="Indirizzo" className={input} />
                 <input name="phone" defaultValue={l.phone ?? ""} placeholder="Telefono" className={input} />
+                <input name="email" type="email" defaultValue={l.email ?? ""} placeholder="Email (notifiche)" className={input} />
                 <label className="flex h-10 items-center gap-1.5 text-xs font-bold text-navy"><input type="checkbox" name="active" defaultChecked={l.active} className="accent-[#2b7fd4]" />Attiva</label>
                 <div className="flex gap-2">
                   <Button type="submit" size="md" variant="ghost-navy">Salva</Button>
@@ -96,6 +97,7 @@ export default async function CatalogoPage() {
             </select>
             <input name="address" placeholder="Indirizzo" className={input} />
             <input name="phone" placeholder="Telefono" className={input} />
+            <input name="email" type="email" placeholder="Email (notifiche)" className={input} />
             <Button type="submit" size="md">Aggiungi</Button>
           </form>
         </Card>
