@@ -4,9 +4,10 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { bookPickup } from "@/lib/actions/orders";
+import { ACCESS_MODE_LABEL, type AccessMode } from "@/lib/orders";
 import { romeDayKey, fmtDow, fmtDayNum, fmtDowLong, fmtTimeRange } from "@/lib/format";
 
-export type Address = { id: string; label: string | null; street: string; zone_id: string | null };
+export type Address = { id: string; label: string | null; street: string; zone_id: string | null; access_mode: string | null; access_note: string | null };
 export type Slot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null };
 export type SpecialItem = { name: string; price_cli_cents: number };
 export type SpecialCategory = { id: string; name: string; emoji: string; items: SpecialItem[] };
@@ -264,7 +265,10 @@ export function BookFlow({
               onEdit={() => setStep(0)}
             />
             <div className="my-3 h-px bg-line" />
-            <RowEdit title={address?.label ?? "Indirizzo"} sub={address?.street ?? "—"} />
+            <RowEdit
+              title={address?.label ?? "Indirizzo"}
+              sub={`${address?.street ?? "—"} · ${ACCESS_MODE_LABEL[(address?.access_mode ?? "door") as AccessMode]}`}
+            />
             <div className="my-3 h-px bg-line" />
             <RowEdit title="Consegna" sub="Entro 72h — scegli la fascia quando è pronto" />
           </div>

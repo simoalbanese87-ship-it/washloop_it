@@ -11,7 +11,7 @@ export default async function PrenotaPage() {
   const nowIso = new Date().toISOString();
   const [active, { data: addresses }, { data: slots }, { data: cats }, { data: items }] = await Promise.all([
     hasActiveSubscription(),
-    supabase.from("addresses").select("id, label, street, zone_id").order("created_at", { ascending: false }).returns<Address[]>(),
+    supabase.from("addresses").select("id, label, street, zone_id, access_mode, access_note").order("created_at", { ascending: false }).returns<Address[]>(),
     supabase.from("slots").select("id, starts_at, ends_at, laundry_id").eq("kind", "pickup").gte("starts_at", nowIso).order("starts_at").limit(80).returns<Slot[]>(),
     supabase.from("special_categories").select("id, name, emoji, sort").order("sort").returns<Cat[]>(),
     supabase.from("special_items").select("category_id, name, price_cli_cents, sort").eq("active", true).order("sort").returns<Item[]>(),

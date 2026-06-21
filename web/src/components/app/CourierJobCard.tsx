@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { courierAdvance } from "@/lib/actions/orders";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/app/StatusBadge";
-import type { OrderStatus } from "@/lib/orders";
+import { ACCESS_MODE_LABEL, type OrderStatus, type AccessMode } from "@/lib/orders";
 
 export type Job = {
   id: string;
@@ -16,6 +16,8 @@ export type Job = {
   phone: string | null;
   bags: number;
   when: string | null;
+  accessMode: AccessMode;
+  accessNote: string | null;
 };
 
 type Action = { label: string; to: OrderStatus };
@@ -63,6 +65,10 @@ export function CourierJobCard({ job }: { job: Job }) {
           {job.when && <div className="mt-0.5 text-xs font-semibold text-blue">{job.when}</div>}
         </div>
         <StatusBadge status={job.status} />
+      </div>
+
+      <div className="mt-2 inline-flex rounded-full bg-ice px-2.5 py-1 font-display text-xs font-extrabold text-navy">
+        🛎️ {ACCESS_MODE_LABEL[job.accessMode]}{job.accessNote ? ` · ${job.accessNote}` : ""}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-medium text-muted">

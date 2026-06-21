@@ -21,6 +21,8 @@ export async function addAddress(formData: FormData) {
     intercom: String(formData.get("intercom") ?? "") || null,
     floor: String(formData.get("floor") ?? "") || null,
     notes: String(formData.get("notes") ?? "") || null,
+    access_mode: String(formData.get("access_mode") ?? "door") || "door",
+    access_note: String(formData.get("access_note") ?? "") || null,
   });
   if (error) throw new Error(error.message);
   revalidatePath("/app/indirizzi");

@@ -85,7 +85,9 @@ export default async function Home() {
               <div key={r.id} className="flex items-center justify-between gap-3">
                 <div>
                   <div className="font-display text-base font-black text-navy">Ogni {WEEKDAY_IT[r.weekday]} · {r.hhmm}</div>
-                  <div className="text-xs font-medium text-muted">{r.bags} {r.bags === 1 ? "sacco" : "sacchi"} · si ripete in automatico</div>
+                  <div className="text-xs font-medium text-muted">
+                    {r.bags} {r.bags === 1 ? "sacco" : "sacchi"} · {active ? "si ripete in automatico" : "in pausa fino al rinnovo dell'abbonamento"}
+                  </div>
                 </div>
                 <form action={cancelRecurring}>
                   <input type="hidden" name="id" value={r.id} />

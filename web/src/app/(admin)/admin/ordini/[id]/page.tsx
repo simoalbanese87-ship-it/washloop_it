@@ -155,7 +155,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                     <span className="flex items-center gap-2">
                       <span className="font-display font-bold text-navy">{eur(s.price_cli_cents * s.qty)}</span>
                       {s.charged_at ? (
-                        <span className="rounded-full bg-[#1F8A5B]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#1F8A5B]">addebitato</span>
+                        <span className="rounded-full bg-[#1F8A5B]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#1F8A5B]">in fattura</span>
                       ) : (
                         <span className="rounded-full bg-[#E08A00]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#E08A00]">in attesa</span>
                       )}
@@ -167,8 +167,13 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
             {pendingTotal > 0 && (
               <form action={chargeOrderSpecials} className="mt-3">
                 <input type="hidden" name="order_id" value={order.id} />
-                <Button type="submit" size="md" className="w-full">Addebita {eur(pendingTotal)} sulla carta del cliente</Button>
+                <Button type="submit" size="md" className="w-full">Metti in fattura {eur(pendingTotal)} (addebito automatico)</Button>
               </form>
+            )}
+            {pendingTotal > 0 && (
+              <p className="mt-2 text-xs font-medium text-muted">
+                Aggiunti alla prossima fattura dell&apos;abbonamento: addebito automatico sulla carta già accettata, senza richieste al cliente.
+              </p>
             )}
           </Card>
 

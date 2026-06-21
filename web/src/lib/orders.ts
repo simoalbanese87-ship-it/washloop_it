@@ -55,6 +55,15 @@ export const ITEM_STATUS_LABEL: Record<ItemStatus, string> = {
   issue: "Problema",
 };
 
+/** Modalità di ritiro/consegna del sacco a un indirizzo. */
+export type AccessMode = "door" | "home" | "concierge";
+
+export const ACCESS_MODE_LABEL: Record<AccessMode, string> = {
+  door: "Sacco fuori dalla porta",
+  home: "Sono in casa",
+  concierge: "Portineria",
+};
+
 export type UserRole = "customer" | "courier" | "partner" | "admin";
 
 /** Home di destinazione dopo il login, per ruolo. */

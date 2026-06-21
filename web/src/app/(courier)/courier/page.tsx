@@ -3,14 +3,14 @@ import { CourierJobCard, type Job } from "@/components/app/CourierJobCard";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { fmtSlot } from "@/lib/format";
-import type { OrderStatus } from "@/lib/orders";
+import type { OrderStatus, AccessMode } from "@/lib/orders";
 
 type Row = {
   id: string;
   status: OrderStatus;
   bags: number;
   customer: { full_name: string | null; phone: string | null } | null;
-  addresses: { street: string; zones: { name: string } | null } | null;
+  addresses: { street: string; zones: { name: string } | null; access_mode: string | null; access_note: string | null } | null;
   pickup_slot: { starts_at: string; ends_at: string } | null;
   delivery_slot: { starts_at: string; ends_at: string } | null;
 };
@@ -29,6 +29,8 @@ function toJob(r: Row, kind: "pickup" | "delivery"): Job {
     phone: r.customer?.phone ?? null,
     bags: r.bags,
     when: fmt(kind === "pickup" ? r.pickup_slot : r.delivery_slot),
+    accessMode: (r.addresses?.access_mode ?? "door") as AccessMode,
+    accessNote: r.addresses?.access_note ?? null,
   };
 }
 
@@ -39,7 +41,7 @@ export default async function CourierToday() {
   const { data } = await supabase
     .from("orders")
     .select(
-      "id, status, bags, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, zones(name)), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
+      "id, status, bags, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, zones(name), access_mode, access_note), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
     )
     .eq("courier_id", profile?.id ?? "")
     .in("status", ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"])
