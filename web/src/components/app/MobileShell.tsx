@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "@/lib/actions/auth";
 import { InstallBanner } from "@/components/app/InstallBanner";
 import { NotificationPrompt } from "@/components/app/NotificationPrompt";
+import { ImpersonationBanner } from "@/components/app/ImpersonationBanner";
 
 /** Shell mobile-first dell'app cliente: header + contenuto + bottom tab bar
  *  con FAB centrale per prenotare. Allineato ai mockup (design-reference). */
@@ -39,13 +40,14 @@ const tabs = [
   { href: "/app/profilo", label: "Profilo", Icon: UserIcon },
 ];
 
-export function MobileShell({ userName, children }: { userName: string; children: React.ReactNode }) {
+export function MobileShell({ userName, children, impersonating }: { userName: string; children: React.ReactNode; impersonating?: boolean }) {
   const pathname = usePathname();
   const initial = (userName?.trim()?.[0] ?? "W").toUpperCase();
   const isActive = (t: (typeof tabs)[number]) => (t.exact ? pathname === t.href : pathname === t.href || pathname.startsWith(t.href + "/"));
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[460px] flex-col bg-ice">
+      {impersonating && <ImpersonationBanner name={userName} />}
       {/* Header */}
       <header className="sticky top-0 z-40 flex items-center justify-between bg-ice/90 px-5 pb-3 pt-5 backdrop-blur">
         <div>

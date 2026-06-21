@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { MobileShell } from "@/components/app/MobileShell";
 import { getCurrentProfile } from "@/lib/auth";
+import { isImpersonating } from "@/lib/actions/impersonate";
 import { roleHome } from "@/lib/orders";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -9,5 +10,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Staff/admin hanno una loro area
   if (profile.role !== "customer") redirect(roleHome(profile.role));
 
-  return <MobileShell userName={profile.full_name ?? "Il mio account"}>{children}</MobileShell>;
+  const impersonating = await isImpersonating();
+
+  return (
+    <MobileShell userName={profile.full_name ?? "Il mio account"} impersonating={impersonating}>
+      {children}
+    </MobileShell>
+  );
 }
