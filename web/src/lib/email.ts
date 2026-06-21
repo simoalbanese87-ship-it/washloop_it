@@ -14,6 +14,7 @@ const SMTP_PORT = parseInt(clean(process.env.SMTP_PORT) || "587", 10);
 const SMTP_USER = process.env.SMTP_USER?.trim() ?? "";
 const SMTP_PASS = process.env.SMTP_PASS ?? "";
 const SMTP_FROM = process.env.SMTP_FROM?.trim() || "WashLoop <noreply@washloop.it>";
+const SMTP_REPLY_TO = process.env.SMTP_REPLY_TO?.trim() || "info@washloop.it";
 
 let cached: Transporter | null = null;
 
@@ -37,7 +38,7 @@ export async function sendMail({ to, subject, html, text }: { to: string; subjec
     return { skipped: true };
   }
   try {
-    await tx.sendMail({ from: SMTP_FROM, to, subject, html, text: text ?? stripHtml(html) });
+    await tx.sendMail({ from: SMTP_FROM, replyTo: SMTP_REPLY_TO, to, subject, html, text: text ?? stripHtml(html) });
     return { skipped: false };
   } catch (err) {
     console.error(`[email] invio fallito ("${subject}" → ${to}):`, err);

@@ -17,6 +17,11 @@ const CardIcon = () => (
     <rect x="3" y="5" width="18" height="14" rx="3" /><path d="M3 10h18" />
   </svg>
 );
+const DocIcon = () => (
+  <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 3v5h5" /><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+  </svg>
+);
 const Chev = () => (
   <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
     <path d="m9 6 6 6-6 6" />
@@ -72,7 +77,8 @@ export default async function ProfiloPage() {
       {/* Link rapidi */}
       <section className="rounded-[18px] border border-line bg-white px-5 py-1">
         <RowLink href="/app/indirizzi" Icon={PinIcon} title="Indirizzi" sub="Dove ritiriamo e consegniamo" />
-        <RowLink href="/app/abbonamento" Icon={CardIcon} title="Abbonamento" sub="Gestisci il tuo piano" last />
+        <RowLink href="/app/abbonamento" Icon={CardIcon} title="Abbonamento" sub="Gestisci il tuo piano" />
+        <RowLink href="/app/fatture" Icon={DocIcon} title="Fatture" sub="Storico e ricevute" last />
       </section>
 
       {/* Password */}

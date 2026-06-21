@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { startCheckout, openPortal } from "@/lib/actions/billing";
 import { fmtDate } from "@/lib/format";
@@ -19,13 +20,22 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default async function AbbonamentoPage({ searchParams }: { searchParams: Promise<{ need?: string }> }) {
   const supabase = await createClient();
-  const [{ need }, { data: plans }, { data: sub }] = await Promise.all([
+  const now = new Date();
+  const monthStartIso = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const [{ need }, { data: plans }, { data: sub }, { data: monthOrders }, { data: monthSpecials }] = await Promise.all([
     searchParams,
     supabase.from("plans").select("id, code, name, price_month_cents, pickups_per_week, turnaround_hours").eq("active", true).order("sort").returns<Plan[]>(),
     supabase.from("subscriptions").select("status, current_period_end, plan_id, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    supabase.from("orders").select("bags, status, created_at").gte("created_at", monthStartIso).neq("status", "cancelled").returns<{ bags: number; status: string; created_at: string }[]>(),
+    supabase.from("order_specials").select("price_cli_cents, created_at").gte("created_at", monthStartIso).returns<{ price_cli_cents: number; created_at: string }[]>(),
   ]);
 
   const active = sub?.status === "active" || sub?.status === "trialing";
+
+  // Uso del mese (dati reali)
+  const ordersCount = monthOrders?.length ?? 0;
+  const bagsCount = (monthOrders ?? []).reduce((s, o) => s + (o.bags ?? 0), 0);
+  const extraCents = (monthSpecials ?? []).reduce((s, x) => s + (x.price_cli_cents ?? 0), 0);
 
   return (
     <div className="space-y-4">
@@ -56,6 +66,21 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
               Gestisci abbonamento →
             </button>
           </form>
+        </section>
+      )}
+
+      {/* Uso del mese */}
+      {active && (
+        <section>
+          <div className="mb-2.5 flex items-center justify-between">
+            <h2 className="font-display text-base font-extrabold text-navy">Uso del mese</h2>
+            <Link href="/app/fatture" className="font-display text-sm font-bold text-blue">Vedi le fatture →</Link>
+          </div>
+          <div className="flex gap-3">
+            <StatTile n={String(bagsCount)} label={bagsCount === 1 ? "Sacco ritirato" : "Sacchi ritirati"} />
+            <StatTile n={`€${(extraCents / 100).toLocaleString("it-IT", { minimumFractionDigits: 0 })}`} label="Extra del mese" />
+            <StatTile n={String(ordersCount)} label={ordersCount === 1 ? "Ordine" : "Ordini"} />
+          </div>
         </section>
       )}
 
@@ -109,6 +134,15 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+function StatTile({ n, label }: { n: string; label: string }) {
+  return (
+    <div className="flex-1 rounded-[18px] border border-line bg-white p-4">
+      <div className="font-display text-2xl font-black tracking-[-0.02em] text-navy">{n}</div>
+      <div className="mt-0.5 text-[11px] font-bold text-muted">{label}</div>
     </div>
   );
 }
