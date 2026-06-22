@@ -34,7 +34,7 @@ async function subscribe(): Promise<boolean> {
 
 /** Popup basso (solo /app) che chiede di abilitare le notifiche push.
  *  Non ricompare se il permesso è già stato concesso/negato o se chiuso. */
-export function NotificationPrompt() {
+export function NotificationPrompt({ subtitle = "Ti avvisiamo a ogni passaggio del tuo bucato." }: { subtitle?: string }) {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -75,7 +75,7 @@ export function NotificationPrompt() {
         <span className="grid h-11 w-11 flex-none place-items-center rounded-[13px] bg-ice text-xl">🔔</span>
         <div className="min-w-0 flex-1">
           <div className="font-display text-sm font-extrabold text-navy">Attiva le notifiche</div>
-          <div className="text-xs font-medium text-muted">Ti avvisiamo a ogni passaggio del tuo bucato.</div>
+          <div className="text-xs font-medium text-muted">{subtitle}</div>
         </div>
         <div className="flex flex-none flex-col gap-1.5">
           <button onClick={enable} className="rounded-full bg-gradient-to-br from-blue to-cyan px-4 py-1.5 font-display text-xs font-extrabold text-white">Attiva</button>

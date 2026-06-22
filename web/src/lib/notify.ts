@@ -110,11 +110,24 @@ export async function notifyOrderStatus(orderId: string, status: OrderStatus) {
       await sendPush(order.customer_id, { title: cust.title, body: cust.push, url: `/app/ordini/${orderId}` });
     }
 
-    // ---- Lavanderia: email (solo info lavorazione, niente PII cliente) ----
+    // ---- Lavanderia: push (webapp installata) + email (solo info lavorazione, no PII) ----
     if (lav && order.laundry_id) {
+      const short = orderId.slice(0, 8);
+      const plain = [
+        `${order.bags ?? 1} ${order.bags === 1 ? "sacco" : "sacchi"}`,
+        order.service || null,
+        order.eta_ready_at ? `pronto entro ${fmtFull(order.eta_ready_at)}` : null,
+      ].filter(Boolean).join(" · ");
+
+      // Push a tutti i profili partner della lavanderia
+      const { data: partners } = await svc.from("profiles").select("id").eq("role", "partner").eq("laundry_id", order.laundry_id);
+      for (const p of partners ?? []) {
+        await sendPush(p.id, { title: `${lav.title} · #${short}`, body: plain, url: "/laundry" });
+      }
+
+      // Email (best-effort, se configurata): colonna laundries.email o profilo partner
       const to = await laundryEmail(svc, order.laundry_id);
       if (to) {
-        const short = orderId.slice(0, 8);
         const extras = [
           `<strong>${order.bags ?? 1} ${order.bags === 1 ? "sacco" : "sacchi"}</strong>`,
           order.service ? `servizio: ${order.service}` : null,

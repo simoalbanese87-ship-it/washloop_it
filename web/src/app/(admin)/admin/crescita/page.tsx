@@ -104,6 +104,89 @@ const BLOCKS: Block[] = [
   },
 ];
 
+type Guide = { name: string; url: string; steps: string[] };
+
+const GUIDES: Guide[] = [
+  {
+    name: "Google Business Profile",
+    url: "https://business.google.com",
+    steps: [
+      "Vai su business.google.com → «Gestisci ora», accedi col Google aziendale.",
+      "Nome «WashLoop», categoria «Servizio di lavanderia».",
+      "Alla domanda sede: scegli «Consegno beni e servizi ai clienti» (area di servizio, NON indirizzo pubblico) → imposta Milano e comuni serviti.",
+      "Aggiungi telefono e sito washloop.it.",
+      "Verifica l'attività (video o telefono, come proposto).",
+      "Completa: orari, descrizione, 5-10 foto reali (sacco, ritiro, app).",
+    ],
+  },
+  {
+    name: "Google Search Console",
+    url: "https://search.google.com/search-console",
+    steps: [
+      "Aggiungi proprietà tipo «Dominio» → washloop.it.",
+      "Copia il record TXT e incollalo in Cloudflare → DNS (Proxy OFF) → Verifica.",
+      "Invia la sitemap: https://washloop.it/sitemap.xml.",
+      "Dopo qualche giorno controlla query e pagine in «Rendimento».",
+    ],
+  },
+  {
+    name: "Bing (Places + Webmaster)",
+    url: "https://www.bingplaces.com",
+    steps: [
+      "bingplaces.com → «Importa da Google Business Profile» (sincronizza in automatico).",
+      "bing.com/webmasters → «Importa da Google Search Console».",
+      "Bing alimenta Copilot/ChatGPT: importante per l'AISO.",
+    ],
+  },
+  {
+    name: "Apple Business Connect",
+    url: "https://businessconnect.apple.com",
+    steps: [
+      "Accedi con un Apple ID → «Aggiungi la tua attività».",
+      "Imposta area di servizio Milano, recapiti, sito.",
+      "Verifica: alimenta Apple Maps, Siri, Spotlight (utenti iPhone).",
+    ],
+  },
+  {
+    name: "Trustpilot",
+    url: "https://business.trustpilot.com",
+    steps: [
+      "Crea il profilo gratuito per washloop.it.",
+      "Prendi il link di invito recensioni e mettilo nell'email «Consegnato».",
+      "Fonte molto citata da Google e dalle AI.",
+    ],
+  },
+  {
+    name: "Meta Business Suite (Instagram + Facebook)",
+    url: "https://business.facebook.com",
+    steps: [
+      "Crea l'account aziendale Meta → Pagina Facebook «WashLoop».",
+      "Converti l'account Instagram in «Aziendale» e collegalo alla Pagina.",
+      "Bio con CTA → washloop.it/onboarding.",
+      "Da qui gestisci post, programmazione e (poi) le Meta Ads.",
+    ],
+  },
+  {
+    name: "TikTok (account business)",
+    url: "https://www.tiktok.com",
+    steps: [
+      "Profilo → Impostazioni → «Passa ad account Business» (categoria: servizi).",
+      "Bio + link a washloop.it/onboarding.",
+      "Pubblica gli stessi reel di Instagram (prima/dopo + ritiro a domicilio).",
+    ],
+  },
+  {
+    name: "Google Analytics (GA4)",
+    url: "https://analytics.google.com",
+    steps: [
+      "Crea una proprietà GA4 per washloop.it.",
+      "Installa il tag (consent-aware: parte solo col consenso cookie «Accetta tutti»).",
+      "Collega GA4 a Search Console per vedere le query che convertono.",
+      "Metti UTM sui link di social e ads per sapere da dove arrivano gli iscritti.",
+    ],
+  },
+];
+
 export default function CrescitaPage() {
   return (
     <>
@@ -132,6 +215,26 @@ export default function CrescitaPage() {
                 </li>
               ))}
             </ul>
+          </Card>
+        ))}
+      </div>
+
+      {/* Guide passo-passo */}
+      <div className="mt-8 mb-3 flex items-center gap-3">
+        <h2 className="font-display text-lg font-black text-navy">Guide passo-passo — come configurarle</h2>
+      </div>
+      <div className="grid gap-5 lg:grid-cols-2">
+        {GUIDES.map((g) => (
+          <Card key={g.name} className="flex flex-col">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-display text-base font-black text-navy">{g.name}</h3>
+              <a href={g.url} target="_blank" rel="noopener noreferrer" className="flex-none font-display text-xs font-extrabold text-blue hover:underline">Apri →</a>
+            </div>
+            <ol className="mt-3 list-inside list-decimal space-y-1.5 text-sm font-medium leading-relaxed text-muted marker:font-bold marker:text-blue">
+              {g.steps.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ol>
           </Card>
         ))}
       </div>
