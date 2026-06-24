@@ -131,6 +131,25 @@ export async function addCustomerCharge(formData: FormData) {
   revalidatePath(`/admin/abbonati/${customerId}`);
 }
 
+/** Modifica importo/descrizione di un addebito (e l'invoice item Stripe se non
+ *  ancora fatturato). */
+export async function editCustomerCharge(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  const description = String(formData.get("description") ?? "").trim();
+  const amount = eurToCents(String(formData.get("amount_eur") ?? ""));
+  if (!id || !description || !Number.isFinite(amount) || amount <= 0) throw new Error("Dati non validi");
+
+  const svc = createServiceClient();
+  const { data: row } = await svc.from("customer_charges").select("stripe_ref, status").eq("id", id).maybeSingle<{ stripe_ref: string | null; status: string }>();
+  if (row?.stripe_ref && row.status === "invoiced") {
+    try { await stripe().invoiceItems.update(row.stripe_ref, { amount, description: `WashLoop · ${description}` }); } catch { /* già fatturato: solo DB */ }
+  }
+  await svc.from("customer_charges").update({ description, amount_cents: amount }).eq("id", id);
+  if (customerId) revalidatePath(`/admin/abbonati/${customerId}`);
+}
+
 /** Annulla un addebito (e prova a rimuovere l'invoice item se non ancora fatturato). */
 export async function voidCustomerCharge(formData: FormData) {
   await requireAdmin();

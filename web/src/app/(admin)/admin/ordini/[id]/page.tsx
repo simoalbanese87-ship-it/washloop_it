@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
 import { advanceStatus, assignOrder, setEta } from "@/lib/actions/orders";
 import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
-import { chargeOrderSpecials } from "@/lib/actions/charge";
+import { chargeOrderSpecials, refundOrderSpecial } from "@/lib/actions/charge";
 import { AdminItems, type Item } from "@/components/app/AdminItems";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtFull, toRomeInputValue } from "@/lib/format";
@@ -27,7 +27,7 @@ type Order = {
 type Event = { id: string; status: OrderStatus; created_at: string; note: string | null };
 type Person = { id: string; full_name: string | null };
 type Laundry = { id: string; name: string };
-type Special = { id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null };
+type Special = { id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null };
 
 const input = "h-11 w-full rounded-[14px] border border-line bg-ice px-3.5 text-sm font-medium text-navy outline-none focus:border-blue";
 const STATUSES: OrderStatus[] = [...ORDER_FLOW, "cancelled"];
@@ -51,7 +51,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
 
   const { data: specials } = await supabase
     .from("order_specials")
-    .select("id, item_name, qty, price_cli_cents, charged_at")
+    .select("id, item_name, qty, price_cli_cents, charged_at, refunded_at")
     .eq("order_id", id)
     .order("created_at")
     .returns<Special[]>();
@@ -153,9 +153,17 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                   <li key={s.id} className="flex items-center justify-between gap-3 rounded-[12px] border border-line bg-ice px-3 py-2 text-sm">
                     <span className="font-semibold text-navy">{s.qty}× {s.item_name}</span>
                     <span className="flex items-center gap-2">
-                      <span className="font-display font-bold text-navy">{eur(s.price_cli_cents * s.qty)}</span>
-                      {s.charged_at ? (
-                        <span className="rounded-full bg-[#1F8A5B]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#1F8A5B]">in fattura</span>
+                      <span className={`font-display font-bold ${s.refunded_at ? "text-muted line-through" : "text-navy"}`}>{eur(s.price_cli_cents * s.qty)}</span>
+                      {s.refunded_at ? (
+                        <span className="rounded-full bg-navy/10 px-2 py-0.5 font-display text-xs font-extrabold text-navy">rimborsato</span>
+                      ) : s.charged_at ? (
+                        <>
+                          <span className="rounded-full bg-[#1F8A5B]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#1F8A5B]">in fattura</span>
+                          <form action={refundOrderSpecial}>
+                            <input type="hidden" name="special_id" value={s.id} />
+                            <button type="submit" className="font-display text-xs font-bold text-[#C0392B] hover:underline">Rimborsa</button>
+                          </form>
+                        </>
                       ) : (
                         <span className="rounded-full bg-[#E08A00]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#E08A00]">in attesa</span>
                       )}

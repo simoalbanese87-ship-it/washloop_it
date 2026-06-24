@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge } from "@/lib/actions/admin-customer";
 import { fmtDate } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 
@@ -105,21 +105,35 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
             <p className="text-sm font-medium text-muted">Nessun addebito personalizzato.</p>
           ) : (
             (charges ?? []).map((c) => (
-              <div key={c.id} className="flex items-center justify-between gap-3 rounded-[12px] border border-line px-3 py-2 text-sm">
-                <div className="min-w-0">
-                  <span className="font-bold text-navy">{c.description}</span>
-                  <span className="ml-2 text-xs font-medium text-muted">{fmtDate(c.created_at)} · {c.status}</span>
+              <div key={c.id} className="rounded-[12px] border border-line px-3 py-2 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className={`font-bold text-navy ${c.status === "void" ? "line-through" : ""}`}>{c.description}</span>
+                    <span className="ml-2 text-xs font-medium text-muted">{fmtDate(c.created_at)} · {c.status}</span>
+                  </div>
+                  <div className="flex flex-none items-center gap-3">
+                    <span className={`font-display font-extrabold ${c.kind === "refund" ? "text-[#1F8A5B]" : "text-navy"}`}>{c.kind === "refund" ? "−" : ""}{eur(c.amount_cents)}</span>
+                    {c.status !== "void" && (
+                      <form action={voidCustomerCharge}>
+                        <input type="hidden" name="id" value={c.id} />
+                        <input type="hidden" name="customer_id" value={id} />
+                        <button type="submit" className="font-display text-xs font-bold text-[#C0392B] hover:underline">Annulla</button>
+                      </form>
+                    )}
+                  </div>
                 </div>
-                <div className="flex flex-none items-center gap-3">
-                  <span className={`font-display font-extrabold ${c.kind === "refund" ? "text-[#1F8A5B]" : "text-navy"}`}>{c.kind === "refund" ? "−" : ""}{eur(c.amount_cents)}</span>
-                  {c.status !== "void" && (
-                    <form action={voidCustomerCharge}>
+                {c.status !== "void" && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer font-display text-xs font-bold text-blue">Modifica</summary>
+                    <form action={editCustomerCharge} className="mt-2 grid gap-2 sm:grid-cols-[2fr_1fr_auto] sm:items-end">
                       <input type="hidden" name="id" value={c.id} />
                       <input type="hidden" name="customer_id" value={id} />
-                      <button type="submit" className="font-display text-xs font-bold text-[#C0392B] hover:underline">Annulla</button>
+                      <input name="description" defaultValue={c.description} className={input} />
+                      <input name="amount_eur" type="number" step="0.01" min="0" defaultValue={(c.amount_cents / 100).toFixed(2)} className={input} />
+                      <Button type="submit" size="md" variant="ghost-navy">Salva</Button>
                     </form>
-                  )}
-                </div>
+                  </details>
+                )}
               </div>
             ))
           )}

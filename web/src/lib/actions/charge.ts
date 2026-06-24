@@ -77,3 +77,70 @@ export async function chargeOrderSpecials(formData: FormData) {
 
   revalidatePath(`/admin/ordini/${orderId}`);
 }
+
+/** Rimborsa un singolo capo speciale già messo in fattura.
+ *  - se l'invoice item è ancora in sospeso (non fatturato) → lo rimuove (nessun
+ *    denaro mosso, il capo torna "non addebitato");
+ *  - se è già su una fattura pagata → esegue un refund reale su Stripe per
+ *    l'importo del capo.
+ *  Registra anche una riga nel ledger cliente per tracciabilità. Solo admin. */
+export async function refundOrderSpecial(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "admin") throw new Error("Solo admin");
+
+  const specialId = String(formData.get("special_id") ?? "");
+  if (!specialId) throw new Error("Capo mancante");
+  const svc = createServiceClient();
+
+  const { data: sp } = await svc
+    .from("order_specials")
+    .select("id, order_id, item_name, qty, price_cli_cents, charged_at, refunded_at, stripe_invoice_item, orders(customer_id)")
+    .eq("id", specialId)
+    .maybeSingle<{ id: string; order_id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null; stripe_invoice_item: string | null; orders: { customer_id: string } | null }>();
+  if (!sp) throw new Error("Capo non trovato");
+  if (sp.refunded_at) throw new Error("Capo già rimborsato");
+  if (!sp.charged_at) throw new Error("Capo non ancora addebitato");
+
+  const amount = sp.price_cli_cents * sp.qty;
+  const sk = stripe();
+  let refundRef: string | null = null;
+  let moneyMoved = false;
+
+  if (sp.stripe_invoice_item) {
+    const ii = await sk.invoiceItems.retrieve(sp.stripe_invoice_item);
+    const invoiceId = typeof ii.invoice === "string" ? ii.invoice : ii.invoice?.id ?? null;
+    if (!invoiceId) {
+      // Ancora in sospeso → rimuovi: nessun addebito avvenuto.
+      try { await sk.invoiceItems.del(sp.stripe_invoice_item); } catch { /* ignore */ }
+      await svc.from("order_specials").update({ charged_at: null, stripe_invoice_item: null }).eq("id", specialId);
+      revalidatePath(`/admin/ordini/${sp.order_id}`);
+      return;
+    }
+    const inv = (await sk.invoices.retrieve(invoiceId)) as unknown as {
+      status?: string;
+      payment_intent?: string | { id?: string } | null;
+      charge?: string | { id?: string } | null;
+    };
+    const pi = typeof inv.payment_intent === "string" ? inv.payment_intent : inv.payment_intent?.id ?? null;
+    const ch = typeof inv.charge === "string" ? inv.charge : inv.charge?.id ?? null;
+    if (inv.status === "paid" && (pi || ch)) {
+      const refund = await sk.refunds.create(pi ? { payment_intent: pi, amount } : { charge: ch as string, amount });
+      refundRef = refund.id;
+      moneyMoved = true;
+    }
+  }
+
+  await svc.from("order_specials").update({ refunded_at: new Date().toISOString(), refund_ref: refundRef }).eq("id", specialId);
+  if (sp.orders?.customer_id) {
+    await svc.from("customer_charges").insert({
+      customer_id: sp.orders.customer_id,
+      description: `Rimborso capo: ${sp.item_name}${sp.qty > 1 ? ` ×${sp.qty}` : ""}`,
+      amount_cents: amount,
+      kind: "refund",
+      status: moneyMoved ? "settled" : "pending",
+      stripe_ref: refundRef,
+      created_by: profile.id,
+    });
+  }
+  revalidatePath(`/admin/ordini/${sp.order_id}`);
+}
