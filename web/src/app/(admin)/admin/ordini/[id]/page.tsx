@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
 import { advanceStatus, assignOrder, setEta } from "@/lib/actions/orders";
 import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
-import { chargeOrderSpecials, refundOrderSpecial } from "@/lib/actions/charge";
+import { chargeOrderSpecials, refundOrderSpecial, addSpecialAdmin } from "@/lib/actions/charge";
 import { AdminItems, type Item } from "@/components/app/AdminItems";
+import { AddSpecialForm, type ListItem } from "@/components/app/AddSpecialForm";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtFull, toRomeInputValue } from "@/lib/format";
 
@@ -55,6 +56,23 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
     .eq("order_id", id)
     .order("created_at")
     .returns<Special[]>();
+
+  // Listino capi per il form "aggiungi capo" (vista admin → prezzo cliente)
+  const { data: catItems } = await supabase
+    .from("special_items")
+    .select("id, name, price_cli_cents, comp_lav_cents, special_categories(id, name, emoji)")
+    .eq("active", true)
+    .order("sort")
+    .returns<{ id: string; name: string; price_cli_cents: number; comp_lav_cents: number; special_categories: { id: string; name: string; emoji: string } | null }[]>();
+  const listItems: ListItem[] = (catItems ?? []).map((i) => ({
+    id: i.id,
+    name: i.name,
+    category_id: i.special_categories?.id ?? "x",
+    category_name: i.special_categories?.name ?? "Capi",
+    category_emoji: i.special_categories?.emoji ?? "👕",
+    comp_lav_cents: i.comp_lav_cents,
+    price_cli_cents: i.price_cli_cents,
+  }));
 
   if (!order) notFound();
 
@@ -144,6 +162,10 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
             <div className="flex items-center justify-between">
               <span className="font-display text-sm font-extrabold text-navy">Capi speciali (addebito cliente)</span>
               {pendingTotal > 0 && <span className="font-display text-sm font-black text-navy">{eur(pendingTotal)} da addebitare</span>}
+            </div>
+            <div className="mt-3 rounded-[12px] border border-line bg-ice p-3">
+              <div className="mb-2 font-display text-xs font-extrabold uppercase tracking-wide text-blue">Aggiungi capo</div>
+              <AddSpecialForm orderId={order.id} items={listItems} action={addSpecialAdmin} customerView />
             </div>
             {specialRows.length === 0 ? (
               <p className="mt-3 text-sm font-medium text-muted">Nessun capo speciale su questo ordine.</p>

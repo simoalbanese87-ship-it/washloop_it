@@ -78,6 +78,36 @@ export async function chargeOrderSpecials(formData: FormData) {
   revalidatePath(`/admin/ordini/${orderId}`);
 }
 
+/** Admin: aggiunge un capo speciale a un ordine (snapshot prezzi dal listino). */
+export async function addSpecialAdmin(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "admin") throw new Error("Solo admin");
+  const orderId = String(formData.get("order_id") ?? "");
+  const itemId = String(formData.get("item_id") ?? "");
+  const qty = Math.max(1, parseInt(String(formData.get("qty") ?? "1"), 10) || 1);
+  if (!orderId || !itemId) throw new Error("Ordine e capo obbligatori");
+
+  const svc = createServiceClient();
+  const { data: item } = await svc
+    .from("special_items")
+    .select("id, name, comp_lav_cents, price_cli_cents, active")
+    .eq("id", itemId)
+    .single();
+  if (!item || !item.active) throw new Error("Capo non a listino");
+
+  const { error } = await svc.from("order_specials").insert({
+    order_id: orderId,
+    item_id: item.id,
+    item_name: item.name,
+    qty,
+    comp_lav_cents: item.comp_lav_cents,
+    price_cli_cents: item.price_cli_cents,
+    added_by: profile.id,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath(`/admin/ordini/${orderId}`);
+}
+
 /** Rimborsa un singolo capo speciale già messo in fattura.
  *  - se l'invoice item è ancora in sospeso (non fatturato) → lo rimuove (nessun
  *    denaro mosso, il capo torna "non addebitato");

@@ -11,6 +11,7 @@ export type ListItem = {
   category_emoji: string;
   name: string;
   comp_lav_cents: number;
+  price_cli_cents?: number;
 };
 
 const input =
@@ -20,8 +21,19 @@ function eur(c: number) {
   return (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 }
 
-export function AddSpecialForm({ orderId, items }: { orderId: string; items: ListItem[] }) {
+export function AddSpecialForm({
+  orderId,
+  items,
+  action = addSpecial,
+  customerView = false,
+}: {
+  orderId: string;
+  items: ListItem[];
+  action?: (formData: FormData) => void | Promise<void>;
+  customerView?: boolean;
+}) {
   const [itemId, setItemId] = useState("");
+  const priceOf = (it: ListItem) => (customerView ? it.price_cli_cents ?? it.comp_lav_cents : it.comp_lav_cents);
 
   const grouped = useMemo(() => {
     const map = new Map<string, { label: string; items: ListItem[] }>();
@@ -35,7 +47,7 @@ export function AddSpecialForm({ orderId, items }: { orderId: string; items: Lis
   const selected = items.find((i) => i.id === itemId);
 
   return (
-    <form action={addSpecial} className="space-y-3">
+    <form action={action} className="space-y-3">
       <input type="hidden" name="order_id" value={orderId} />
       <div className="grid gap-3 sm:grid-cols-[1fr_88px]">
         <select name="item_id" required value={itemId} onChange={(e) => setItemId(e.target.value)} className={input}>
@@ -44,7 +56,7 @@ export function AddSpecialForm({ orderId, items }: { orderId: string; items: Lis
             <optgroup key={g.label} label={g.label}>
               {g.items.map((it) => (
                 <option key={it.id} value={it.id}>
-                  {it.name} · {eur(it.comp_lav_cents)}
+                  {it.name} · {eur(priceOf(it))}
                 </option>
               ))}
             </optgroup>
@@ -54,7 +66,7 @@ export function AddSpecialForm({ orderId, items }: { orderId: string; items: Lis
       </div>
       {selected && (
         <p className="text-sm font-medium text-muted">
-          Compenso lavanderia: <span className="font-bold text-navy">{eur(selected.comp_lav_cents)}</span> a capo
+          {customerView ? "Prezzo cliente" : "Compenso lavanderia"}: <span className="font-bold text-navy">{eur(priceOf(selected))}</span> a capo
         </p>
       )}
       <Button type="submit" size="md" disabled={!itemId}>
