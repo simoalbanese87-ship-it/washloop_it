@@ -2,6 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { createServiceClient } from "@/lib/supabase/server";
+import { sendMail } from "@/lib/email";
+import { chargeEmailHtml } from "@/lib/email-templates";
+import { LEGAL } from "@/lib/legal";
+import { fmtDate } from "@/lib/format";
 
 /** Webhook Stripe → aggiorna `subscriptions` con service-role (bypassa RLS).
  *  Eventi gestiti: checkout completato, subscription creata/aggiornata/cancellata. */
@@ -56,6 +60,75 @@ export async function POST(request: NextRequest) {
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
       await upsertFromSubscription(event.data.object as Stripe.Subscription);
+      break;
+    }
+
+    // Ricevuta di addebito: ogni fattura pagata (canone e/o extra). L'importo è
+    // stato realmente prelevato sulla carta salvata → mail con dettaglio.
+    case "invoice.payment_succeeded": {
+      try {
+        const inv = event.data.object as unknown as {
+          id: string; number?: string | null; customer: string;
+          customer_email?: string | null; customer_name?: string | null;
+          amount_paid: number; created: number;
+          charge?: string | null; payment_intent?: string | null;
+          status_transitions?: { paid_at?: number | null };
+          lines?: { data?: { description?: string | null; amount?: number }[] };
+        };
+        if (!inv.amount_paid || inv.amount_paid <= 0) break; // niente da notificare (es. €0)
+
+        // Destinatario: email da fattura, fallback al customer Stripe.
+        let to = inv.customer_email ?? null;
+        let name = inv.customer_name ?? null;
+        if (!to) {
+          const cust = (await stripe().customers.retrieve(inv.customer)) as Stripe.Customer;
+          to = cust.email ?? null;
+          name = name ?? cust.name ?? null;
+        }
+        // Nome cliente dal profilo (preferito), via stripe_customer_id.
+        const { data: prof } = await db
+          .from("subscriptions")
+          .select("profiles(full_name)")
+          .eq("stripe_customer_id", inv.customer)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle<{ profiles: { full_name: string | null } | null }>();
+        name = prof?.profiles?.full_name ?? name ?? "Cliente";
+        if (!to) break;
+
+        // Ultime 4 cifre della carta dal charge/payment_intent.
+        let last4: string | null = null;
+        try {
+          if (inv.charge) {
+            const ch = (await stripe().charges.retrieve(inv.charge)) as Stripe.Charge;
+            last4 = ch.payment_method_details?.card?.last4 ?? null;
+          } else if (inv.payment_intent) {
+            const pi = await stripe().paymentIntents.retrieve(inv.payment_intent, { expand: ["latest_charge"] });
+            const ch = pi.latest_charge as Stripe.Charge | null;
+            last4 = ch?.payment_method_details?.card?.last4 ?? null;
+          }
+        } catch { /* last4 best-effort */ }
+
+        const items = (inv.lines?.data ?? [])
+          .filter((l) => typeof l.amount === "number")
+          .map((l) => ({ description: l.description || "Servizio WashLoop", amount_cents: l.amount as number }));
+        if (items.length === 0) items.push({ description: "Servizio WashLoop", amount_cents: inv.amount_paid });
+
+        const paidAt = inv.status_transitions?.paid_at ?? inv.created;
+        const html = chargeEmailHtml({
+          fullName: name,
+          items,
+          totalCents: inv.amount_paid,
+          cardLast4: last4,
+          dateLabel: fmtDate(new Date(paidAt * 1000)),
+          refLabel: inv.number ?? null,
+          siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it",
+          legal: { company: LEGAL.company, vat: LEGAL.vat, address: LEGAL.address, email: LEGAL.email, phone: LEGAL.phone },
+        });
+        await sendMail({ to, subject: `Addebito WashLoop · €${(inv.amount_paid / 100).toLocaleString("it-IT", { minimumFractionDigits: 2 })} 💳`, html });
+      } catch (err) {
+        console.error("[webhook] invoice.payment_succeeded notify fallita:", err);
+      }
       break;
     }
   }
