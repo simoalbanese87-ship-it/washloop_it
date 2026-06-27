@@ -31,7 +31,7 @@ export function Header() {
           <Link href="/login" className="hidden font-display text-sm font-bold text-navy/70 transition-colors hover:text-navy sm:block">
             Accedi
           </Link>
-          <ButtonLink href="/#prezzi" size="md">
+          <ButtonLink href="/onboarding" size="md">
             Attiva WashLoop →
           </ButtonLink>
         </div>

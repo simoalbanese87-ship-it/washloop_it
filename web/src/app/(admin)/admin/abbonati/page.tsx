@@ -1,44 +1,67 @@
 import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import { impersonate, createDemoCustomer } from "@/lib/actions/impersonate";
 import { createCustomer } from "@/lib/actions/admin-customer";
 import { fmtDate } from "@/lib/format";
 
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 type Plan = { id: string; name: string };
+type Prof = { id: string; full_name: string | null; phone: string | null; created_at: string };
+type Sub = { user_id: string; status: string; current_period_end: string | null; created_at: string; plans: { name: string } | null };
 
-type Sub = {
-  id: string;
-  status: string;
+type Row = {
   user_id: string;
+  name: string;
+  phone: string;
+  planName: string | null;
+  status: string;        // active | trialing | past_due | ... | pending
   current_period_end: string | null;
-  founder_pricing: boolean;
-  profiles: { full_name: string | null; phone: string | null } | null;
-  plans: { name: string } | null;
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  active: "Attivo", trialing: "In prova", past_due: "Pagamento sospeso",
+  unpaid: "Non pagato", canceled: "Disdetto", paused: "In pausa",
+  incomplete: "Da completare", pending: "Pending (lead)",
+};
 const tone = (s: string) =>
-  s === "active" || s === "trialing" ? "bg-[#1F8A5B]/15 text-[#1F8A5B]" : s === "past_due" || s === "unpaid" ? "bg-[#C0392B]/12 text-[#C0392B]" : "bg-navy/10 text-navy";
+  s === "active" || s === "trialing" ? "bg-[#1F8A5B]/15 text-[#1F8A5B]"
+    : s === "past_due" || s === "unpaid" ? "bg-[#C0392B]/12 text-[#C0392B]"
+    : s === "pending" ? "bg-[#C9881F]/15 text-[#C9881F]"
+    : "bg-navy/10 text-navy";
 
 export default async function AbbonatiPage() {
-  const supabase = await createClient();
-  const [{ data: subs }, { data: plans }] = await Promise.all([
-    supabase
-      .from("subscriptions")
-      .select("id, status, user_id, current_period_end, founder_pricing, profiles(full_name, phone), plans(name)")
-      .order("created_at", { ascending: false })
-      .returns<Sub[]>(),
-    supabase.from("plans").select("id, name").eq("active", true).order("sort").returns<Plan[]>(),
+  // Service client: la dashboard admin (layout già role=admin) elenca TUTTI i
+  // profili clienti, anche senza subscription (lead/pending).
+  const svc = createServiceClient();
+  const [{ data: profiles }, { data: subsAll }, { data: plans }] = await Promise.all([
+    svc.from("profiles").select("id, full_name, phone, created_at").eq("role", "customer").order("created_at", { ascending: false }).returns<Prof[]>(),
+    svc.from("subscriptions").select("user_id, status, current_period_end, created_at, plans(name)").order("created_at", { ascending: false }).returns<Sub[]>(),
+    svc.from("plans").select("id, name").eq("active", true).order("sort").returns<Plan[]>(),
   ]);
 
-  const rows = subs ?? [];
-  const active = rows.filter((s) => s.status === "active" || s.status === "trialing").length;
+  // Subscription più recente per ciascun cliente.
+  const latestSub = new Map<string, Sub>();
+  for (const s of subsAll ?? []) if (!latestSub.has(s.user_id)) latestSub.set(s.user_id, s);
+
+  const rows: Row[] = (profiles ?? []).map((p) => {
+    const s = latestSub.get(p.id);
+    return {
+      user_id: p.id,
+      name: p.full_name ?? "—",
+      phone: p.phone ?? "",
+      planName: s?.plans?.name ?? null,
+      status: s?.status ?? "pending",
+      current_period_end: s?.current_period_end ?? null,
+    };
+  });
+  const active = rows.filter((r) => r.status === "active" || r.status === "trialing").length;
+  const pending = rows.filter((r) => r.status === "pending").length;
 
   return (
     <>
-      <PageTitle kicker="Abbonati" title="Clienti & piani" sub={`${rows.length} abbonamenti · ${active} attivi`} />
+      <PageTitle kicker="Abbonati" title="Clienti & piani" sub={`${rows.length} clienti · ${active} attivi · ${pending} pending`} />
 
       <div className="mb-4 flex items-center justify-between gap-3 rounded-[16px] border border-line bg-ice px-4 py-3">
         <div className="text-sm font-medium text-muted">Simula l&apos;esperienza cliente: entra in un abbonato o crea un cliente demo già attivo.</div>
@@ -68,7 +91,7 @@ export default async function AbbonatiPage() {
 
       {rows.length === 0 ? (
         <Card>
-          <p className="text-sm font-medium text-muted">Nessun abbonamento ancora. Compaiono qui dopo il primo Checkout completato.</p>
+          <p className="text-sm font-medium text-muted">Nessun cliente ancora.</p>
         </Card>
       ) : (
         <div className="overflow-hidden rounded-[24px] border border-line bg-white">
@@ -79,23 +102,23 @@ export default async function AbbonatiPage() {
             <div>Rinnovo</div>
             <div></div>
           </div>
-          {rows.map((s) => (
-            <div key={s.id} className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] items-center gap-4 border-b border-line px-6 py-4 last:border-0">
+          {rows.map((r) => (
+            <div key={r.user_id} className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] items-center gap-4 border-b border-line px-6 py-4 last:border-0">
               <div>
-                <Link href={`/admin/abbonati/${s.user_id}`} className="font-display text-sm font-bold text-navy hover:text-blue hover:underline">
-                  {s.profiles?.full_name ?? "—"}
+                <Link href={`/admin/abbonati/${r.user_id}`} className="font-display text-sm font-bold text-navy hover:text-blue hover:underline">
+                  {r.name}
                 </Link>
-                <div className="text-xs font-medium text-muted">{s.profiles?.phone ?? ""}</div>
+                <div className="text-xs font-medium text-muted">{r.phone}</div>
               </div>
-              <div className="text-sm font-semibold text-navy">{s.plans?.name ?? "—"}</div>
+              <div className="text-sm font-semibold text-navy">{r.planName ?? "—"}</div>
               <div>
-                <span className={`inline-flex rounded-full px-2.5 py-1 font-display text-xs font-bold ${tone(s.status)}`}>{s.status}</span>
+                <span className={`inline-flex rounded-full px-2.5 py-1 font-display text-xs font-bold ${tone(r.status)}`}>{STATUS_LABEL[r.status] ?? r.status}</span>
               </div>
               <div className="text-sm font-medium text-muted">
-                {s.current_period_end ? fmtDate(s.current_period_end) : "—"}
+                {r.current_period_end ? fmtDate(r.current_period_end) : "—"}
               </div>
               <form action={impersonate}>
-                <input type="hidden" name="user_id" value={s.user_id} />
+                <input type="hidden" name="user_id" value={r.user_id} />
                 <button type="submit" className="rounded-full border border-line px-3 py-1.5 font-display text-xs font-extrabold text-blue transition-colors hover:bg-ice">
                   Accedi come →
                 </button>

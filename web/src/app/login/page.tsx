@@ -23,6 +23,7 @@ function LoginForm() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -35,18 +36,28 @@ function LoginForm() {
     const supabase = createClient();
 
     if (mode === "signup") {
+      if (!accepted) {
+        setLoading(false);
+        return setError("Devi accettare i Termini e la Privacy per continuare.");
+      }
+      const acceptedAt = new Date().toISOString();
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName } },
+        options: { data: { full_name: fullName, terms_accepted_at: acceptedAt } },
       });
-      setLoading(false);
-      if (error) return setError(error.message);
+      if (error) {
+        setLoading(false);
+        return setError(error.message);
+      }
       // Se la conferma email è disattivata, la sessione c'è subito → vai al checkout/app.
-      if (data.session) {
+      if (data.session && data.user) {
+        await supabase.from("profiles").update({ terms_accepted_at: acceptedAt }).eq("id", data.user.id);
+        setLoading(false);
         router.push(dest);
         router.refresh();
       } else {
+        setLoading(false);
         setInfo("Account creato. Se richiesto, conferma l'email e poi accedi.");
       }
       return;
@@ -163,11 +174,10 @@ function LoginForm() {
         )}
 
         {isSignup && (
-          <p className="mt-4 text-left text-xs font-medium leading-relaxed text-white/55">
-            Continuando accetti i{" "}
-            <Link href="/termini" className="underline">Termini</Link> e la{" "}
-            <Link href="/privacy" className="underline">Privacy</Link> di WashLoop.
-          </p>
+          <label className="mt-4 flex cursor-pointer items-start gap-3 text-left text-[13px] font-medium leading-relaxed text-white">
+            <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} className="mt-0.5 h-5 w-5 flex-none accent-[#00c8f0]" />
+            <span>Accetto i <Link href="/termini" className="font-bold underline">Termini</Link> e la <Link href="/privacy" className="font-bold underline">Privacy policy</Link> del servizio.</span>
+          </label>
         )}
 
         <button

@@ -31,31 +31,43 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [accepted, setAccepted] = useState(false);
 
   const [street, setStreet] = useState("");
   const [cap, setCap] = useState("");
   const [city, setCity] = useState("Milano");
   const [accessMode, setAccessMode] = useState<"door" | "home" | "concierge">("door");
   const [accessNote, setAccessNote] = useState("");
+  const [conciergeHours, setConciergeHours] = useState("");
 
   const initial = plans.find((p) => p.code === initialPlanCode);
   const [planId, setPlanId] = useState(initial?.id ?? plans[0]?.id ?? "");
   const plan = plans.find((p) => p.id === planId);
 
   async function doRegister() {
+    if (!accepted) return setError("Devi accettare i Termini e la Privacy per continuare.");
     setLoading(true); setError(null); setInfo(null);
     const supabase = createClient();
-    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName, phone } } });
+    const acceptedAt = new Date().toISOString();
+    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName, phone, terms_accepted_at: acceptedAt } } });
+    if (error) { setLoading(false); return setError(error.message); }
+    if (data.session && data.user) {
+      // Prova del consenso anche sul profilo (GDPR)
+      await supabase.from("profiles").update({ terms_accepted_at: acceptedAt }).eq("id", data.user.id);
+      setLoading(false); setStep(2); return;
+    }
     setLoading(false);
-    if (error) return setError(error.message);
-    if (data.session) { setStep(2); return; }
     setInfo("Account creato. Conferma l'email, poi accedi per completare.");
   }
 
   async function doAddress() {
     if (!street.trim()) return setError("Inserisci l'indirizzo");
     setLoading(true); setError(null);
-    const res = await createOnboardingAddress({ street, cap, city, access_mode: accessMode, access_note: accessNote.trim() || null });
+    const res = await createOnboardingAddress({
+      street, cap, city, access_mode: accessMode,
+      access_note: accessNote.trim() || null,
+      concierge_hours: accessMode === "concierge" ? conciergeHours.trim() || null : null,
+    });
     setLoading(false);
     if (!res.ok) return setError(res.error);
     setStep(3);
@@ -119,7 +131,10 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
                 <input className={input} placeholder="Telefono" value={phone} onChange={(e) => setPhone(e.target.value)} />
                 <input className={input} type="password" minLength={8} autoComplete="new-password" placeholder="Password (min 8 caratteri)" value={password} onChange={(e) => setPassword(e.target.value)} />
               </div>
-              <p className="mt-4 text-xs font-medium text-white/55">Continuando accetti i <Link href="/termini" className="underline">Termini</Link> e la <Link href="/privacy" className="underline">Privacy</Link>.</p>
+              <label className="mt-4 flex cursor-pointer items-start gap-3 text-[13px] font-medium leading-relaxed text-white">
+                <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} className="mt-0.5 h-5 w-5 flex-none accent-[#00c8f0]" />
+                <span>Accetto i <Link href="/termini" className="font-bold underline">Termini</Link> e la <Link href="/privacy" className="font-bold underline">Privacy policy</Link> del servizio.</span>
+              </label>
             </div>
           )}
 
@@ -149,7 +164,10 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
                   </button>
                 ))}
                 {accessMode === "concierge" && (
+                  <>
                   <input className={input} placeholder="Nome del portinaio (facoltativo)" value={accessNote} onChange={(e) => setAccessNote(e.target.value)} />
+                  <input className={input} placeholder="Orario portineria (facoltativo)" value={conciergeHours} onChange={(e) => setConciergeHours(e.target.value)} />
+                  </>
                 )}
               </div>
             </div>

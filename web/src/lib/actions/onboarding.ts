@@ -10,6 +10,7 @@ export async function createOnboardingAddress(input: {
   city?: string | null;
   access_mode?: string | null;
   access_note?: string | null;
+  concierge_hours?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createClient();
   const {
@@ -31,6 +32,7 @@ export async function createOnboardingAddress(input: {
     zone_id: zone?.id ?? null,
     access_mode: input.access_mode || "door",
     access_note: input.access_note || null,
+    concierge_hours: input.concierge_hours || null,
   });
   if (error) return { ok: false, error: error.message };
   return { ok: true };

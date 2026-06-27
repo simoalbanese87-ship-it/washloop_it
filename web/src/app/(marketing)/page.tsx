@@ -113,7 +113,7 @@ export default function Home() {
             Ritiriamo, laviamo, stiriamo e ti riconsegniamo il guardaroba a casa. Tutto dal telefono. Zero pensieri.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <ButtonLink href="/#prezzi">Attiva WashLoop →</ButtonLink>
+            <ButtonLink href="/onboarding">Attiva WashLoop →</ButtonLink>
             <ButtonLink href="https://funnel.washloop.it" variant="ghost">
               Scopri il tuo profilo bucato →
             </ButtonLink>
@@ -293,7 +293,7 @@ export default function Home() {
             Il tuo tempo vale troppo per il bucato. Delegalo a chi lo fa meglio di te.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <ButtonLink href="/#prezzi" variant="light">
+            <ButtonLink href="/onboarding" variant="light">
               Attiva WashLoop →
             </ButtonLink>
             <ButtonLink href="https://funnel.washloop.it" variant="ghost">
