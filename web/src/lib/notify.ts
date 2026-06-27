@@ -184,3 +184,32 @@ export async function notifyCourierAssigned(orderId: string) {
     console.error(`[notify] notifyCourierAssigned(${orderId}) fallita:`, err);
   }
 }
+
+/** Email di benvenuto a un cliente creato dall'admin (mini-CRM): credenziali di
+ *  accesso + piano. La password è temporanea: invitiamo a cambiarla. */
+export async function notifyNewCustomer(input: {
+  to: string;
+  fullName: string;
+  password: string;
+  planName?: string | null;
+  priceLabel?: string | null;
+}) {
+  try {
+    const plan = input.planName ? `Piano <strong>${input.planName}</strong>${input.priceLabel ? ` · ${input.priceLabel}/mese` : ""}` : null;
+    const html = renderEmail({
+      title: `Benvenuto in WashLoop, ${input.fullName.split(" ")[0]}!`,
+      emoji: "🧺",
+      preheader: "Il tuo account WashLoop è pronto: ecco come accedere.",
+      body:
+        `Abbiamo creato il tuo account WashLoop.${plan ? `<br/>${plan}.` : ""}<br/><br/>` +
+        `<strong>Accesso</strong><br/>` +
+        `Email: ${input.to}<br/>` +
+        `Password temporanea: <strong>${input.password}</strong><br/><br/>` +
+        `Accedi e, per sicurezza, cambia la password dal tuo profilo (o usa «Password dimenticata?»). Da lì gestisci ritiri, abbonamento e indirizzi.`,
+      cta: { label: "Accedi a WashLoop", href: `${site()}/login` },
+    });
+    await sendMail({ to: input.to, subject: "Benvenuto in WashLoop — accedi al tuo account 🧺", html });
+  } catch (err) {
+    console.error(`[notify] notifyNewCustomer(${input.to}) fallita:`, err);
+  }
+}

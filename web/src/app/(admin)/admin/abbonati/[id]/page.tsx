@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials } from "@/lib/actions/admin-customer";
 import { fmtDate } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 
@@ -39,6 +39,11 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
     <>
       <Link href="/admin/abbonati" className="font-display text-sm font-bold text-blue hover:underline">← Abbonati</Link>
       <PageTitle kicker="Cliente" title={profile.full_name ?? "Cliente"} sub={`${email}${profile.client_code ? ` · ${profile.client_code}` : ""}`} />
+
+      <form action={resendCredentials} className="mb-4">
+        <input type="hidden" name="customer_id" value={id} />
+        <Button type="submit" size="md" variant="ghost-navy">Reinvia credenziali via email</Button>
+      </form>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Abbonamento */}

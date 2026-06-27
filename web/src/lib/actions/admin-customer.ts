@@ -6,6 +6,9 @@ import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
+import { notifyNewCustomer } from "@/lib/notify";
+
+const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 async function requireAdmin() {
   const me = await getCurrentProfile();
@@ -45,8 +48,48 @@ export async function createCustomer(formData: FormData) {
     current_period_end: new Date(Date.now() + 30 * 86_400_000).toISOString(),
   });
 
+  // Email di benvenuto con credenziali + piano (best-effort)
+  let planName: string | null = null;
+  let priceLabel: string | null = custom != null ? eur(custom) : null;
+  if (plan_id) {
+    const { data: plan } = await svc.from("plans").select("name, price_month_cents").eq("id", plan_id).maybeSingle<{ name: string; price_month_cents: number }>();
+    planName = plan?.name ?? null;
+    if (priceLabel == null && plan) priceLabel = eur(plan.price_month_cents);
+  }
+  await notifyNewCustomer({ to: email, fullName: full_name, password, planName, priceLabel });
+
   revalidatePath("/admin/abbonati");
   redirect(`/admin/abbonati/${uid}`);
+}
+
+/** Reinvia le credenziali a un cliente: genera una nuova password temporanea e
+ *  manda l'email di accesso. Utile se la prima email non è arrivata. */
+export async function resendCredentials(formData: FormData) {
+  await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  if (!customerId) throw new Error("Cliente mancante");
+  const svc = createServiceClient();
+
+  const { data: au } = await svc.auth.admin.getUserById(customerId);
+  const email = au?.user?.email;
+  if (!email) throw new Error("Email cliente non trovata");
+
+  const password = `WL!${crypto.randomBytes(4).toString("hex")}`;
+  const { error } = await svc.auth.admin.updateUserById(customerId, { password });
+  if (error) throw new Error(error.message);
+
+  const { data: prof } = await svc.from("profiles").select("full_name").eq("id", customerId).maybeSingle<{ full_name: string | null }>();
+  const { data: sub } = await svc
+    .from("subscriptions")
+    .select("custom_price_cents, plans(name, price_month_cents)")
+    .eq("user_id", customerId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ custom_price_cents: number | null; plans: { name: string; price_month_cents: number } | null }>();
+  const priceLabel = sub?.custom_price_cents != null ? eur(sub.custom_price_cents) : sub?.plans ? eur(sub.plans.price_month_cents) : null;
+
+  await notifyNewCustomer({ to: email, fullName: prof?.full_name ?? "Cliente", password, planName: sub?.plans?.name ?? null, priceLabel });
+  revalidatePath(`/admin/abbonati/${customerId}`);
 }
 
 /** Pausa / riprendi / disdici l'abbonamento (Stripe se collegato, altrimenti DB). */
