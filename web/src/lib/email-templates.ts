@@ -11,10 +11,9 @@ export type WelcomeEmailData = {
   legal: { company: string; vat: string; address: string; email: string; phone?: string };
 };
 
-/** Logo WashLoop come immagine PNG (route /email-logo) — l'SVG non rende nei
- *  client di posta. `alt` testuale come fallback. */
+/** Logo WashLoop ufficiale (PNG da /public) — l'SVG non rende nei client di posta. */
 function logo(site: string): string {
-  return `<img src="${site}/email-logo" alt="WashLoop" width="150" height="39" style="display:block;border:0;outline:none;height:auto" />`;
+  return `<img src="${site}/logo-washloop.png" alt="WashLoop" width="170" height="47" style="display:block;border:0;outline:none;height:auto" />`;
 }
 
 export function welcomeEmailHtml(d: WelcomeEmailData): string {
