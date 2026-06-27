@@ -13,7 +13,7 @@ export type WelcomeEmailData = {
 
 /** Logo WashLoop ufficiale (PNG da /public) — l'SVG non rende nei client di posta. */
 function logo(site: string): string {
-  return `<img src="${site}/logo-washloop.png" alt="WashLoop" width="180" height="40" style="display:block;border:0;outline:none;height:auto" />`;
+  return `<img src="${site}/logo-washloop.png" alt="WashLoop" width="185" height="42" style="display:block;border:0;outline:none;height:auto" />`;
 }
 
 export function welcomeEmailHtml(d: WelcomeEmailData): string {
