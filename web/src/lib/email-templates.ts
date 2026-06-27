@@ -11,16 +11,10 @@ export type WelcomeEmailData = {
   legal: { company: string; vat: string; address: string; email: string; phone?: string };
 };
 
-/** Logo WashLoop testuale (le due "o" di Loop come bolle/oblò). */
-function logo(): string {
-  return (
-    `<span style="font-family:'Nunito',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:-0.5px;color:#0B1F3A">Wash` +
-    `<span style="color:#2D7DD2">L</span>` +
-    `<span style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#2D7DD2;vertical-align:middle;margin:0 1px"></span>` +
-    `<span style="display:inline-block;width:13px;height:13px;border-radius:50%;background:#7FE3D6;vertical-align:middle;margin:0 1px"></span>` +
-    `<span style="color:#0B1F3A">p</span>` +
-    `</span>`
-  );
+/** Logo WashLoop come immagine PNG (route /email-logo) — l'SVG non rende nei
+ *  client di posta. `alt` testuale come fallback. */
+function logo(site: string): string {
+  return `<img src="${site}/email-logo" alt="WashLoop" width="150" height="39" style="display:block;border:0;outline:none;height:auto" />`;
 }
 
 export function welcomeEmailHtml(d: WelcomeEmailData): string {
@@ -42,7 +36,7 @@ export function welcomeEmailHtml(d: WelcomeEmailData): string {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF3F9;padding:32px 16px">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px">
-        <tr><td style="padding:4px 8px 18px">${logo()}</td></tr>
+        <tr><td style="padding:4px 8px 18px">${logo(site)}</td></tr>
         <tr><td style="background:#ffffff;border:1px solid #E1E8F1;border-radius:24px;overflow:hidden">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
             <tr><td style="height:5px;background:#7FE3D6;line-height:5px;font-size:5px">&nbsp;</td></tr>
