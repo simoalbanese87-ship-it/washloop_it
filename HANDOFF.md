@@ -89,7 +89,13 @@ Aggiunto di recente:
 - **Web Push reali**: VAPID (env `NEXT_PUBLIC_VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` su Vercel), `lib/push.ts` (web-push), `public/sw.js` handler push+notificationclick (cache v2), `/api/push/subscribe`, tabella `push_subscriptions` (migration 0017).
 - **PWA UX** (solo `/app`): `NotificationPrompt` (popup basso, chiede permesso, non ri-chiede se concesso/negato) + `InstallBanner` (alto, mobile; Android `beforeinstallprompt` / iOS istruzioni; nascosto se già installata). Montati in `MobileShell`.
 
-**Migrazioni** (Supabase SQL Editor o Management API): **0013→0017 GIÀ applicate in prod** via Management API. Se reinstalli il DB, applica 0001→0017 in ordine.
+- **Email transazionali Brevo**: canale attivo (login SMTP `af6603001@smtp-brevo.com`, mittente `noreply@send.washloop.it`, Reply-To `info@washloop.it`). Template in `src/lib/email-templates.ts` (`welcomeEmailHtml` = credenziali+piano alla creazione cliente / "Reinvia credenziali"; `chargeEmailHtml` = ricevuta addebito). Logo email = `public/logo-washloop.png` (screenshot del logo del sito). Ricevuta addebito automatica via webhook Stripe `invoice.payment_succeeded` (evento abilitato sull'endpoint).
+- **Consenso privacy** (GDPR): checkbox OBBLIGATORIO in onboarding + login signup; salva `profiles.terms_accepted_at` (+ user_metadata).
+- **Indirizzi cliente**: niente più selezione "Zona" (auto-assegnata internamente, Milano); campo "Orario portineria" (`addresses.concierge_hours`) solo se modalità=Portineria. Form in `src/components/app/AddressForm.tsx`.
+- **CTA marketing** "Attiva WashLoop" → `/onboarding`; `/onboarding` non reindirizza più al login i ruoli non-customer (fix bug Firefox).
+- **Dashboard admin `/admin/abbonati`**: elenca i PROFILI clienti (service client) con stato Attivo/Prova/**Pending** (lead). I clienti senza subscription (creati a metà o lead che non pagano) sono ora visibili.
+
+**Migrazioni** (Supabase SQL Editor o Management API): **0013→0020 GIÀ applicate in prod** via Management API. Se reinstalli il DB, applica 0001→0020 in ordine.
 
 - **Onboarding wizard scuro** (`/onboarding`): Welcome → Registrazione (signUp) → Indirizzo+Modalità ritiro → Piano → Pagamento (Stripe Checkout). CTA piani del marketing puntano a `/onboarding?plan=code`. Verificato end-to-end in prod.
 - **Modalità di ritiro** (porta/casa/portineria + nota): migration 0016, in Indirizzi, conferma prenota e card corriere.
