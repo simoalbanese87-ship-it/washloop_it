@@ -42,6 +42,8 @@ export async function checkoutUrlForPlan(planId: string): Promise<string> {
   const session = await stripe().checkout.sessions.create({
     mode: "subscription",
     customer: customerId,
+    // Metodi consentiti: carta (+ Apple/Google Pay), Link, Amazon Pay. Klarna escluso.
+    payment_method_types: ["card", "link", "amazon_pay"],
     line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
     success_url: `${siteUrl()}/app?checkout=success`,
     cancel_url: `${siteUrl()}/app/abbonamento?checkout=cancel`,
