@@ -23,12 +23,12 @@ type Row = {
 const STATUS_LABEL: Record<string, string> = {
   active: "Attivo", trialing: "In prova", past_due: "Pagamento sospeso",
   unpaid: "Non pagato", canceled: "Disdetto", paused: "In pausa",
-  incomplete: "Da completare", pending: "Pending (lead)",
+  incomplete: "Da attivare", pending: "Pending (lead)",
 };
 const tone = (s: string) =>
   s === "active" || s === "trialing" ? "bg-[#1F8A5B]/15 text-[#1F8A5B]"
     : s === "past_due" || s === "unpaid" ? "bg-[#C0392B]/12 text-[#C0392B]"
-    : s === "pending" ? "bg-[#C9881F]/15 text-[#C9881F]"
+    : s === "pending" || s === "incomplete" ? "bg-[#C9881F]/15 text-[#C9881F]"
     : "bg-navy/10 text-navy";
 
 export default async function AbbonatiPage() {

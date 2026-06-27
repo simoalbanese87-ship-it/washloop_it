@@ -39,13 +39,15 @@ export async function createCustomer(formData: FormData) {
   await svc.from("profiles").update({ full_name, phone }).eq("id", uid);
 
   const custom = priceRaw ? eurToCents(priceRaw) : null;
+  // Stato "incomplete" finché il pagamento non è confermato: NON è "active"
+  // (active solo per chi ha pagato). L'admin lo attiva con "Segna come pagato".
   await svc.from("subscriptions").insert({
     user_id: uid,
     plan_id,
-    status: "active",
+    status: "incomplete",
     manual: true,
     custom_price_cents: Number.isFinite(custom as number) ? custom : null,
-    current_period_end: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    current_period_end: null,
   });
 
   // Email di benvenuto con credenziali + piano (best-effort)
@@ -92,19 +94,21 @@ export async function resendCredentials(formData: FormData) {
   revalidatePath(`/admin/abbonati/${customerId}`);
 }
 
-/** Pausa / riprendi / disdici l'abbonamento (Stripe se collegato, altrimenti DB). */
+/** Pausa / riprendi / disdici / **attiva** l'abbonamento (Stripe se collegato,
+ *  altrimenti DB). "activate" = conferma pagamento per gli abbonamenti manuali:
+ *  porta lo stato ad "active" e imposta il periodo. */
 export async function changeSubscription(formData: FormData) {
   await requireAdmin();
   const subId = String(formData.get("sub_id") ?? "");
-  const action = String(formData.get("action") ?? ""); // pause | resume | cancel
+  const action = String(formData.get("action") ?? ""); // pause | resume | cancel | activate
   if (!subId || !action) throw new Error("Parametri mancanti");
 
   const svc = createServiceClient();
   const { data: sub } = await svc
     .from("subscriptions")
-    .select("id, user_id, stripe_subscription_id, manual")
+    .select("id, user_id, stripe_subscription_id, manual, current_period_end")
     .eq("id", subId)
-    .maybeSingle<{ id: string; user_id: string; stripe_subscription_id: string | null; manual: boolean }>();
+    .maybeSingle<{ id: string; user_id: string; stripe_subscription_id: string | null; manual: boolean; current_period_end: string | null }>();
   if (!sub) throw new Error("Abbonamento non trovato");
 
   const stripeId = sub.stripe_subscription_id;
@@ -115,8 +119,15 @@ export async function changeSubscription(formData: FormData) {
     else if (action === "cancel") await sk.subscriptions.update(stripeId, { cancel_at_period_end: true });
     // lo stato reale arriva dal webhook; aggiorno comunque un valore ottimistico
   }
-  const status = action === "pause" ? "paused" : action === "cancel" ? "canceled" : "active";
-  await svc.from("subscriptions").update({ status }).eq("id", subId);
+
+  if (action === "activate") {
+    // Conferma pagamento (manuale): attiva e fissa/rinnova il periodo a 30gg.
+    const periodEnd = new Date(Date.now() + 30 * 86_400_000).toISOString();
+    await svc.from("subscriptions").update({ status: "active", current_period_end: periodEnd }).eq("id", subId);
+  } else {
+    const status = action === "pause" ? "paused" : action === "cancel" ? "canceled" : "active";
+    await svc.from("subscriptions").update({ status }).eq("id", subId);
+  }
 
   revalidatePath(`/admin/abbonati/${sub.user_id}`);
 }

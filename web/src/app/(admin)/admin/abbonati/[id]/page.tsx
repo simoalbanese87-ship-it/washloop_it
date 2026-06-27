@@ -10,6 +10,12 @@ import type { OrderStatus } from "@/lib/orders";
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
+const SUB_STATUS_LABEL: Record<string, string> = {
+  active: "Attivo", trialing: "In prova", past_due: "Pagamento sospeso",
+  unpaid: "Non pagato", canceled: "Disdetto", paused: "In pausa",
+  incomplete: "Da attivare (non pagato)",
+};
+
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string };
 type Sub = { id: string; status: string; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; stripe_subscription_id: string | null; plans: { name: string; price_month_cents: number } | null };
 type Addr = { id: string; label: string | null; street: string };
@@ -53,14 +59,19 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
             <>
               <div className="mt-3 space-y-1 text-sm font-medium text-muted">
                 <div>Piano: <span className="font-bold text-navy">{sub.plans?.name ?? "—"}</span> · {priceLabel}/mese {sub.manual && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">manuale</span>}</div>
-                <div>Stato: <span className="font-bold text-navy">{sub.status}</span></div>
+                <div>Stato: <span className={`font-bold ${active ? "text-[#1F8A5B]" : "text-[#C9881F]"}`}>{SUB_STATUS_LABEL[sub.status] ?? sub.status}</span></div>
                 {sub.current_period_end && <div>Rinnovo: {fmtDate(sub.current_period_end)}</div>}
               </div>
+              {!active && (
+                <p className="mt-2 rounded-[10px] bg-[#C9881F]/10 px-3 py-2 text-xs font-semibold text-[#C9881F]">
+                  Abbonamento non ancora attivo. Conferma il pagamento per attivarlo.
+                </p>
+              )}
               <div className="mt-4 flex flex-wrap gap-2">
                 {active ? (
                   <form action={changeSubscription}><input type="hidden" name="sub_id" value={sub.id} /><input type="hidden" name="action" value="pause" /><Button type="submit" size="md" variant="ghost-navy">Metti in pausa</Button></form>
                 ) : (
-                  <form action={changeSubscription}><input type="hidden" name="sub_id" value={sub.id} /><input type="hidden" name="action" value="resume" /><Button type="submit" size="md" variant="ghost-navy">Riprendi</Button></form>
+                  <form action={changeSubscription}><input type="hidden" name="sub_id" value={sub.id} /><input type="hidden" name="action" value="activate" /><Button type="submit" size="md">Segna come pagato / Attiva</Button></form>
                 )}
                 <form action={changeSubscription}><input type="hidden" name="sub_id" value={sub.id} /><input type="hidden" name="action" value="cancel" /><button type="submit" className="rounded-full border border-[#C0392B]/40 px-4 py-2 font-display text-sm font-bold text-[#C0392B]">Disdici</button></form>
               </div>
