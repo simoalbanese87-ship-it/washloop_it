@@ -7,6 +7,7 @@ const adminNav: NavItem[] = [
   { href: "/admin", label: "Ordini" },
   { href: "/admin/archivio", label: "Archivio" },
   { href: "/admin/abbonati", label: "Abbonati" },
+  { href: "/admin/lista-attesa", label: "Lista d'attesa" },
   { href: "/admin/catalogo", label: "Catalogo" },
   { href: "/admin/email", label: "Email" },
   { href: "/admin/crescita", label: "Crescita" },
