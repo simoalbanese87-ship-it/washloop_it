@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { requestPasswordReset } from "@/lib/actions/auth";
 import { Logo } from "@/components/Logo";
 
 type Mode = "signin" | "signup";
@@ -75,13 +76,13 @@ function LoginForm() {
     setLoading(true);
     setError(null);
     setInfo(null);
-    const supabase = createClient();
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset`,
-    });
+    try {
+      await requestPasswordReset(email);
+    } catch {
+      /* messaggio neutro comunque, per non rivelare se l'email esiste */
+    }
     setLoading(false);
-    if (error) return setError(error.message);
-    setInfo("Ti abbiamo inviato un'email per reimpostare la password.");
+    setInfo("Se l'indirizzo è registrato, ti abbiamo inviato un'email per reimpostare la password. Controlla anche lo spam.");
   }
 
   const isSignup = mode === "signup";
