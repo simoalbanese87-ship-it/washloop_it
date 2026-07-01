@@ -42,6 +42,13 @@ export async function POST(request: NextRequest) {
       },
       { onConflict: "stripe_subscription_id" },
     );
+    // Data attivazione: alla prima transizione a stato pagato (non sovrascrive).
+    if (["active", "trialing"].includes(sub.status)) {
+      await db.from("subscriptions")
+        .update({ activated_at: new Date().toISOString() })
+        .eq("stripe_subscription_id", sub.id)
+        .is("activated_at", null);
+    }
   }
 
   switch (event.type) {

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer } from "@/lib/actions/admin-customer";
 import { fmtDate } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 
@@ -16,8 +16,8 @@ const SUB_STATUS_LABEL: Record<string, string> = {
   incomplete: "Da attivare (non pagato)",
 };
 
-type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string };
-type Sub = { id: string; status: string; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; stripe_subscription_id: string | null; plans: { name: string; price_month_cents: number } | null };
+type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string };
+type Sub = { id: string; status: string; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; plans: { name: string; price_month_cents: number } | null };
 type Addr = { id: string; label: string | null; street: string };
 type Ord = { id: string; status: OrderStatus; created_at: string; bags: number };
 type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; created_at: string };
@@ -26,12 +26,12 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const svc = createServiceClient();
 
-  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role").eq("id", id).maybeSingle<Prof>();
+  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at").eq("id", id).maybeSingle<Prof>();
   if (!profile) notFound();
 
   const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }] = await Promise.all([
     svc.auth.admin.getUserById(id),
-    svc.from("subscriptions").select("id, status, plan_id, custom_price_cents, manual, current_period_end, stripe_subscription_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    svc.from("subscriptions").select("id, status, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
@@ -44,7 +44,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
   return (
     <>
       <Link href="/admin/abbonati" className="font-display text-sm font-bold text-blue hover:underline">← Abbonati</Link>
-      <PageTitle kicker="Cliente" title={profile.full_name ?? "Cliente"} sub={`${email}${profile.client_code ? ` · ${profile.client_code}` : ""}`} />
+      <PageTitle kicker="Cliente" title={profile.full_name ?? "Cliente"} sub={`${email}${profile.client_code ? ` · ${profile.client_code}` : ""} · Iscritto il ${fmtDate(profile.created_at)}`} />
 
       <form action={resendCredentials} className="mb-4">
         <input type="hidden" name="customer_id" value={id} />
@@ -60,6 +60,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
               <div className="mt-3 space-y-1 text-sm font-medium text-muted">
                 <div>Piano: <span className="font-bold text-navy">{sub.plans?.name ?? "—"}</span> · {priceLabel}/mese {sub.manual && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">manuale</span>}</div>
                 <div>Stato: <span className={`font-bold ${active ? "text-[#1F8A5B]" : "text-[#C9881F]"}`}>{SUB_STATUS_LABEL[sub.status] ?? sub.status}</span></div>
+                {sub.activated_at && <div>Attivato il: <span className="font-bold text-navy">{fmtDate(sub.activated_at)}</span></div>}
                 {sub.current_period_end && <div>Rinnovo: {fmtDate(sub.current_period_end)}</div>}
               </div>
               {!active && (
@@ -172,6 +173,27 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
             ))
           )}
         </div>
+      </Card>
+
+      {/* Elimina lead / cliente */}
+      <Card className="mt-6 border-[#C0392B]/30">
+        <h2 className="font-display text-base font-extrabold text-[#C0392B]">Elimina lead</h2>
+        <p className="mt-1 text-xs font-medium text-muted">
+          Rimuove definitivamente il cliente e tutti i suoi dati (profilo, indirizzi, abbonamento, addebiti). Operazione irreversibile.
+          Non è possibile se ha un abbonamento attivo o ordini nello storico.
+        </p>
+        <details className="mt-3">
+          <summary className="inline-flex cursor-pointer rounded-full border border-[#C0392B]/40 px-4 py-2 font-display text-sm font-bold text-[#C0392B] transition-colors hover:bg-[#C0392B]/5">
+            Elimina definitivamente…
+          </summary>
+          <form action={deleteCustomer} className="mt-3 flex items-center gap-3">
+            <input type="hidden" name="customer_id" value={id} />
+            <span className="text-sm font-semibold text-navy">Sei sicuro? L&apos;azione non è annullabile.</span>
+            <button type="submit" className="rounded-full bg-[#C0392B] px-5 py-2 font-display text-sm font-extrabold text-white transition-opacity hover:opacity-90">
+              Sì, elimina
+            </button>
+          </form>
+        </details>
       </Card>
     </>
   );

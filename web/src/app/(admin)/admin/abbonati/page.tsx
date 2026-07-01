@@ -18,6 +18,7 @@ type Row = {
   planName: string | null;
   status: string;        // active | trialing | past_due | ... | pending
   current_period_end: string | null;
+  created_at: string;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -54,6 +55,7 @@ export default async function AbbonatiPage() {
       planName: s?.plans?.name ?? null,
       status: s?.status ?? "pending",
       current_period_end: s?.current_period_end ?? null,
+      created_at: p.created_at,
     };
   });
   const active = rows.filter((r) => r.status === "active" || r.status === "trialing").length;
@@ -108,7 +110,7 @@ export default async function AbbonatiPage() {
                 <Link href={`/admin/abbonati/${r.user_id}`} className="font-display text-sm font-bold text-navy hover:text-blue hover:underline">
                   {r.name}
                 </Link>
-                <div className="text-xs font-medium text-muted">{r.phone}</div>
+                <div className="text-xs font-medium text-muted">{r.phone}{r.phone ? " · " : ""}Iscritto il {fmtDate(r.created_at)}</div>
               </div>
               <div className="text-sm font-semibold text-navy">{r.planName ?? "—"}</div>
               <div>

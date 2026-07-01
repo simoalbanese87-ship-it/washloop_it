@@ -124,6 +124,8 @@ export async function changeSubscription(formData: FormData) {
     // Conferma pagamento (manuale): attiva e fissa/rinnova il periodo a 30gg.
     const periodEnd = new Date(Date.now() + 30 * 86_400_000).toISOString();
     await svc.from("subscriptions").update({ status: "active", current_period_end: periodEnd }).eq("id", subId);
+    // Data attivazione: solo la prima volta (non sovrascrivere se già valorizzata).
+    await svc.from("subscriptions").update({ activated_at: new Date().toISOString() }).eq("id", subId).is("activated_at", null);
   } else {
     const status = action === "pause" ? "paused" : action === "cancel" ? "canceled" : "active";
     await svc.from("subscriptions").update({ status }).eq("id", subId);
@@ -217,4 +219,40 @@ export async function voidCustomerCharge(formData: FormData) {
   }
   await svc.from("customer_charges").update({ status: "void" }).eq("id", id);
   if (customerId) revalidatePath(`/admin/abbonati/${customerId}`);
+}
+
+/** Elimina definitivamente un lead/cliente e tutti i suoi dati (profilo, indirizzi,
+ *  abbonamenti, addebiti — cascade via auth.users). Guardie di sicurezza: non
+ *  eliminabile se ha un abbonamento attivo/in prova/sospeso o uno storico ordini
+ *  (in quei casi va prima disdetto/gestito). Pensata per i lead pending/incompleti. */
+export async function deleteCustomer(formData: FormData) {
+  await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  if (!customerId) throw new Error("Cliente mancante");
+  const svc = createServiceClient();
+
+  const { data: prof } = await svc.from("profiles").select("role").eq("id", customerId).maybeSingle<{ role: string }>();
+  if (!prof) throw new Error("Cliente non trovato");
+  if (prof.role !== "customer") throw new Error("Si possono eliminare solo i clienti");
+
+  const { data: sub } = await svc
+    .from("subscriptions")
+    .select("status")
+    .eq("user_id", customerId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ status: string }>();
+  if (sub && ["active", "trialing", "past_due"].includes(sub.status)) {
+    throw new Error("Cliente con abbonamento attivo: disdicilo prima di eliminare.");
+  }
+
+  const { count } = await svc.from("orders").select("id", { count: "exact", head: true }).eq("customer_id", customerId);
+  if ((count ?? 0) > 0) throw new Error("Cliente con ordini nello storico: non eliminabile.");
+
+  // Elimina l'utente auth → cascade su profiles/addresses/subscriptions/customer_charges.
+  const { error } = await svc.auth.admin.deleteUser(customerId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/abbonati");
+  redirect("/admin/abbonati");
 }
