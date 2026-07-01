@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
-import { stripe } from "@/lib/stripe";
+import { stripe, siteUrl } from "@/lib/stripe";
 import { notifyNewCustomer } from "@/lib/notify";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -62,6 +62,68 @@ export async function createCustomer(formData: FormData) {
 
   revalidatePath("/admin/abbonati");
   redirect(`/admin/abbonati/${uid}`);
+}
+
+/** Crea un ABBONAMENTO PERSONALIZZATO a prezzo custom (ricorrente mensile) e
+ *  ritorna il link Stripe Checkout da inviare al cliente: paga, salva la carta e
+ *  da lì l'addebito si rinnova da solo ogni mese. Funziona anche per clienti
+ *  senza carta. Alla conferma pagamento il webhook registra la subscription con
+ *  `custom_price_cents`. Gli extra una-tantum restano gli "Addebiti personalizzati". */
+export async function createCustomSubscriptionLink(
+  input: { customer_id: string; description?: string; amount_eur: string },
+): Promise<{ url: string } | { error: string }> {
+  try {
+    await requireAdmin();
+    const customerId = String(input.customer_id ?? "");
+    const amount = eurToCents(String(input.amount_eur ?? ""));
+    const description = (input.description ?? "").trim() || "Abbonamento WashLoop personalizzato";
+    if (!customerId) return { error: "Cliente mancante" };
+    if (!Number.isFinite(amount) || amount <= 0) return { error: "Importo non valido" };
+
+    const svc = createServiceClient();
+    const { data: au } = await svc.auth.admin.getUserById(customerId);
+    const email = au?.user?.email;
+    if (!email) return { error: "Email cliente non trovata" };
+
+    // Riusa il Customer Stripe se il cliente ne ha già uno, altrimenti crealo.
+    const { data: existing } = await svc
+      .from("subscriptions")
+      .select("stripe_customer_id")
+      .eq("user_id", customerId)
+      .not("stripe_customer_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ stripe_customer_id: string | null }>();
+    let stripeCustomerId = existing?.stripe_customer_id ?? undefined;
+    if (!stripeCustomerId) {
+      const c = await stripe().customers.create({ email, metadata: { supabase_user_id: customerId } });
+      stripeCustomerId = c.id;
+    }
+
+    const session = await stripe().checkout.sessions.create({
+      mode: "subscription",
+      customer: stripeCustomerId,
+      // Stessi metodi del checkout standard (no Klarna).
+      payment_method_types: ["card", "link", "amazon_pay"],
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: "eur",
+          product_data: { name: description },
+          unit_amount: amount,
+          recurring: { interval: "month" },
+        },
+      }],
+      success_url: `${siteUrl()}/app?checkout=success`,
+      cancel_url: `${siteUrl()}/app/abbonamento?checkout=cancel`,
+      metadata: { supabase_user_id: customerId, custom_price_cents: String(amount) },
+      subscription_data: { metadata: { supabase_user_id: customerId, custom_price_cents: String(amount) } },
+    });
+    if (!session.url) return { error: "Stripe non ha restituito un link" };
+    return { url: session.url };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Errore nella creazione del link" };
+  }
 }
 
 /** Reinvia le credenziali a un cliente: genera una nuova password temporanea e

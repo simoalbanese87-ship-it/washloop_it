@@ -4,6 +4,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer } from "@/lib/actions/admin-customer";
+import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
 import { fmtDate } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 
@@ -80,6 +81,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
           ) : (
             <p className="mt-3 text-sm font-medium text-muted">Nessun abbonamento.</p>
           )}
+          {!active && <CustomSubscriptionForm customerId={id} />}
         </Card>
 
         {/* Indirizzi */}

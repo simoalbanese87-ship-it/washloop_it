@@ -31,17 +31,19 @@ export async function POST(request: NextRequest) {
     const periodEnd =
       (sub as unknown as { current_period_end?: number }).current_period_end ??
       (sub.items?.data?.[0] as unknown as { current_period_end?: number } | undefined)?.current_period_end;
-    await db.from("subscriptions").upsert(
-      {
-        user_id: userId,
-        plan_id: planId,
-        stripe_customer_id: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
-        stripe_subscription_id: sub.id,
-        status: sub.status,
-        current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
-      },
-      { onConflict: "stripe_subscription_id" },
-    );
+    const row: Record<string, unknown> = {
+      user_id: userId,
+      plan_id: planId,
+      stripe_customer_id: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
+      stripe_subscription_id: sub.id,
+      status: sub.status,
+      current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
+    };
+    // Abbonamento personalizzato: prezzo custom dal metadata (solo se presente,
+    // per non azzerare il custom sui rinnovi/aggiornamenti dei piani standard).
+    const customCents = sub.metadata?.custom_price_cents ? parseInt(sub.metadata.custom_price_cents, 10) : NaN;
+    if (Number.isFinite(customCents)) row.custom_price_cents = customCents;
+    await db.from("subscriptions").upsert(row, { onConflict: "stripe_subscription_id" });
     // Data attivazione: alla prima transizione a stato pagato (non sovrascrive).
     if (["active", "trialing"].includes(sub.status)) {
       await db.from("subscriptions")
