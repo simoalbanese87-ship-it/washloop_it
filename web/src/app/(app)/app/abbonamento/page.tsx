@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { startCheckout, openPortal } from "@/lib/actions/billing";
 import { fmtDate } from "@/lib/format";
+import { planRecap } from "@/lib/plan-copy";
 
 type Plan = { id: string; code: string; name: string; price_month_cents: number; pickups_per_week: number; turnaround_hours: number };
 type Sub = { status: string; current_period_end: string | null; plan_id: string | null; plans: { name: string } | null };
@@ -99,7 +100,7 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
                 <span className="mb-1.5 text-sm font-semibold text-muted">/mese</span>
               </div>
               <p className="mt-1.5 text-sm font-medium text-muted">
-                {p.pickups_per_week} {p.pickups_per_week === 1 ? "ritiro" : "ritiri"} a settimana · pronto in {p.turnaround_hours}h · ritiro e consegna inclusi
+                {planRecap(p.code) ?? `${p.pickups_per_week} ${p.pickups_per_week === 1 ? "ritiro" : "ritiri"} a settimana · pronto in ${p.turnaround_hours}h · ritiro e consegna inclusi`}
               </p>
               {isCurrent ? (
                 <div className="mt-4 rounded-full border-2 border-line py-3 text-center font-display text-sm font-extrabold text-muted">Piano attuale</div>

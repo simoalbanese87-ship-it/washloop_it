@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { ButtonLink } from "@/components/ui/Button";
+import { PLAN_COPY } from "@/lib/plan-copy";
 
 /* ============================================================
    Home — Sito vetrina WashLoop
@@ -59,24 +60,24 @@ const plans = [
     name: "Small",
     code: "essential",
     price: "160",
-    tagline: "Per chi vive da solo",
-    features: ["1 sacco a settimana", "Ritiro 1 volta a settimana", "Fino a 3 camicie per sacchetto", "Lavaggio + stiratura inclusi", "Metti in pausa quando vuoi"],
+    tagline: PLAN_COPY.essential.tagline,
+    features: PLAN_COPY.essential.features,
     popular: false,
   },
   {
     name: "Medium",
     code: "plus",
     price: "280",
-    tagline: "Il preferito dei professionisti",
-    features: ["2 sacchi a settimana", "Ritiro 1 volta a settimana", "Cumuli i sacchi nel mese", "Lavaggio + stiratura premium", "Tracciabilità capo per capo"],
+    tagline: PLAN_COPY.plus.tagline,
+    features: PLAN_COPY.plus.features,
     popular: true,
   },
   {
     name: "Large",
     code: "family",
     price: "390",
-    tagline: "Per coppie e famiglie",
-    features: ["3 sacchi a settimana", "Ritiro 1 volta a settimana", "Cumuli i sacchi nel mese", "Capi delicati inclusi", "Slot prioritari"],
+    tagline: PLAN_COPY.family.tagline,
+    features: PLAN_COPY.family.features,
     popular: false,
   },
 ];

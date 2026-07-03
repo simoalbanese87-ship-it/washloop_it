@@ -13,7 +13,10 @@ export type WelcomeEmailData = {
 
 /** Logo WashLoop ufficiale (PNG da /public) — l'SVG non rende nei client di posta. */
 function logo(site: string): string {
-  return `<img src="${site}/logo-washloop.png" alt="WashLoop" width="185" height="42" style="display:block;border:0;outline:none;height:auto" />`;
+  // PNG reale 842×193 (aspect 4.363). Scaling per larghezza con height:auto e
+  // max-width per non tagliare mai in nessun client; height attr all'aspect esatto
+  // per Outlook. Un filo di padding interno via container che lo ospita.
+  return `<img src="${site}/logo-washloop.png" alt="WashLoop" width="180" height="41" style="display:block;width:180px;height:auto;max-width:70%;border:0;outline:none;-ms-interpolation-mode:bicubic" />`;
 }
 
 export function welcomeEmailHtml(d: WelcomeEmailData): string {

@@ -7,6 +7,7 @@ import { Logo } from "@/components/Logo";
 import { createOnboardingAddress } from "@/lib/actions/onboarding";
 import { startCheckout } from "@/lib/actions/billing";
 import { ACCESS_MODE_LABEL } from "@/lib/orders";
+import { planRecap } from "@/lib/plan-copy";
 
 export type WizPlan = { id: string; code: string; name: string; price_month_cents: number; pickups_per_week: number; turnaround_hours: number };
 
@@ -196,7 +197,7 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
                         <span className="font-display text-[32px] font-black tracking-[-0.03em] text-white">{eur(p.price_month_cents)}</span>
                         <span className="mb-1.5 text-sm font-semibold text-white/55">/mese</span>
                       </div>
-                      <div className="mt-1 text-sm font-medium text-white/65">{p.pickups_per_week} {p.pickups_per_week === 1 ? "ritiro" : "ritiri"}/sett · pronto in {p.turnaround_hours}h · ritiro e consegna inclusi</div>
+                      <div className="mt-1 text-sm font-medium text-white/65">{planRecap(p.code) ?? `${p.pickups_per_week} ${p.pickups_per_week === 1 ? "ritiro" : "ritiri"}/sett · pronto in ${p.turnaround_hours}h · ritiro e consegna inclusi`}</div>
                     </button>
                   );
                 })}
