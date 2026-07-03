@@ -88,7 +88,7 @@ export function renderEmail({
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px">
         <!-- brand -->
         <tr><td style="padding:4px 8px 18px">
-          <img src="${site}/logo-washloop.png" alt="WashLoop" width="180" height="41" style="display:block;width:180px;height:auto;max-width:70%;border:0;outline:none;-ms-interpolation-mode:bicubic" />
+          <img src="${site}/logo-washloop.png" alt="WashLoop" width="180" height="39" style="display:block;width:180px;height:auto;max-width:70%;border:0;outline:none;-ms-interpolation-mode:bicubic" />
         </td></tr>
         <!-- card -->
         <tr><td style="background:#ffffff;border:1px solid #E1E8F1;border-radius:24px;overflow:hidden">
