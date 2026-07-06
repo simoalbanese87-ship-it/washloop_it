@@ -328,10 +328,16 @@ export async function deleteCustomer(formData: FormData) {
       .limit(1)
       .maybeSingle<{ status: string }>();
     if (sub && ["active", "trialing", "past_due"].includes(sub.status)) {
-      block = "Cliente con abbonamento attivo: disdicilo prima di eliminare.";
+      block = "Cliente con abbonamento attivo: disdicilo prima di eliminare (così si ferma anche l'addebito Stripe).";
     } else {
-      const { count } = await svc.from("orders").select("id", { count: "exact", head: true }).eq("customer_id", customerId);
-      if ((count ?? 0) > 0) block = "Cliente con ordini nello storico: non eliminabile.";
+      // Blocca solo gli ordini IN CORSO (bucato in lavorazione). Gli ordini
+      // chiusi (consegnati/completati/annullati) vengono rimossi in cascata.
+      const { count } = await svc
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_id", customerId)
+        .not("status", "in", "(delivered,completed,cancelled)");
+      if ((count ?? 0) > 0) block = "Cliente con ordini in corso: completali o annullali prima di eliminare.";
     }
   }
   if (block) redirect(`${backTo}?warn=${encodeURIComponent(block)}`);

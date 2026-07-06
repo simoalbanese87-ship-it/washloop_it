@@ -189,8 +189,8 @@ export default async function CustomerPage({ params, searchParams }: { params: P
       <Card className="mt-6 border-[#C0392B]/30">
         <h2 className="font-display text-base font-extrabold text-[#C0392B]">Elimina lead</h2>
         <p className="mt-1 text-xs font-medium text-muted">
-          Rimuove definitivamente il cliente e tutti i suoi dati (profilo, indirizzi, abbonamento, addebiti). Operazione irreversibile.
-          Non è possibile se ha un abbonamento attivo o ordini nello storico.
+          Rimuove definitivamente il cliente e tutti i suoi dati (profilo, indirizzi, abbonamento, addebiti e ordini chiusi). Operazione irreversibile.
+          Non è possibile se ha un abbonamento attivo (disdicilo prima) o ordini in corso.
         </p>
         <details className="mt-3">
           <summary className="inline-flex cursor-pointer rounded-full border border-[#C0392B]/40 px-4 py-2 font-display text-sm font-bold text-[#C0392B] transition-colors hover:bg-[#C0392B]/5">
