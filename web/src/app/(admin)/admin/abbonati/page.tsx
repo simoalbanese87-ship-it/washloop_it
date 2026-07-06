@@ -32,7 +32,8 @@ const tone = (s: string) =>
     : s === "pending" || s === "incomplete" ? "bg-[#C9881F]/15 text-[#C9881F]"
     : "bg-navy/10 text-navy";
 
-export default async function AbbonatiPage() {
+export default async function AbbonatiPage({ searchParams }: { searchParams: Promise<{ ok?: string; warn?: string }> }) {
+  const { ok, warn } = await searchParams;
   // Service client: la dashboard admin (layout già role=admin) elenca TUTTI i
   // profili clienti, anche senza subscription (lead/pending).
   const svc = createServiceClient();
@@ -64,6 +65,13 @@ export default async function AbbonatiPage() {
   return (
     <>
       <PageTitle kicker="Abbonati" title="Clienti & piani" sub={`${rows.length} clienti · ${active} attivi · ${pending} pending`} />
+
+      {ok && (
+        <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>
+      )}
+      {warn && (
+        <div className="mb-4 rounded-[14px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>
+      )}
 
       <div className="mb-4 flex items-center justify-between gap-3 rounded-[16px] border border-line bg-ice px-4 py-3">
         <div className="text-sm font-medium text-muted">Simula l&apos;esperienza cliente: entra in un abbonato o crea un cliente demo già attivo.</div>

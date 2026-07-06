@@ -173,13 +173,23 @@ export async function changeSubscription(formData: FormData) {
     .maybeSingle<{ id: string; user_id: string; stripe_subscription_id: string | null; manual: boolean; current_period_end: string | null }>();
   if (!sub) throw new Error("Abbonamento non trovato");
 
+  const backTo = `/admin/abbonati/${sub.user_id}`;
+  let warn: string | null = null;
+
   const stripeId = sub.stripe_subscription_id;
   if (stripeId) {
-    const sk = stripe();
-    if (action === "pause") await sk.subscriptions.update(stripeId, { pause_collection: { behavior: "void" } });
-    else if (action === "resume") await sk.subscriptions.update(stripeId, { pause_collection: null });
-    else if (action === "cancel") await sk.subscriptions.update(stripeId, { cancel_at_period_end: true });
-    // lo stato reale arriva dal webhook; aggiorno comunque un valore ottimistico
+    // Best-effort: se la subscription non esiste più nell'account/modalità Stripe
+    // corrente (es. sub di test con chiave live), NON deve far crashare l'azione.
+    // Il DB resta la fonte di verità lato admin; il webhook riallinea se serve.
+    try {
+      const sk = stripe();
+      if (action === "pause") await sk.subscriptions.update(stripeId, { pause_collection: { behavior: "void" } });
+      else if (action === "resume") await sk.subscriptions.update(stripeId, { pause_collection: null });
+      else if (action === "cancel") await sk.subscriptions.update(stripeId, { cancel_at_period_end: true });
+    } catch (e) {
+      warn = "Stato aggiornato su WashLoop (Stripe non ha trovato l'abbonamento collegato).";
+      console.error("[changeSubscription] Stripe error:", e);
+    }
   }
 
   if (action === "activate") {
@@ -193,7 +203,14 @@ export async function changeSubscription(formData: FormData) {
     await svc.from("subscriptions").update({ status }).eq("id", subId);
   }
 
-  revalidatePath(`/admin/abbonati/${sub.user_id}`);
+  const okMsg: Record<string, string> = {
+    pause: "Abbonamento messo in pausa.",
+    resume: "Abbonamento ripreso.",
+    cancel: "Abbonamento disdetto.",
+    activate: "Abbonamento attivato.",
+  };
+  revalidatePath(backTo);
+  redirect(`${backTo}?${warn ? `warn=${encodeURIComponent(warn)}` : `ok=${encodeURIComponent(okMsg[action] ?? "Fatto.")}`}`);
 }
 
 /** Aggiunge un addebito o un rimborso ad-hoc al cliente (extra personalizzato,
@@ -292,29 +309,37 @@ export async function deleteCustomer(formData: FormData) {
   const customerId = String(formData.get("customer_id") ?? "");
   if (!customerId) throw new Error("Cliente mancante");
   const svc = createServiceClient();
+  const backTo = `/admin/abbonati/${customerId}`;
 
+  // Le condizioni che impediscono l'eliminazione NON sono errori di sistema:
+  // vengono mostrate come banner nella pagina cliente, senza pagina d'errore.
   const { data: prof } = await svc.from("profiles").select("role").eq("id", customerId).maybeSingle<{ role: string }>();
-  if (!prof) throw new Error("Cliente non trovato");
-  if (prof.role !== "customer") throw new Error("Si possono eliminare solo i clienti");
+  if (!prof) redirect(`/admin/abbonati?warn=${encodeURIComponent("Cliente non trovato.")}`);
 
-  const { data: sub } = await svc
-    .from("subscriptions")
-    .select("status")
-    .eq("user_id", customerId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<{ status: string }>();
-  if (sub && ["active", "trialing", "past_due"].includes(sub.status)) {
-    throw new Error("Cliente con abbonamento attivo: disdicilo prima di eliminare.");
+  let block: string | null = null;
+  if (prof!.role !== "customer") {
+    block = "Si possono eliminare solo i clienti.";
+  } else {
+    const { data: sub } = await svc
+      .from("subscriptions")
+      .select("status")
+      .eq("user_id", customerId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ status: string }>();
+    if (sub && ["active", "trialing", "past_due"].includes(sub.status)) {
+      block = "Cliente con abbonamento attivo: disdicilo prima di eliminare.";
+    } else {
+      const { count } = await svc.from("orders").select("id", { count: "exact", head: true }).eq("customer_id", customerId);
+      if ((count ?? 0) > 0) block = "Cliente con ordini nello storico: non eliminabile.";
+    }
   }
-
-  const { count } = await svc.from("orders").select("id", { count: "exact", head: true }).eq("customer_id", customerId);
-  if ((count ?? 0) > 0) throw new Error("Cliente con ordini nello storico: non eliminabile.");
+  if (block) redirect(`${backTo}?warn=${encodeURIComponent(block)}`);
 
   // Elimina l'utente auth → cascade su profiles/addresses/subscriptions/customer_charges.
   const { error } = await svc.auth.admin.deleteUser(customerId);
-  if (error) throw new Error(error.message);
+  if (error) redirect(`${backTo}?warn=${encodeURIComponent(error.message)}`);
 
   revalidatePath("/admin/abbonati");
-  redirect("/admin/abbonati");
+  redirect(`/admin/abbonati?ok=${encodeURIComponent("Lead eliminato.")}`);
 }
