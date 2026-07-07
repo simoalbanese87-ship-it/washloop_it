@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { assignCourier, advanceStatus, bulkAssignCourier } from "@/lib/actions/orders";
+import { assignCourier, advanceStatus, bulkAssignCourier, autoAssignCouriers } from "@/lib/actions/orders";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, statusIndex, type OrderStatus } from "@/lib/orders";
 import { fmtDateTime } from "@/lib/format";
@@ -106,6 +106,18 @@ export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: Bo
     return { active: active.length, toAssign, late, done };
   }, [orders, now]);
 
+  // Carico attivo per corriere (fermate non ancora consegnate).
+  const courierLoad = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const o of orders) {
+      if (o.courier_id && o.status !== "delivered" && o.status !== "completed") {
+        m.set(o.courier_id, (m.get(o.courier_id) ?? 0) + 1);
+      }
+    }
+    return m;
+  }, [orders]);
+  const maxLoad = Math.max(1, ...couriers.map((c) => courierLoad.get(c.id) ?? 0));
+
   function toggle(id: string) {
     setSelected((prev) => {
       const n = new Set(prev);
@@ -140,6 +152,41 @@ export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: Bo
         <Kpi label="In ritardo" value={kpis.late} tone={kpis.late ? "text-[#C0392B]" : "text-navy"} />
         <Kpi label="Consegnati" value={kpis.done} tone="text-[#1F8A5B]" />
       </div>
+
+      {/* Carico rider + auto-assegnazione bilanciata */}
+      {couriers.length > 0 && (
+        <div className="mb-5 rounded-[18px] border border-line bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-display text-sm font-extrabold text-navy">Carico rider</div>
+              <div className="text-xs font-medium text-muted">Fermate attive per corriere. L&apos;auto-assegna bilancia i {kpis.toAssign} ordini da assegnare.</div>
+            </div>
+            <form action={autoAssignCouriers}>
+              <button
+                type="submit"
+                disabled={kpis.toAssign === 0}
+                className="h-10 rounded-[12px] bg-grad px-4 font-display text-sm font-extrabold text-white disabled:opacity-40"
+              >
+                ⚖️ Auto-assegna ({kpis.toAssign})
+              </button>
+            </form>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {couriers.map((c) => {
+              const n = courierLoad.get(c.id) ?? 0;
+              return (
+                <div key={c.id} className="flex items-center gap-2.5">
+                  <span className="w-24 flex-none truncate font-display text-xs font-bold text-navy">{c.name}</span>
+                  <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-navy/8">
+                    <span className="block h-full rounded-full bg-gradient-to-r from-blue to-cyan" style={{ width: `${(n / maxLoad) * 100}%` }} />
+                  </span>
+                  <span className="w-6 flex-none text-right font-display text-xs font-black text-navy">{n}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Filtri */}
       <div className="mb-5 flex flex-wrap items-center gap-2.5">

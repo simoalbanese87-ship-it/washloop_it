@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentProfile } from "@/lib/auth";
 import type { OrderStatus } from "@/lib/orders";
 import { romeLocalToISO, romeWeekday, romeHHMM } from "@/lib/format";
 import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
@@ -265,6 +266,63 @@ export async function assignCourier(formData: FormData) {
   if (courier_id) await notifyCourierAssigned(id);
   revalidatePath("/admin");
   revalidatePath(`/admin/ordini/${id}`);
+}
+
+/** Admin: assegna automaticamente TUTTI gli ordini da assegnare ai corrieri,
+ *  bilanciando il carico (numero di fermate attive) tra i rider disponibili.
+ *  Nessun geocoding: distribuzione equa, non ottimizzazione geografica del giro. */
+export async function autoAssignCouriers() {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+  const supabase = await createClient();
+
+  const NEEDS: OrderStatus[] = ["requested", "pickup_scheduled", "ready", "delivery_scheduled"];
+  const ACTIVE: OrderStatus[] = ["requested", "pickup_scheduled", "picked_up", "at_laundry", "washing", "ready", "delivery_scheduled", "out_for_delivery"];
+
+  const [{ data: unassigned }, { data: couriers }, { data: assigned }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("id, laundry_id, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at)")
+      .is("courier_id", null)
+      .in("status", NEEDS)
+      .returns<{ id: string; laundry_id: string | null; pickup_slot: { starts_at: string } | null; delivery_slot: { starts_at: string } | null }[]>(),
+    supabase.from("profiles").select("id").eq("role", "courier").returns<{ id: string }[]>(),
+    supabase.from("orders").select("courier_id").not("courier_id", "is", null).in("status", ACTIVE).returns<{ courier_id: string | null }[]>(),
+  ]);
+
+  const courierIds = (couriers ?? []).map((c) => c.id);
+  if (courierIds.length === 0) redirect(`/admin?warn=${encodeURIComponent("Nessun corriere disponibile: creane uno prima.")}`);
+  const todo = unassigned ?? [];
+  if (todo.length === 0) redirect(`/admin?ok=${encodeURIComponent("Nessun ordine da assegnare.")}`);
+
+  // Carico attuale = fermate attive già assegnate per corriere.
+  const load = new Map<string, number>(courierIds.map((id) => [id, 0]));
+  for (const a of assigned ?? []) if (a.courier_id && load.has(a.courier_id)) load.set(a.courier_id, (load.get(a.courier_id) ?? 0) + 1);
+
+  // Ordina per lavanderia + orario slot (raggruppa lo stesso giro), poi assegna
+  // ognuno al corriere meno carico (bilanciamento greedy).
+  const slotAt = (o: (typeof todo)[number]) => o.delivery_slot?.starts_at ?? o.pickup_slot?.starts_at ?? "";
+  const sorted = [...todo].sort((a, b) => (a.laundry_id ?? "").localeCompare(b.laundry_id ?? "") || slotAt(a).localeCompare(slotAt(b)));
+
+  const byCourier = new Map<string, string[]>();
+  for (const o of sorted) {
+    let best = courierIds[0];
+    for (const id of courierIds) if ((load.get(id) ?? 0) < (load.get(best) ?? 0)) best = id;
+    load.set(best, (load.get(best) ?? 0) + 1);
+    (byCourier.get(best) ?? byCourier.set(best, []).get(best)!).push(o.id);
+  }
+
+  // Applica gli update (uno per corriere) + notifica i rider (best-effort).
+  const assignedIds: string[] = [];
+  for (const [courierId, ids] of byCourier) {
+    if (ids.length === 0) continue;
+    await supabase.from("orders").update({ courier_id: courierId }).in("id", ids);
+    assignedIds.push(...ids);
+  }
+  await Promise.all(assignedIds.map((id) => notifyCourierAssigned(id)));
+
+  revalidatePath("/admin");
+  redirect(`/admin?ok=${encodeURIComponent(`${assignedIds.length} ordini assegnati a ${byCourier.size} corrieri, carico bilanciato.`)}`);
 }
 
 /** Assegna lo stesso rider a più ordini (assegnazione massiva). */

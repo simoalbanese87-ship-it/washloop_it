@@ -20,7 +20,8 @@ type Row = {
 };
 type Opt = { id: string; name: string };
 
-export default async function AdminBoard() {
+export default async function AdminBoard({ searchParams }: { searchParams: Promise<{ ok?: string; warn?: string }> }) {
+  const { ok, warn } = await searchParams;
   const supabase = await createClient();
 
   const [{ data: rows }, { data: couriers }, { data: laundries }, { data: zones }] = await Promise.all([
@@ -64,6 +65,8 @@ export default async function AdminBoard() {
   return (
     <>
       <PageTitle kicker="Operations" title="Board ordini" sub={`${orders.length} ordini · aggiornamento in tempo reale`} />
+      {ok && <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
+      {warn && <div className="mb-4 rounded-[14px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>}
       <OrdersBoard orders={orders} couriers={courierOpts} laundries={laundries ?? []} zones={zones ?? []} />
     </>
   );
