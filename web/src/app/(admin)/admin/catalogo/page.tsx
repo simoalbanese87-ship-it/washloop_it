@@ -14,10 +14,11 @@ import {
   generateSlots,
 } from "@/lib/actions/admin";
 import { fmtDateTime } from "@/lib/format";
+import { pickupCounts, deliveryCounts } from "@/lib/slots";
 
 type Zone = { id: string; name: string; active: boolean };
 type Laundry = { id: string; name: string; zone_id: string | null; address: string | null; phone: string | null; email: string | null; active: boolean };
-type Slot = { id: string; kind: string; starts_at: string; ends_at: string; laundries: { name: string } | null };
+type Slot = { id: string; kind: string; starts_at: string; ends_at: string; capacity: number | null; laundries: { name: string } | null };
 type Plan = { id: string; name: string; price_month_cents: number; turnaround_hours: number; pickups_per_week: number; active: boolean; stripe_price_id: string | null };
 
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
@@ -32,9 +33,15 @@ export default async function CatalogoPage() {
   const [{ data: zones }, { data: laundries }, { data: slots }, { data: plans }] = await Promise.all([
     supabase.from("zones").select("id, name, active").order("name").returns<Zone[]>(),
     supabase.from("laundries").select("id, name, zone_id, address, phone, email, active").order("name").returns<Laundry[]>(),
-    supabase.from("slots").select("id, kind, starts_at, ends_at, laundries(name)").gte("starts_at", nowIso).order("starts_at").limit(60).returns<Slot[]>(),
+    supabase.from("slots").select("id, kind, starts_at, ends_at, capacity, laundries(name)").gte("starts_at", nowIso).order("starts_at").limit(60).returns<Slot[]>(),
     supabase.from("plans").select("id, name, price_month_cents, turnaround_hours, pickups_per_week, active, stripe_price_id").order("sort").returns<Plan[]>(),
   ]);
+
+  // Occupazione per slot: ordini non annullati agganciati (ritiro vs consegna).
+  const pickIds = (slots ?? []).filter((s) => s.kind === "pickup").map((s) => s.id);
+  const delivIds = (slots ?? []).filter((s) => s.kind === "delivery").map((s) => s.id);
+  const [pCounts, dCounts] = await Promise.all([pickupCounts(supabase, pickIds), deliveryCounts(supabase, delivIds)]);
+  const usedOf = (s: Slot) => (s.kind === "pickup" ? pCounts.get(s.id) : dCounts.get(s.id)) ?? 0;
 
   return (
     <>
@@ -189,19 +196,28 @@ export default async function CatalogoPage() {
         <Card>
           <h2 className="font-display text-base font-extrabold text-navy">Slot futuri ({slots?.length ?? 0})</h2>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {(slots ?? []).map((s) => (
-              <div key={s.id} className="flex items-center justify-between rounded-[12px] border border-line bg-ice px-3 py-2">
-                <div className="text-sm">
-                  <span className="font-display text-[11px] font-bold uppercase text-blue">{s.kind === "pickup" ? "Ritiro" : "Consegna"}</span>
-                  <div className="font-semibold text-navy">{fmtDateTime(s.starts_at)}</div>
-                  <div className="text-xs font-medium text-muted">{s.laundries?.name ?? "—"}</div>
+            {(slots ?? []).map((s) => {
+              const used = usedOf(s);
+              const cap = s.capacity;
+              const full = cap != null && used >= cap;
+              const low = !full && cap != null && cap - used <= 3;
+              return (
+                <div key={s.id} className={`flex items-center justify-between rounded-[12px] border px-3 py-2 ${full ? "border-[#C0392B]/40 bg-[#C0392B]/[0.06]" : "border-line bg-ice"}`}>
+                  <div className="text-sm">
+                    <span className="font-display text-[11px] font-bold uppercase text-blue">{s.kind === "pickup" ? "Ritiro" : "Consegna"}</span>
+                    <div className="font-semibold text-navy">{fmtDateTime(s.starts_at)}</div>
+                    <div className="text-xs font-medium text-muted">{s.laundries?.name ?? "—"}</div>
+                    <div className={`mt-0.5 font-display text-xs font-extrabold ${full ? "text-[#C0392B]" : low ? "text-[#C9881F]" : "text-[#1F8A5B]"}`}>
+                      {used}/{cap ?? "∞"} occupati{full ? " · pieno" : ""}
+                    </div>
+                  </div>
+                  <form action={deleteSlot}>
+                    <input type="hidden" name="slot_id" value={s.id} />
+                    <button type="submit" className="font-display text-xs font-bold text-[#C0392B] hover:underline">✕</button>
+                  </form>
                 </div>
-                <form action={deleteSlot}>
-                  <input type="hidden" name="slot_id" value={s.id} />
-                  <button type="submit" className="font-display text-xs font-bold text-[#C0392B] hover:underline">✕</button>
-                </form>
-              </div>
-            ))}
+              );
+            })}
             {(!slots || slots.length === 0) && <p className="text-sm font-medium text-muted">Nessuno slot futuro. Usa il generatore qui sopra.</p>}
           </div>
         </Card>

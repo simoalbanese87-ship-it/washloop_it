@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { OrderStatus } from "@/lib/orders";
 import { romeLocalToISO, romeWeekday, romeHHMM } from "@/lib/format";
 import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
+import { slotFullMessage } from "@/lib/slots";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
  *  Calcola l'ETA "pronto" = inizio ritiro + turnaround del piano attivo. */
@@ -54,7 +55,7 @@ export async function createPickup(formData: FormData) {
     })
     .select("id")
     .single();
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(slotFullMessage(error) ?? error.message);
 
   await notifyOrderStatus(data!.id, "pickup_scheduled");
   revalidatePath("/app");
@@ -112,7 +113,7 @@ export async function bookPickup(input: {
     })
     .select("id")
     .single();
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: slotFullMessage(error) ?? error.message };
 
   // Ricorrenza settimanale opzionale: salva il pattern (giorno+ora di Roma) e
   // lega l'ordine appena creato. Il cron genererà le settimane successive.
@@ -201,7 +202,10 @@ export async function bookDelivery(formData: FormData) {
     .from("orders")
     .update({ delivery_slot_id, status: "delivery_scheduled" as OrderStatus })
     .eq("id", id);
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Slot pieno o altro errore → torna alla pagina ordine con un avviso, niente pagina d'errore.
+    redirect(`/app/ordini/${id}?err=${encodeURIComponent(slotFullMessage(error) ?? "Impossibile prenotare questa fascia. Riprova.")}`);
+  }
   revalidatePath(`/app/ordini/${id}`);
 }
 

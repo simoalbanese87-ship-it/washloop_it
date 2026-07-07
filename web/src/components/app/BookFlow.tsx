@@ -8,7 +8,7 @@ import { ACCESS_MODE_LABEL, type AccessMode } from "@/lib/orders";
 import { romeDayKey, fmtDow, fmtDayNum, fmtDowLong, fmtTimeRange } from "@/lib/format";
 
 export type Address = { id: string; label: string | null; street: string; zone_id: string | null; access_mode: string | null; access_note: string | null };
-export type Slot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null };
+export type Slot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null; remaining?: number | null };
 export type SpecialItem = { name: string; price_cli_cents: number };
 export type SpecialCategory = { id: string; name: string; emoji: string; items: SpecialItem[] };
 
@@ -189,14 +189,19 @@ export function BookFlow({
                 <div className="grid grid-cols-2 gap-2.5">
                   {daySlots.map((s) => {
                     const on = s.id === slotId;
+                    const full = s.remaining != null && s.remaining <= 0;
+                    const low = !full && s.remaining != null && s.remaining <= 3;
                     return (
                       <button
                         key={s.id}
-                        onClick={() => setSlotId(s.id)}
-                        className={`rounded-[14px] border-2 bg-white px-3 py-3.5 text-center transition-all ${on ? "border-cyan shadow-[0_14px_30px_-18px_rgba(0,200,240,0.5)]" : "border-transparent shadow-[0_1px_0_rgba(27,45,94,0.04),0_10px_24px_-18px_rgba(27,45,94,0.5)]"}`}
+                        onClick={() => { if (!full) setSlotId(s.id); }}
+                        disabled={full}
+                        className={`rounded-[14px] border-2 bg-white px-3 py-3.5 text-center transition-all ${full ? "cursor-not-allowed border-transparent opacity-45" : on ? "border-cyan shadow-[0_14px_30px_-18px_rgba(0,200,240,0.5)]" : "border-transparent shadow-[0_1px_0_rgba(27,45,94,0.04),0_10px_24px_-18px_rgba(27,45,94,0.5)]"}`}
                       >
                         <div className="font-display text-[15px] font-black text-navy">{fmtTimeRange(s.starts_at, s.ends_at)}</div>
-                        <div className="mt-0.5 text-[11.5px] font-bold text-muted">Disponibile</div>
+                        <div className={`mt-0.5 text-[11.5px] font-bold ${full ? "text-[#C0392B]" : low ? "text-[#C9881F]" : "text-muted"}`}>
+                          {full ? "Esaurito" : low ? `${s.remaining} ${s.remaining === 1 ? "posto" : "posti"}` : "Disponibile"}
+                        </div>
                       </button>
                     );
                   })}

@@ -4,6 +4,7 @@ import { OrderTimeline } from "@/components/app/OrderTimeline";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { createClient } from "@/lib/supabase/server";
 import { bookDelivery } from "@/lib/actions/orders";
+import { deliveryCounts } from "@/lib/slots";
 import { statusIndex, ORDER_STATUS_LABEL, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
 import { fmtDate, fmtDateTime, fmtFull } from "@/lib/format";
 
@@ -27,7 +28,8 @@ type Order = {
   eta_ready_at: string | null;
   addresses: { street: string; label: string | null } | null;
 };
-type Slot = { id: string; starts_at: string; ends_at: string };
+type Slot = { id: string; starts_at: string; ends_at: string; remaining: number | null };
+type RawDeliverySlot = { id: string; starts_at: string; ends_at: string; capacity: number | null };
 
 const input = "h-12 w-full rounded-[16px] border-2 border-line bg-white px-4 text-sm font-semibold text-navy outline-none focus:border-cyan";
 
@@ -37,8 +39,9 @@ const ChevLeft = () => (
   </svg>
 );
 
-export default async function OrderPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function OrderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ err?: string }> }) {
   const { id } = await params;
+  const { err } = await searchParams;
   const supabase = await createClient();
 
   const { data: order } = await supabase
@@ -61,10 +64,14 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
   let deliverySlots: Slot[] = [];
   if (canBookDelivery) {
     const nowIso = new Date().toISOString();
-    let q = supabase.from("slots").select("id, starts_at, ends_at").eq("kind", "delivery").gte("starts_at", nowIso);
+    let q = supabase.from("slots").select("id, starts_at, ends_at, capacity").eq("kind", "delivery").gte("starts_at", nowIso);
     if (order.laundry_id) q = q.eq("laundry_id", order.laundry_id);
-    const { data } = await q.order("starts_at").limit(12).returns<Slot[]>();
-    deliverySlots = data ?? [];
+    const { data } = await q.order("starts_at").limit(12).returns<RawDeliverySlot[]>();
+    const counts = await deliveryCounts(supabase, (data ?? []).map((s) => s.id));
+    deliverySlots = (data ?? []).map((s) => ({
+      id: s.id, starts_at: s.starts_at, ends_at: s.ends_at,
+      remaining: s.capacity == null ? null : Math.max(0, s.capacity - (counts.get(s.id) ?? 0)),
+    }));
   }
 
   const inProgress = statusIndex(order.status) < statusIndex("delivered");
@@ -78,6 +85,10 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
         </Link>
         <h1 className="font-display text-lg font-black tracking-[-0.02em] text-navy">Ordine #{order.id.slice(0, 8)}</h1>
       </div>
+
+      {err && (
+        <div className="rounded-[16px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{err}</div>
+      )}
 
       {/* Status hero */}
       <section className="relative overflow-hidden rounded-[24px] bg-gradient-to-br from-[#26417a] to-[#16264f] p-6 text-white shadow-[0_18px_44px_-26px_rgba(27,45,94,0.7)]">
@@ -119,9 +130,15 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
               <input type="hidden" name="order_id" value={order.id} />
               <select name="delivery_slot_id" required className={input} defaultValue="">
                 <option value="" disabled>Fascia di consegna…</option>
-                {deliverySlots.map((s) => (
-                  <option key={s.id} value={s.id}>{fmtDateTime(s.starts_at)}</option>
-                ))}
+                {deliverySlots.map((s) => {
+                  const full = s.remaining != null && s.remaining <= 0;
+                  const low = !full && s.remaining != null && s.remaining <= 3;
+                  return (
+                    <option key={s.id} value={s.id} disabled={full}>
+                      {fmtDateTime(s.starts_at)}{full ? " — esaurito" : low ? ` — ${s.remaining} posti` : ""}
+                    </option>
+                  );
+                })}
               </select>
               <button type="submit" className="w-full rounded-full bg-gradient-to-br from-blue to-cyan py-3.5 font-display text-sm font-extrabold text-white shadow-[0_10px_24px_-10px_rgba(0,200,240,0.7)]">
                 Prenota consegna →

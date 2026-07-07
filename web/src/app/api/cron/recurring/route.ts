@@ -27,10 +27,11 @@ export async function GET(req: Request) {
 
   const [{ data: recs }, { data: slots }] = await Promise.all([
     sb.from("recurring_pickups").select("id, customer_id, address_id, weekday, hhmm, bags, notes").eq("active", true),
-    sb.from("slots").select("id, starts_at, laundry_id").eq("kind", "pickup").gte("starts_at", now.toISOString()).lte("starts_at", until.toISOString()),
+    sb.from("slots").select("id, starts_at, laundry_id, capacity").eq("kind", "pickup").gte("starts_at", now.toISOString()).lte("starts_at", until.toISOString()),
   ]);
 
   let created = 0;
+  let skippedFull = 0;
   const turnaroundCache = new Map<string, number>();
 
   for (const rec of recs ?? []) {
@@ -61,6 +62,13 @@ export async function GET(req: Request) {
         .maybeSingle();
       if (existing) continue;
 
+      // Rispetta la capacità dello slot: se è pieno, salta (il trigger DB
+      // bloccherebbe comunque l'insert, qui evitiamo l'eccezione).
+      if (slot.capacity != null) {
+        const { count } = await sb.from("orders").select("id", { count: "exact", head: true }).eq("pickup_slot_id", slot.id).neq("status", "cancelled");
+        if ((count ?? 0) >= slot.capacity) { skippedFull++; continue; }
+      }
+
       const eta = new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString();
       const { data: ins, error } = await sb.from("orders").insert({
         customer_id: rec.customer_id,
@@ -80,5 +88,5 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, recurrences: recs?.length ?? 0, slots: slots?.length ?? 0, created });
+  return NextResponse.json({ ok: true, recurrences: recs?.length ?? 0, slots: slots?.length ?? 0, created, skippedFull });
 }

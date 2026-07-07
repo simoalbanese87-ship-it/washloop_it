@@ -2,20 +2,29 @@ import Link from "next/link";
 import { BookFlow, type Address, type Slot, type SpecialCategory } from "@/components/app/BookFlow";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/auth";
+import { pickupCounts } from "@/lib/slots";
 
 type Cat = { id: string; name: string; emoji: string; sort: number };
 type Item = { category_id: string; name: string; price_cli_cents: number; sort: number };
+type RawSlot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null; capacity: number | null };
 
 export default async function PrenotaPage() {
   const supabase = await createClient();
   const nowIso = new Date().toISOString();
-  const [active, { data: addresses }, { data: slots }, { data: cats }, { data: items }] = await Promise.all([
+  const [active, { data: addresses }, { data: rawSlots }, { data: cats }, { data: items }] = await Promise.all([
     hasActiveSubscription(),
     supabase.from("addresses").select("id, label, street, zone_id, access_mode, access_note").order("created_at", { ascending: false }).returns<Address[]>(),
-    supabase.from("slots").select("id, starts_at, ends_at, laundry_id").eq("kind", "pickup").gte("starts_at", nowIso).order("starts_at").limit(80).returns<Slot[]>(),
+    supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity").eq("kind", "pickup").gte("starts_at", nowIso).order("starts_at").limit(80).returns<RawSlot[]>(),
     supabase.from("special_categories").select("id, name, emoji, sort").order("sort").returns<Cat[]>(),
     supabase.from("special_items").select("category_id, name, price_cli_cents, sort").eq("active", true).order("sort").returns<Item[]>(),
   ]);
+
+  // Posti residui per slot (capacità − ordini non annullati già agganciati).
+  const counts = await pickupCounts(supabase, (rawSlots ?? []).map((s) => s.id));
+  const slots: Slot[] = (rawSlots ?? []).map((s) => ({
+    id: s.id, starts_at: s.starts_at, ends_at: s.ends_at, laundry_id: s.laundry_id,
+    remaining: s.capacity == null ? null : Math.max(0, s.capacity - (counts.get(s.id) ?? 0)),
+  }));
 
   const categories: SpecialCategory[] = (cats ?? []).map((c) => ({
     id: c.id,
