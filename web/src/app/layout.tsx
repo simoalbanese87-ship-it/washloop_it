@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Nunito, Nunito_Sans } from "next/font/google";
 import { PWARegister } from "@/components/PWARegister";
 import { CookieBanner } from "@/components/marketing/CookieBanner";
+import { GoogleAdsTag } from "@/components/GoogleAdsTag";
 import "./globals.css";
 
 const nunito = Nunito({
@@ -57,6 +58,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         {children}
         <CookieBanner />
         <PWARegister />
+        <GoogleAdsTag />
       </body>
     </html>
   );

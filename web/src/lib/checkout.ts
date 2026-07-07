@@ -45,7 +45,9 @@ export async function checkoutUrlForPlan(planId: string): Promise<string> {
     // Metodi consentiti: carta (+ Apple/Google Pay), Link, Amazon Pay. Klarna escluso.
     payment_method_types: ["card", "link", "amazon_pay"],
     line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
-    success_url: `${siteUrl()}/app?checkout=success`,
+    // Pagina di conferma dedicata (conversione Google Ads). {CHECKOUT_SESSION_ID}
+    // è sostituito da Stripe → serve per deduplicare la conversione.
+    success_url: `${siteUrl()}/checkout/grazie?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${siteUrl()}/app/abbonamento?checkout=cancel`,
     metadata: { supabase_user_id: user.id, plan_id: plan.id },
     subscription_data: { metadata: { supabase_user_id: user.id, plan_id: plan.id } },
