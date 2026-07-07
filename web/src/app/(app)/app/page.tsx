@@ -145,6 +145,16 @@ export default async function Home() {
         <QuickAction href="/app/abbonamento" title="Abbonamento" sub={active ? "Gestisci piano" : "Attiva"} />
       </section>
 
+      {/* Guida installa app + notifiche (sempre visibile, per chi non è pratico) */}
+      <Link href="/app/installa" className="flex items-center gap-3 rounded-[18px] border border-line bg-white px-4 py-3.5 transition-colors active:bg-ice">
+        <span className="grid h-11 w-11 flex-none place-items-center rounded-[13px] bg-gradient-to-br from-blue to-cyan text-lg text-white">📲</span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-display text-[15px] font-extrabold text-navy">Installa l&apos;app e attiva le notifiche</span>
+          <span className="block text-xs font-medium text-muted">Guida rapida in 2 passi</span>
+        </span>
+        <span className="flex-none font-display text-lg font-black text-navy/30">→</span>
+      </Link>
+
       {/* Uso del mese */}
       {active && sub?.plans && (
         <section className="rounded-[22px] border border-line bg-white p-5">
