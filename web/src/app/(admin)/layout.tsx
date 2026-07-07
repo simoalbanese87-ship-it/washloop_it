@@ -5,6 +5,7 @@ import { roleHome } from "@/lib/orders";
 
 const adminNav: NavItem[] = [
   { href: "/admin", label: "Ordini" },
+  { href: "/admin/novita", label: "Novità" },
   { href: "/admin/archivio", label: "Archivio" },
   { href: "/admin/abbonati", label: "Abbonati" },
   { href: "/admin/lista-attesa", label: "Lista d'attesa" },
