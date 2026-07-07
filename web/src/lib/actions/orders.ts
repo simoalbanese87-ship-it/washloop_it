@@ -148,13 +148,45 @@ export async function cancelRecurring(formData: FormData) {
   revalidatePath("/app");
 }
 
-/** Cliente: conferma la presa visione di un orario modificato dall'admin. */
+/** Cliente: conferma una modifica proposta dall'admin. I valori in sospeso
+ *  (pending_*) diventano effettivi e la ricorrenza si attiva. */
 export async function confirmRecurring(formData: FormData) {
   const supabase = await createClient();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
-  // RLS "recpick owner": aggiorna solo la propria ricorrenza.
-  await supabase.from("recurring_pickups").update({ needs_confirmation: false }).eq("id", id);
+  // RLS "recpick owner": legge/aggiorna solo la propria ricorrenza.
+  const { data: r } = await supabase
+    .from("recurring_pickups")
+    .select("pending_weekday, pending_hhmm, pending_bags, pending_delivery_hhmm")
+    .eq("id", id)
+    .maybeSingle<{ pending_weekday: number | null; pending_hhmm: string | null; pending_bags: number | null; pending_delivery_hhmm: string | null }>();
+
+  const patch: Record<string, unknown> = {
+    active: true,
+    needs_confirmation: false,
+    pending_weekday: null, pending_hhmm: null, pending_bags: null, pending_delivery_hhmm: null,
+  };
+  // Se c'era una proposta di modifica (ricorrenza già esistente), applica i pending.
+  if (r?.pending_hhmm != null) {
+    patch.weekday = r.pending_weekday;
+    patch.hhmm = r.pending_hhmm;
+    patch.bags = r.pending_bags;
+    patch.delivery_hhmm = r.pending_delivery_hhmm;
+  }
+  await supabase.from("recurring_pickups").update(patch).eq("id", id);
+  revalidatePath("/app");
+}
+
+/** Cliente: rifiuta una modifica proposta dall'admin. Scarta i pending; la
+ *  ricorrenza resta com'era (se era nuova e mai attivata, resta disattivata). */
+export async function rejectRecurring(formData: FormData) {
+  const supabase = await createClient();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  await supabase
+    .from("recurring_pickups")
+    .update({ needs_confirmation: false, pending_weekday: null, pending_hhmm: null, pending_bags: null, pending_delivery_hhmm: null })
+    .eq("id", id);
   revalidatePath("/app");
 }
 

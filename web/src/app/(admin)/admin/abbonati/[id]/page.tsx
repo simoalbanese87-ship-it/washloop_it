@@ -22,7 +22,11 @@ type Sub = { id: string; status: string; plan_id: string | null; custom_price_ce
 type Addr = { id: string; label: string | null; street: string };
 type Ord = { id: string; status: OrderStatus; created_at: string; bags: number };
 type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; created_at: string };
-type Rec = { id: string; weekday: number; hhmm: string; bags: number; active: boolean; needs_confirmation: boolean; address_id: string; addresses: { label: string | null } | null };
+type Rec = {
+  id: string; weekday: number; hhmm: string; bags: number; active: boolean; needs_confirmation: boolean;
+  delivery_hhmm: string | null; address_id: string; addresses: { label: string | null } | null;
+  pending_weekday: number | null; pending_hhmm: string | null; pending_bags: number | null; pending_delivery_hhmm: string | null;
+};
 
 // Ordine di visualizzazione dei giorni: lun→dom.
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -41,7 +45,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     svc.from("addresses").select("id, label, street").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
-    svc.from("recurring_pickups").select("id, weekday, hhmm, bags, active, needs_confirmation, address_id, addresses(label)").eq("customer_id", id).order("created_at", { ascending: false }).returns<Rec[]>(),
+    svc.from("recurring_pickups").select("id, weekday, hhmm, bags, active, needs_confirmation, delivery_hhmm, address_id, addresses(label), pending_weekday, pending_hhmm, pending_bags, pending_delivery_hhmm").eq("customer_id", id).order("created_at", { ascending: false }).returns<Rec[]>(),
   ]);
   const email = userRes?.user?.email ?? "—";
 
@@ -117,7 +121,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
       {/* Ritiri ricorrenti — orari indicati dal cliente, modificabili dall'admin */}
       <Card className="mt-6">
         <h2 className="font-display text-base font-extrabold text-navy">Ritiri ricorrenti</h2>
-        <p className="mt-1 text-xs font-medium text-muted">Gli orari di ritiro settimanale del cliente. Se li modifichi, la modifica è subito attiva e il cliente riceve una notifica da confermare in app. Le consegne restano scelte ordine per ordine.</p>
+        <p className="mt-1 text-xs font-medium text-muted">Gli orari di ritiro settimanale del cliente e l&apos;orario di consegna preferito. Se li modifichi, la modifica resta <strong>in sospeso</strong> finché il cliente non la conferma in app (fino ad allora vale l&apos;orario attuale). Il cliente riceve email + notifica.</p>
 
         <div className="mt-4 space-y-3">
           {(recurring ?? []).length === 0 ? (
@@ -127,21 +131,28 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               <div key={r.id} className={`rounded-[14px] border p-3 ${r.active ? "border-line" : "border-line bg-ice opacity-70"}`}>
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className="font-display text-sm font-extrabold text-navy">Ogni {WEEKDAY_IT[r.weekday]} · {r.hhmm}</span>
+                  {r.delivery_hhmm && <span className="text-xs font-medium text-muted">· consegna pref. {r.delivery_hhmm}</span>}
                   <span className="text-xs font-medium text-muted">· {r.addresses?.label ?? "indirizzo"}</span>
-                  {!r.active && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">disattivo</span>}
+                  {!r.active && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">non attivo</span>}
                   {r.needs_confirmation && <span className="rounded-full bg-[#C9881F]/15 px-2 py-0.5 text-[11px] font-bold text-[#C9881F]">in attesa di conferma cliente</span>}
                 </div>
-                <form action={updateRecurringPickup} className="grid gap-2 sm:grid-cols-[1.2fr_0.9fr_0.7fr_auto_auto] sm:items-end">
+                {r.pending_hhmm != null && (
+                  <p className="mb-2 rounded-[10px] bg-[#C9881F]/10 px-3 py-2 text-xs font-semibold text-[#C9881F]">
+                    Proposta in sospeso: Ogni {WEEKDAY_IT[r.pending_weekday ?? r.weekday]} · {r.pending_hhmm} · {r.pending_bags} {r.pending_bags === 1 ? "sacco" : "sacchi"}{r.pending_delivery_hhmm ? ` · consegna ${r.pending_delivery_hhmm}` : ""} — in attesa che il cliente confermi.
+                  </p>
+                )}
+                <form action={updateRecurringPickup} className="grid gap-2 sm:grid-cols-[1fr_0.8fr_0.8fr_0.6fr_auto] sm:items-end">
                   <input type="hidden" name="rec_id" value={r.id} />
                   <input type="hidden" name="customer_id" value={id} />
                   <label className="text-xs font-bold text-muted">Giorno
-                    <select name="weekday" defaultValue={r.weekday} className={input}>
+                    <select name="weekday" defaultValue={r.pending_weekday ?? r.weekday} className={input}>
                       {WEEKDAY_ORDER.map((w) => (<option key={w} value={w}>{WEEKDAY_IT[w]}</option>))}
                     </select>
                   </label>
-                  <label className="text-xs font-bold text-muted">Ora<input name="hhmm" type="time" required defaultValue={r.hhmm} className={input} /></label>
-                  <label className="text-xs font-bold text-muted">Sacchi<input name="bags" type="number" min="1" required defaultValue={r.bags} className={input} /></label>
-                  <Button type="submit" size="md">Salva e notifica</Button>
+                  <label className="text-xs font-bold text-muted">Ritiro<input name="hhmm" type="time" required defaultValue={r.pending_hhmm ?? r.hhmm} className={input} /></label>
+                  <label className="text-xs font-bold text-muted">Consegna<input name="delivery_hhmm" type="time" defaultValue={r.pending_delivery_hhmm ?? r.delivery_hhmm ?? ""} className={input} /></label>
+                  <label className="text-xs font-bold text-muted">Sacchi<input name="bags" type="number" min="1" required defaultValue={r.pending_bags ?? r.bags} className={input} /></label>
+                  <Button type="submit" size="md">Proponi modifica</Button>
                 </form>
                 <form action={setRecurringActive} className="mt-2">
                   <input type="hidden" name="rec_id" value={r.id} />
@@ -158,7 +169,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
         {(addresses ?? []).length > 0 ? (
           <details className="mt-4">
             <summary className="cursor-pointer font-display text-sm font-bold text-blue">+ Aggiungi ritiro ricorrente</summary>
-            <form action={addRecurringPickup} className="mt-3 grid gap-2 sm:grid-cols-[1.4fr_1.2fr_0.9fr_0.7fr_auto] sm:items-end">
+            <form action={addRecurringPickup} className="mt-3 grid gap-2 sm:grid-cols-[1.2fr_1fr_0.8fr_0.8fr_0.6fr_auto] sm:items-end">
               <input type="hidden" name="customer_id" value={id} />
               <label className="text-xs font-bold text-muted">Indirizzo
                 <select name="address_id" required className={input} defaultValue="">
@@ -171,9 +182,10 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                   {WEEKDAY_ORDER.map((w) => (<option key={w} value={w}>{WEEKDAY_IT[w]}</option>))}
                 </select>
               </label>
-              <label className="text-xs font-bold text-muted">Ora<input name="hhmm" type="time" required defaultValue="09:00" className={input} /></label>
+              <label className="text-xs font-bold text-muted">Ritiro<input name="hhmm" type="time" required defaultValue="09:00" className={input} /></label>
+              <label className="text-xs font-bold text-muted">Consegna<input name="delivery_hhmm" type="time" className={input} /></label>
               <label className="text-xs font-bold text-muted">Sacchi<input name="bags" type="number" min="1" required defaultValue={1} className={input} /></label>
-              <Button type="submit" size="md">Crea e notifica</Button>
+              <Button type="submit" size="md">Proponi</Button>
             </form>
           </details>
         ) : (

@@ -189,23 +189,24 @@ export async function notifyCourierAssigned(orderId: string) {
 
 /** Notifica il cliente che l'admin ha aggiornato un suo orario di ritiro
  *  ricorrente. Chiede di confermare la presa visione in app. Best-effort. */
-export async function notifyRecurringChanged(customerId: string, schedule: { weekday: number; hhmm: string; bags: number }) {
+export async function notifyRecurringChanged(customerId: string, schedule: { weekday: number; hhmm: string; bags: number; delivery?: string | null }) {
   try {
     const svc = createServiceClient();
     const email = await userEmail(svc, customerId);
     const when = `Ogni ${WEEKDAY_IT[schedule.weekday] ?? "—"} alle ${schedule.hhmm}`;
     const bagsLabel = `${schedule.bags} ${schedule.bags === 1 ? "sacco" : "sacchi"}`;
+    const deliveryLabel = schedule.delivery ? ` · consegna preferita alle ${schedule.delivery}` : "";
     if (email) {
       const html = renderEmail({
-        title: "Abbiamo aggiornato il tuo ritiro",
-        body: `Il tuo orario di ritiro ricorrente è stato aggiornato: <strong>${when}</strong> · ${bagsLabel}.<br/>Apri l'app e conferma la modifica: se qualcosa non va, puoi cambiarla o disattivarla tu.`,
+        title: "C'è una modifica al tuo ritiro",
+        body: `Ti proponiamo un nuovo orario di ritiro: <strong>${when}</strong> · ${bagsLabel}${deliveryLabel}.<br/>La modifica <strong>non è ancora attiva</strong>: aprila in app e confermala. Fino ad allora vale l'orario attuale.`,
         emoji: "🕒",
-        preheader: `Nuovo orario di ritiro: ${when}`,
+        preheader: `Nuovo orario proposto: ${when}`,
         cta: { label: "Conferma in app", href: `${site()}/app` },
       });
-      await sendMail({ to: email, subject: "Orario di ritiro aggiornato 🕒", html });
+      await sendMail({ to: email, subject: "Modifica al tuo ritiro — da confermare 🕒", html });
     }
-    await sendPush(customerId, { title: "Orario di ritiro aggiornato", body: `${when} · da confermare in app`, url: "/app" });
+    await sendPush(customerId, { title: "Modifica al tuo ritiro", body: `${when} · confermala in app`, url: "/app" });
   } catch (err) {
     console.error(`[notify] notifyRecurringChanged(${customerId}) fallita:`, err);
   }

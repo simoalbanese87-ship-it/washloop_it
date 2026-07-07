@@ -354,62 +354,74 @@ export async function deleteCustomer(formData: FormData) {
 
 const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-/** Valida e normalizza i campi di una ricorrenza dal form. */
-function parseRecurring(formData: FormData): { weekday: number; hhmm: string; bags: number } {
+/** Valida e normalizza i campi di una ricorrenza dal form. `delivery` (orario di
+ *  consegna preferito) è opzionale. */
+function parseRecurring(formData: FormData): { weekday: number; hhmm: string; bags: number; delivery: string | null } {
   const weekday = parseInt(String(formData.get("weekday") ?? ""), 10);
   const hhmm = String(formData.get("hhmm") ?? "").trim();
   const bags = parseInt(String(formData.get("bags") ?? "1"), 10);
+  const deliveryRaw = String(formData.get("delivery_hhmm") ?? "").trim();
   if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) throw new Error("Giorno non valido");
   if (!HHMM_RE.test(hhmm)) throw new Error("Orario non valido (usa HH:MM)");
   if (!Number.isInteger(bags) || bags < 1) throw new Error("Numero sacchi non valido");
-  return { weekday, hhmm, bags };
+  if (deliveryRaw && !HHMM_RE.test(deliveryRaw)) throw new Error("Orario di consegna non valido (usa HH:MM)");
+  return { weekday, hhmm, bags, delivery: deliveryRaw || null };
 }
 
-/** Admin: modifica giorno/ora/sacchi di un ritiro ricorrente. La modifica è
- *  subito attiva (il cron la usa) e viene marcata "da confermare": il cliente
- *  riceve notifica e conferma la presa visione in app. */
+/** Admin: propone una modifica a un ritiro ricorrente. La modifica NON è subito
+ *  effettiva: resta "in sospeso" (pending_*) finché il cliente non la conferma in
+ *  app. Fino ad allora il cron continua a usare l'orario attuale. */
 export async function updateRecurringPickup(formData: FormData) {
   await requireAdmin();
   const id = String(formData.get("rec_id") ?? "");
   const customerId = String(formData.get("customer_id") ?? "");
   if (!id || !customerId) throw new Error("Parametri mancanti");
-  const { weekday, hhmm, bags } = parseRecurring(formData);
+  const { weekday, hhmm, bags, delivery } = parseRecurring(formData);
 
   const svc = createServiceClient();
   const { error } = await svc
     .from("recurring_pickups")
-    .update({ weekday, hhmm, bags, active: true, needs_confirmation: true, updated_by_admin_at: new Date().toISOString() })
+    .update({
+      pending_weekday: weekday,
+      pending_hhmm: hhmm,
+      pending_bags: bags,
+      pending_delivery_hhmm: delivery,
+      needs_confirmation: true,
+      updated_by_admin_at: new Date().toISOString(),
+    })
     .eq("id", id)
     .eq("customer_id", customerId);
   if (error) throw new Error(error.message);
 
-  await notifyRecurringChanged(customerId, { weekday, hhmm, bags });
+  await notifyRecurringChanged(customerId, { weekday, hhmm, bags, delivery });
   revalidatePath(`/admin/abbonati/${customerId}`);
-  redirect(`/admin/abbonati/${customerId}?ok=${encodeURIComponent("Orario aggiornato. Cliente avvisato: deve confermarlo in app.")}`);
+  redirect(`/admin/abbonati/${customerId}?ok=${encodeURIComponent("Modifica proposta. In sospeso finché il cliente non la conferma in app (fino ad allora vale l'orario attuale).")}`);
 }
 
-/** Admin: crea un nuovo ritiro ricorrente per il cliente (su un suo indirizzo). */
+/** Admin: crea un nuovo ritiro ricorrente. Nasce "in sospeso" (active=false):
+ *  diventa attivo solo dopo la conferma del cliente in app. */
 export async function addRecurringPickup(formData: FormData) {
   await requireAdmin();
   const customerId = String(formData.get("customer_id") ?? "");
   const addressId = String(formData.get("address_id") ?? "");
   if (!customerId || !addressId) throw new Error("Cliente o indirizzo mancante");
-  const { weekday, hhmm, bags } = parseRecurring(formData);
+  const { weekday, hhmm, bags, delivery } = parseRecurring(formData);
 
   const svc = createServiceClient();
   const { error } = await svc.from("recurring_pickups").insert({
     customer_id: customerId,
     address_id: addressId,
     weekday, hhmm, bags,
-    active: true,
+    delivery_hhmm: delivery,
+    active: false, // in sospeso: si attiva alla conferma del cliente
     needs_confirmation: true,
     updated_by_admin_at: new Date().toISOString(),
   });
   if (error) throw new Error(error.message);
 
-  await notifyRecurringChanged(customerId, { weekday, hhmm, bags });
+  await notifyRecurringChanged(customerId, { weekday, hhmm, bags, delivery });
   revalidatePath(`/admin/abbonati/${customerId}`);
-  redirect(`/admin/abbonati/${customerId}?ok=${encodeURIComponent("Ritiro ricorrente creato. Cliente avvisato: deve confermarlo in app.")}`);
+  redirect(`/admin/abbonati/${customerId}?ok=${encodeURIComponent("Ritiro proposto. Si attiva quando il cliente lo conferma in app.")}`);
 }
 
 /** Admin: attiva/disattiva un ritiro ricorrente. */
