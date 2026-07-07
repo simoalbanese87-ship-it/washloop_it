@@ -148,6 +148,16 @@ export async function cancelRecurring(formData: FormData) {
   revalidatePath("/app");
 }
 
+/** Cliente: conferma la presa visione di un orario modificato dall'admin. */
+export async function confirmRecurring(formData: FormData) {
+  const supabase = await createClient();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  // RLS "recpick owner": aggiorna solo la propria ricorrenza.
+  await supabase.from("recurring_pickups").update({ needs_confirmation: false }).eq("id", id);
+  revalidatePath("/app");
+}
+
 /** Cliente: prenota lo slot di consegna (disponibile da status=ready). */
 export async function bookDelivery(formData: FormData) {
   const supabase = await createClient();

@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { stripe, siteUrl } from "@/lib/stripe";
-import { notifyNewCustomer } from "@/lib/notify";
+import { notifyNewCustomer, notifyRecurringChanged } from "@/lib/notify";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -348,4 +348,80 @@ export async function deleteCustomer(formData: FormData) {
 
   revalidatePath("/admin/abbonati");
   redirect(`/admin/abbonati?ok=${encodeURIComponent("Lead eliminato.")}`);
+}
+
+// ---- Ritiri ricorrenti: l'admin vede/modifica gli orari indicati dal cliente ----
+
+const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Valida e normalizza i campi di una ricorrenza dal form. */
+function parseRecurring(formData: FormData): { weekday: number; hhmm: string; bags: number } {
+  const weekday = parseInt(String(formData.get("weekday") ?? ""), 10);
+  const hhmm = String(formData.get("hhmm") ?? "").trim();
+  const bags = parseInt(String(formData.get("bags") ?? "1"), 10);
+  if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) throw new Error("Giorno non valido");
+  if (!HHMM_RE.test(hhmm)) throw new Error("Orario non valido (usa HH:MM)");
+  if (!Number.isInteger(bags) || bags < 1) throw new Error("Numero sacchi non valido");
+  return { weekday, hhmm, bags };
+}
+
+/** Admin: modifica giorno/ora/sacchi di un ritiro ricorrente. La modifica è
+ *  subito attiva (il cron la usa) e viene marcata "da confermare": il cliente
+ *  riceve notifica e conferma la presa visione in app. */
+export async function updateRecurringPickup(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("rec_id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  if (!id || !customerId) throw new Error("Parametri mancanti");
+  const { weekday, hhmm, bags } = parseRecurring(formData);
+
+  const svc = createServiceClient();
+  const { error } = await svc
+    .from("recurring_pickups")
+    .update({ weekday, hhmm, bags, active: true, needs_confirmation: true, updated_by_admin_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("customer_id", customerId);
+  if (error) throw new Error(error.message);
+
+  await notifyRecurringChanged(customerId, { weekday, hhmm, bags });
+  revalidatePath(`/admin/abbonati/${customerId}`);
+  redirect(`/admin/abbonati/${customerId}?ok=${encodeURIComponent("Orario aggiornato. Cliente avvisato: deve confermarlo in app.")}`);
+}
+
+/** Admin: crea un nuovo ritiro ricorrente per il cliente (su un suo indirizzo). */
+export async function addRecurringPickup(formData: FormData) {
+  await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  const addressId = String(formData.get("address_id") ?? "");
+  if (!customerId || !addressId) throw new Error("Cliente o indirizzo mancante");
+  const { weekday, hhmm, bags } = parseRecurring(formData);
+
+  const svc = createServiceClient();
+  const { error } = await svc.from("recurring_pickups").insert({
+    customer_id: customerId,
+    address_id: addressId,
+    weekday, hhmm, bags,
+    active: true,
+    needs_confirmation: true,
+    updated_by_admin_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(error.message);
+
+  await notifyRecurringChanged(customerId, { weekday, hhmm, bags });
+  revalidatePath(`/admin/abbonati/${customerId}`);
+  redirect(`/admin/abbonati/${customerId}?ok=${encodeURIComponent("Ritiro ricorrente creato. Cliente avvisato: deve confermarlo in app.")}`);
+}
+
+/** Admin: attiva/disattiva un ritiro ricorrente. */
+export async function setRecurringActive(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("rec_id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  const active = String(formData.get("active") ?? "") === "true";
+  if (!id || !customerId) throw new Error("Parametri mancanti");
+
+  const svc = createServiceClient();
+  await svc.from("recurring_pickups").update({ active }).eq("id", id).eq("customer_id", customerId);
+  revalidatePath(`/admin/abbonati/${customerId}`);
+  redirect(`/admin/abbonati/${customerId}?ok=${encodeURIComponent(active ? "Ritiro riattivato." : "Ritiro disattivato.")}`);
 }

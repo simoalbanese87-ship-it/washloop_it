@@ -3,11 +3,11 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { createClient } from "@/lib/supabase/server";
 import { ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtDate, fmtFull, WEEKDAY_IT } from "@/lib/format";
-import { cancelRecurring } from "@/lib/actions/orders";
+import { cancelRecurring, confirmRecurring } from "@/lib/actions/orders";
 
 type OrderRow = { id: string; status: OrderStatus; created_at: string; bags: number; eta_ready_at: string | null };
 type SubRow = { status: string; current_period_end: string | null; plans: { name: string; bags_per_week: number } | null };
-type RecRow = { id: string; weekday: number; hhmm: string; bags: number };
+type RecRow = { id: string; weekday: number; hhmm: string; bags: number; needs_confirmation: boolean };
 
 const ACTIVE_ORDER: OrderStatus[] = ["pickup_scheduled", "picked_up", "at_laundry", "washing", "ready", "delivery_scheduled", "out_for_delivery"];
 
@@ -28,7 +28,7 @@ export default async function Home() {
       .returns<OrderRow[]>(),
     supabase
       .from("recurring_pickups")
-      .select("id, weekday, hhmm, bags")
+      .select("id, weekday, hhmm, bags, needs_confirmation")
       .eq("active", true)
       .order("created_at", { ascending: false })
       .returns<RecRow[]>(),
@@ -82,17 +82,28 @@ export default async function Home() {
           <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-blue">Ricorrente</div>
           <div className="mt-2 space-y-3">
             {recurring.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="font-display text-base font-black text-navy">Ogni {WEEKDAY_IT[r.weekday]} · {r.hhmm}</div>
-                  <div className="text-xs font-medium text-muted">
-                    {r.bags} {r.bags === 1 ? "sacco" : "sacchi"} · {active ? "si ripete in automatico" : "in pausa fino al rinnovo dell'abbonamento"}
+              <div key={r.id} className={`rounded-[16px] ${r.needs_confirmation ? "border border-[#C9881F]/35 bg-[#C9881F]/8 p-3" : ""}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-display text-base font-black text-navy">Ogni {WEEKDAY_IT[r.weekday]} · {r.hhmm}</div>
+                    <div className="text-xs font-medium text-muted">
+                      {r.bags} {r.bags === 1 ? "sacco" : "sacchi"} · {active ? "si ripete in automatico" : "in pausa fino al rinnovo dell'abbonamento"}
+                    </div>
                   </div>
+                  <form action={cancelRecurring}>
+                    <input type="hidden" name="id" value={r.id} />
+                    <button type="submit" className="flex-none font-display text-xs font-bold text-[#C0392B] hover:underline">Disattiva</button>
+                  </form>
                 </div>
-                <form action={cancelRecurring}>
-                  <input type="hidden" name="id" value={r.id} />
-                  <button type="submit" className="flex-none font-display text-xs font-bold text-[#C0392B] hover:underline">Disattiva</button>
-                </form>
+                {r.needs_confirmation && (
+                  <div className="mt-2 flex items-center justify-between gap-3 border-t border-[#C9881F]/25 pt-2">
+                    <div className="text-xs font-semibold text-[#C9881F]">WashLoop ha aggiornato questo orario. Confermi?</div>
+                    <form action={confirmRecurring}>
+                      <input type="hidden" name="id" value={r.id} />
+                      <button type="submit" className="flex-none rounded-full bg-[#C9881F] px-3.5 py-1.5 font-display text-xs font-extrabold text-white">Conferma</button>
+                    </form>
+                  </div>
+                )}
               </div>
             ))}
           </div>

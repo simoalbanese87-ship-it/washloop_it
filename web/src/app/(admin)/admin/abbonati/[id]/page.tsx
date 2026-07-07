@@ -3,9 +3,9 @@ import { notFound } from "next/navigation";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive } from "@/lib/actions/admin-customer";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, WEEKDAY_IT } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -22,6 +22,10 @@ type Sub = { id: string; status: string; plan_id: string | null; custom_price_ce
 type Addr = { id: string; label: string | null; street: string };
 type Ord = { id: string; status: OrderStatus; created_at: string; bags: number };
 type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; created_at: string };
+type Rec = { id: string; weekday: number; hhmm: string; bags: number; active: boolean; needs_confirmation: boolean; address_id: string; addresses: { label: string | null } | null };
+
+// Ordine di visualizzazione dei giorni: lun→dom.
+const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 export default async function CustomerPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ ok?: string; warn?: string }> }) {
   const { id } = await params;
@@ -31,12 +35,13 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at").eq("id", id).maybeSingle<Prof>();
   if (!profile) notFound();
 
-  const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }] = await Promise.all([
+  const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }] = await Promise.all([
     svc.auth.admin.getUserById(id),
     svc.from("subscriptions").select("id, status, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
+    svc.from("recurring_pickups").select("id, weekday, hhmm, bags, active, needs_confirmation, address_id, addresses(label)").eq("customer_id", id).order("created_at", { ascending: false }).returns<Rec[]>(),
   ]);
   const email = userRes?.user?.email ?? "—";
 
@@ -108,6 +113,73 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           </div>
         </Card>
       </div>
+
+      {/* Ritiri ricorrenti — orari indicati dal cliente, modificabili dall'admin */}
+      <Card className="mt-6">
+        <h2 className="font-display text-base font-extrabold text-navy">Ritiri ricorrenti</h2>
+        <p className="mt-1 text-xs font-medium text-muted">Gli orari di ritiro settimanale del cliente. Se li modifichi, la modifica è subito attiva e il cliente riceve una notifica da confermare in app. Le consegne restano scelte ordine per ordine.</p>
+
+        <div className="mt-4 space-y-3">
+          {(recurring ?? []).length === 0 ? (
+            <p className="text-sm font-medium text-muted">Nessun ritiro ricorrente impostato.</p>
+          ) : (
+            (recurring ?? []).map((r) => (
+              <div key={r.id} className={`rounded-[14px] border p-3 ${r.active ? "border-line" : "border-line bg-ice opacity-70"}`}>
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="font-display text-sm font-extrabold text-navy">Ogni {WEEKDAY_IT[r.weekday]} · {r.hhmm}</span>
+                  <span className="text-xs font-medium text-muted">· {r.addresses?.label ?? "indirizzo"}</span>
+                  {!r.active && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">disattivo</span>}
+                  {r.needs_confirmation && <span className="rounded-full bg-[#C9881F]/15 px-2 py-0.5 text-[11px] font-bold text-[#C9881F]">in attesa di conferma cliente</span>}
+                </div>
+                <form action={updateRecurringPickup} className="grid gap-2 sm:grid-cols-[1.2fr_0.9fr_0.7fr_auto_auto] sm:items-end">
+                  <input type="hidden" name="rec_id" value={r.id} />
+                  <input type="hidden" name="customer_id" value={id} />
+                  <label className="text-xs font-bold text-muted">Giorno
+                    <select name="weekday" defaultValue={r.weekday} className={input}>
+                      {WEEKDAY_ORDER.map((w) => (<option key={w} value={w}>{WEEKDAY_IT[w]}</option>))}
+                    </select>
+                  </label>
+                  <label className="text-xs font-bold text-muted">Ora<input name="hhmm" type="time" required defaultValue={r.hhmm} className={input} /></label>
+                  <label className="text-xs font-bold text-muted">Sacchi<input name="bags" type="number" min="1" required defaultValue={r.bags} className={input} /></label>
+                  <Button type="submit" size="md">Salva e notifica</Button>
+                </form>
+                <form action={setRecurringActive} className="mt-2">
+                  <input type="hidden" name="rec_id" value={r.id} />
+                  <input type="hidden" name="customer_id" value={id} />
+                  <input type="hidden" name="active" value={r.active ? "false" : "true"} />
+                  <button type="submit" className="font-display text-xs font-bold text-blue hover:underline">{r.active ? "Disattiva" : "Riattiva"}</button>
+                </form>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Aggiungi ricorrenza */}
+        {(addresses ?? []).length > 0 ? (
+          <details className="mt-4">
+            <summary className="cursor-pointer font-display text-sm font-bold text-blue">+ Aggiungi ritiro ricorrente</summary>
+            <form action={addRecurringPickup} className="mt-3 grid gap-2 sm:grid-cols-[1.4fr_1.2fr_0.9fr_0.7fr_auto] sm:items-end">
+              <input type="hidden" name="customer_id" value={id} />
+              <label className="text-xs font-bold text-muted">Indirizzo
+                <select name="address_id" required className={input} defaultValue="">
+                  <option value="" disabled>Scegli…</option>
+                  {(addresses ?? []).map((a) => (<option key={a.id} value={a.id}>{a.label ?? a.street}</option>))}
+                </select>
+              </label>
+              <label className="text-xs font-bold text-muted">Giorno
+                <select name="weekday" className={input} defaultValue={1}>
+                  {WEEKDAY_ORDER.map((w) => (<option key={w} value={w}>{WEEKDAY_IT[w]}</option>))}
+                </select>
+              </label>
+              <label className="text-xs font-bold text-muted">Ora<input name="hhmm" type="time" required defaultValue="09:00" className={input} /></label>
+              <label className="text-xs font-bold text-muted">Sacchi<input name="bags" type="number" min="1" required defaultValue={1} className={input} /></label>
+              <Button type="submit" size="md">Crea e notifica</Button>
+            </form>
+          </details>
+        ) : (
+          <p className="mt-3 text-xs font-medium text-muted">Aggiungi prima un indirizzo per creare un ritiro ricorrente.</p>
+        )}
+      </Card>
 
       {/* Addebiti / rimborsi personalizzati */}
       <Card className="mt-6">

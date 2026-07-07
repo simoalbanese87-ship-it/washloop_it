@@ -4,7 +4,7 @@ import { sendMail, renderEmail } from "@/lib/email";
 import { welcomeEmailHtml } from "@/lib/email-templates";
 import { LEGAL } from "@/lib/legal";
 import { sendPush } from "@/lib/push";
-import { fmtFull, fmtSlot } from "@/lib/format";
+import { fmtFull, fmtSlot, WEEKDAY_IT } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it").replace(/\s+/g, "");
@@ -184,6 +184,30 @@ export async function notifyCourierAssigned(orderId: string) {
     await sendPush(order.courier_id, { title: `Nuovo ${kind} assegnato`, body: `${order.addresses?.street ?? ""} · ${when}`, url: "/courier" });
   } catch (err) {
     console.error(`[notify] notifyCourierAssigned(${orderId}) fallita:`, err);
+  }
+}
+
+/** Notifica il cliente che l'admin ha aggiornato un suo orario di ritiro
+ *  ricorrente. Chiede di confermare la presa visione in app. Best-effort. */
+export async function notifyRecurringChanged(customerId: string, schedule: { weekday: number; hhmm: string; bags: number }) {
+  try {
+    const svc = createServiceClient();
+    const email = await userEmail(svc, customerId);
+    const when = `Ogni ${WEEKDAY_IT[schedule.weekday] ?? "—"} alle ${schedule.hhmm}`;
+    const bagsLabel = `${schedule.bags} ${schedule.bags === 1 ? "sacco" : "sacchi"}`;
+    if (email) {
+      const html = renderEmail({
+        title: "Abbiamo aggiornato il tuo ritiro",
+        body: `Il tuo orario di ritiro ricorrente è stato aggiornato: <strong>${when}</strong> · ${bagsLabel}.<br/>Apri l'app e conferma la modifica: se qualcosa non va, puoi cambiarla o disattivarla tu.`,
+        emoji: "🕒",
+        preheader: `Nuovo orario di ritiro: ${when}`,
+        cta: { label: "Conferma in app", href: `${site()}/app` },
+      });
+      await sendMail({ to: email, subject: "Orario di ritiro aggiornato 🕒", html });
+    }
+    await sendPush(customerId, { title: "Orario di ritiro aggiornato", body: `${when} · da confermare in app`, url: "/app" });
+  } catch (err) {
+    console.error(`[notify] notifyRecurringChanged(${customerId}) fallita:`, err);
   }
 }
 
