@@ -33,6 +33,17 @@ export async function deleteZone(formData: FormData) {
   revalidatePath(REV);
 }
 
+/** Assegna (o rimuove) il rider dedicato di una zona. L'auto-assegnazione ordini
+ *  manda alla zona il suo rider; le zone senza rider usano il fallback bilanciato. */
+export async function setZoneCourier(formData: FormData) {
+  const supabase = await createClient();
+  const id = String(formData.get("zone_id") ?? "");
+  const courier_id = String(formData.get("courier_id") ?? "") || null;
+  const { error } = await supabase.from("zones").update({ courier_id }).eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath(REV);
+}
+
 // ---------- LAVANDERIE ----------
 export async function createLaundry(formData: FormData) {
   const supabase = await createClient();

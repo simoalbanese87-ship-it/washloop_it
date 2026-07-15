@@ -268,9 +268,11 @@ export async function assignCourier(formData: FormData) {
   revalidatePath(`/admin/ordini/${id}`);
 }
 
-/** Admin: assegna automaticamente TUTTI gli ordini da assegnare ai corrieri,
- *  bilanciando il carico (numero di fermate attive) tra i rider disponibili.
- *  Nessun geocoding: distribuzione equa, non ottimizzazione geografica del giro. */
+/** Admin: assegna automaticamente TUTTI gli ordini da assegnare ai corrieri.
+ *  Priorità 1 — rider della ZONA: se la zona dell'indirizzo ha un rider dedicato
+ *  (zones.courier_id), l'ordine va a lui. Priorità 2 — fallback bilanciato: zone
+ *  senza rider (o rider non disponibile) → corriere meno carico. Copre lo scenario
+ *  2-3 rider con alcune zone condivise. Nessuna ottimizzazione geografica del giro. */
 export async function autoAssignCouriers() {
   const me = await getCurrentProfile();
   if (!me || me.role !== "admin") throw new Error("Solo admin");
@@ -279,13 +281,18 @@ export async function autoAssignCouriers() {
   const NEEDS: OrderStatus[] = ["requested", "pickup_scheduled", "ready", "delivery_scheduled"];
   const ACTIVE: OrderStatus[] = ["requested", "pickup_scheduled", "picked_up", "at_laundry", "washing", "ready", "delivery_scheduled", "out_for_delivery"];
 
+  type Todo = {
+    id: string; laundry_id: string | null;
+    pickup_slot: { starts_at: string } | null; delivery_slot: { starts_at: string } | null;
+    addresses: { zone_id: string | null; zones: { courier_id: string | null } | null } | null;
+  };
   const [{ data: unassigned }, { data: couriers }, { data: assigned }] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, laundry_id, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at)")
+      .select("id, laundry_id, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at), addresses(zone_id, zones(courier_id))")
       .is("courier_id", null)
       .in("status", NEEDS)
-      .returns<{ id: string; laundry_id: string | null; pickup_slot: { starts_at: string } | null; delivery_slot: { starts_at: string } | null }[]>(),
+      .returns<Todo[]>(),
     supabase.from("profiles").select("id").eq("role", "courier").returns<{ id: string }[]>(),
     supabase.from("orders").select("courier_id").not("courier_id", "is", null).in("status", ACTIVE).returns<{ courier_id: string | null }[]>(),
   ]);
@@ -299,15 +306,24 @@ export async function autoAssignCouriers() {
   const load = new Map<string, number>(courierIds.map((id) => [id, 0]));
   for (const a of assigned ?? []) if (a.courier_id && load.has(a.courier_id)) load.set(a.courier_id, (load.get(a.courier_id) ?? 0) + 1);
 
-  // Ordina per lavanderia + orario slot (raggruppa lo stesso giro), poi assegna
-  // ognuno al corriere meno carico (bilanciamento greedy).
-  const slotAt = (o: (typeof todo)[number]) => o.delivery_slot?.starts_at ?? o.pickup_slot?.starts_at ?? "";
+  // Ordina per lavanderia + orario slot (raggruppa lo stesso giro).
+  const slotAt = (o: Todo) => o.delivery_slot?.starts_at ?? o.pickup_slot?.starts_at ?? "";
   const sorted = [...todo].sort((a, b) => (a.laundry_id ?? "").localeCompare(b.laundry_id ?? "") || slotAt(a).localeCompare(slotAt(b)));
 
+  let byZone = 0, byBalance = 0;
   const byCourier = new Map<string, string[]>();
   for (const o of sorted) {
-    let best = courierIds[0];
-    for (const id of courierIds) if ((load.get(id) ?? 0) < (load.get(best) ?? 0)) best = id;
+    // 1) rider della zona, se impostato e disponibile.
+    const zoneCourier = o.addresses?.zones?.courier_id ?? null;
+    let best: string;
+    if (zoneCourier && load.has(zoneCourier)) {
+      best = zoneCourier; byZone++;
+    } else {
+      // 2) fallback: corriere meno carico.
+      best = courierIds[0];
+      for (const id of courierIds) if ((load.get(id) ?? 0) < (load.get(best) ?? 0)) best = id;
+      byBalance++;
+    }
     load.set(best, (load.get(best) ?? 0) + 1);
     (byCourier.get(best) ?? byCourier.set(best, []).get(best)!).push(o.id);
   }
@@ -322,7 +338,7 @@ export async function autoAssignCouriers() {
   await Promise.all(assignedIds.map((id) => notifyCourierAssigned(id)));
 
   revalidatePath("/admin/ordini");
-  redirect(`/admin/ordini?ok=${encodeURIComponent(`${assignedIds.length} ordini assegnati a ${byCourier.size} corrieri, carico bilanciato.`)}`);
+  redirect(`/admin/ordini?ok=${encodeURIComponent(`${assignedIds.length} ordini assegnati a ${byCourier.size} rider (${byZone} per zona, ${byBalance} bilanciati).`)}`);
 }
 
 /** Assegna lo stesso rider a più ordini (assegnazione massiva). */

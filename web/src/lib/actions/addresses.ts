@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { zoneIdForCap } from "@/lib/zones";
 
 export async function addAddress(formData: FormData) {
   const supabase = await createClient();
@@ -30,20 +31,21 @@ export async function addAddress(formData: FormData) {
     if (!floor) throw new Error("Piano obbligatorio");
   }
 
-  // Via + civico → riga indirizzo; CAP e città concatenati (nessuna colonna dedicata).
+  // Via + civico → riga indirizzo; CAP e città anche in colonne dedicate.
   const cap = String(formData.get("cap") ?? "").trim();
   const city = String(formData.get("city") ?? "").trim();
   const street = [`${streetRaw} ${civico}`.trim(), cap, city].filter(Boolean).join(", ");
 
-  // Zona non più scelta dal cliente: auto-assegna la prima zona attiva (Milano)
-  // per non rompere etichette admin/corriere.
-  const { data: zone } = await supabase.from("zones").select("id").eq("active", true).order("name").limit(1).maybeSingle<{ id: string }>();
+  // Zona derivata dal CAP (zone_caps). Se il CAP non è mappato → null (l'admin risolve).
+  const zoneId = await zoneIdForCap(supabase, cap);
 
   const { error } = await supabase.from("addresses").insert({
     user_id: user.id,
     label: String(formData.get("label") ?? "") || null,
     street,
-    zone_id: zone?.id ?? null,
+    cap: cap || null,
+    civico: civico || null,
+    zone_id: zoneId,
     intercom: accessMode !== "concierge" ? intercom || null : null,
     floor: accessMode !== "concierge" ? floor || null : null,
     notes: String(formData.get("notes") ?? "") || null,

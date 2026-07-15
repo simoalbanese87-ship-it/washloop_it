@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { zoneIdForCap } from "@/lib/zones";
 
 /** Crea l'indirizzo principale durante l'onboarding (utente già registrato).
  *  Zona = prima zona attiva (serviamo tutta Milano). Ritorna ok/errore. */
@@ -36,17 +37,21 @@ export async function createOnboardingAddress(input: {
     if (!(input.floor ?? "").trim()) return { ok: false, error: "Piano obbligatorio" };
   }
 
-  const { data: zone } = await supabase.from("zones").select("id").eq("active", true).order("name").limit(1).maybeSingle<{ id: string }>();
+  // Zona derivata dal CAP (zone_caps). Se non mappato → null (l'admin risolve).
+  const cap = (input.cap ?? "").trim();
+  const zoneId = await zoneIdForCap(supabase, cap);
 
-  // Via + civico → riga indirizzo; CAP e città concatenati (nessuna colonna dedicata).
+  // Via + civico → riga indirizzo; CAP e città anche in colonne dedicate.
   const streetLine = `${street} ${civico}`.trim();
-  const fullStreet = [streetLine, input.cap?.trim(), (input.city?.trim() || "Milano")].filter(Boolean).join(", ");
+  const fullStreet = [streetLine, cap, (input.city?.trim() || "Milano")].filter(Boolean).join(", ");
 
   const { error } = await supabase.from("addresses").insert({
     user_id: user.id,
     label: "Casa",
     street: fullStreet,
-    zone_id: zone?.id ?? null,
+    cap: cap || null,
+    civico: civico || null,
+    zone_id: zoneId,
     intercom: mode !== "concierge" ? (input.intercom ?? "").trim() || null : null,
     floor: mode !== "concierge" ? (input.floor ?? "").trim() || null : null,
     access_mode: mode,

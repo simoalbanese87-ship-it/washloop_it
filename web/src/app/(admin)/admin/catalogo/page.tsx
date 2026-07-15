@@ -5,6 +5,7 @@ import {
   createZone,
   toggleZone,
   deleteZone,
+  setZoneCourier,
   createLaundry,
   updateLaundry,
   updatePlan,
@@ -16,7 +17,8 @@ import {
 import { fmtDateTime } from "@/lib/format";
 import { pickupCounts, deliveryCounts } from "@/lib/slots";
 
-type Zone = { id: string; name: string; active: boolean };
+type Zone = { id: string; name: string; active: boolean; courier_id: string | null };
+type Courier = { id: string; full_name: string | null };
 type Laundry = { id: string; name: string; zone_id: string | null; address: string | null; phone: string | null; email: string | null; active: boolean };
 type Slot = { id: string; kind: string; starts_at: string; ends_at: string; capacity: number | null; laundries: { name: string } | null };
 type Plan = { id: string; name: string; price_month_cents: number; turnaround_hours: number; pickups_per_week: number; active: boolean; stripe_price_id: string | null };
@@ -30,11 +32,12 @@ const DAYS = [
 export default async function CatalogoPage() {
   const supabase = await createClient();
   const nowIso = new Date().toISOString();
-  const [{ data: zones }, { data: laundries }, { data: slots }, { data: plans }] = await Promise.all([
-    supabase.from("zones").select("id, name, active").order("name").returns<Zone[]>(),
+  const [{ data: zones }, { data: laundries }, { data: slots }, { data: plans }, { data: couriers }] = await Promise.all([
+    supabase.from("zones").select("id, name, active, courier_id").order("sort").order("name").returns<Zone[]>(),
     supabase.from("laundries").select("id, name, zone_id, address, phone, email, active").order("name").returns<Laundry[]>(),
     supabase.from("slots").select("id, kind, starts_at, ends_at, capacity, laundries(name)").gte("starts_at", nowIso).order("starts_at").limit(60).returns<Slot[]>(),
     supabase.from("plans").select("id, name, price_month_cents, turnaround_hours, pickups_per_week, active, stripe_price_id").order("sort").returns<Plan[]>(),
+    supabase.from("profiles").select("id, full_name").eq("role", "courier").order("full_name").returns<Courier[]>(),
   ]);
 
   // Occupazione per slot: ordini non annullati agganciati (ritiro vs consegna).
@@ -109,28 +112,65 @@ export default async function CatalogoPage() {
           </form>
         </Card>
 
-        {/* ---------- ZONE ---------- */}
+        {/* ---------- ZONE + RIDER ---------- */}
         <Card>
-          <h2 className="font-display text-base font-extrabold text-navy">Zone</h2>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {(zones ?? []).map((z) => (
-              <div key={z.id} className={`flex items-center gap-2 rounded-full border px-3 py-1.5 ${z.active ? "border-line bg-ice" : "border-line bg-white opacity-50"}`}>
-                <span className="text-sm font-semibold text-navy">{z.name}</span>
-                <form action={toggleZone}>
-                  <input type="hidden" name="id" value={z.id} />
-                  <input type="hidden" name="active" value={(!z.active).toString()} />
-                  <button type="submit" className="font-display text-[11px] font-bold text-blue hover:underline">{z.active ? "Disattiva" : "Attiva"}</button>
+          <h2 className="font-display text-base font-extrabold text-navy">Zone &amp; rider</h2>
+          <p className="mt-1 text-sm font-medium text-muted">Ogni zona può avere un rider dedicato: l&apos;auto-assegnazione manda i suoi ordini a lui. Le zone senza rider usano il bilanciamento automatico. Scalabile: aggiungi zone quando aumentano i rider.</p>
+
+          {/* Zone attive: assegnazione rider */}
+          <div className="mt-4 space-y-2">
+            {(zones ?? []).filter((z) => z.active).map((z) => (
+              <div key={z.id} className="grid gap-2 rounded-[14px] border border-line p-3 sm:grid-cols-[1.2fr_1.4fr_auto] sm:items-center">
+                <span className="font-display text-sm font-extrabold text-navy">{z.name}</span>
+                <form action={setZoneCourier} className="flex gap-2">
+                  <input type="hidden" name="zone_id" value={z.id} />
+                  <select name="courier_id" defaultValue={z.courier_id ?? ""} className={`${input} flex-1`}>
+                    <option value="">Nessun rider (bilanciato)</option>
+                    {(couriers ?? []).map((c) => (<option key={c.id} value={c.id}>{c.full_name ?? "Rider"}</option>))}
+                  </select>
+                  <Button type="submit" size="md" variant="ghost-navy">Salva</Button>
                 </form>
-                <form action={deleteZone}>
-                  <input type="hidden" name="id" value={z.id} />
-                  <button type="submit" className="font-display text-[11px] font-bold text-[#C0392B] hover:underline">✕</button>
-                </form>
+                <div className="flex gap-2 sm:justify-end">
+                  <form action={toggleZone}>
+                    <input type="hidden" name="id" value={z.id} />
+                    <input type="hidden" name="active" value="false" />
+                    <button type="submit" className="font-display text-[11px] font-bold text-blue hover:underline">Disattiva</button>
+                  </form>
+                  <form action={deleteZone}>
+                    <input type="hidden" name="id" value={z.id} />
+                    <button type="submit" className="font-display text-[11px] font-bold text-[#C0392B] hover:underline">✕</button>
+                  </form>
+                </div>
               </div>
             ))}
           </div>
-          <form action={createZone} className="mt-4 flex gap-2">
+
+          {/* Zone disattivate (storiche) */}
+          {(zones ?? []).some((z) => !z.active) && (
+            <div className="mt-3">
+              <div className="text-xs font-bold text-muted">Zone disattivate</div>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {(zones ?? []).filter((z) => !z.active).map((z) => (
+                  <div key={z.id} className="flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 opacity-60">
+                    <span className="text-sm font-semibold text-navy">{z.name}</span>
+                    <form action={toggleZone}>
+                      <input type="hidden" name="id" value={z.id} />
+                      <input type="hidden" name="active" value="true" />
+                      <button type="submit" className="font-display text-[11px] font-bold text-blue hover:underline">Attiva</button>
+                    </form>
+                    <form action={deleteZone}>
+                      <input type="hidden" name="id" value={z.id} />
+                      <button type="submit" className="font-display text-[11px] font-bold text-[#C0392B] hover:underline">✕</button>
+                    </form>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <form action={createZone} className="mt-4 flex gap-2 border-t border-line pt-4">
             <input name="name" required placeholder="Nuova zona" className={`${input} max-w-xs`} />
-            <Button type="submit" size="md" variant="ghost-navy">+</Button>
+            <Button type="submit" size="md" variant="ghost-navy">+ Aggiungi zona</Button>
           </form>
         </Card>
 
