@@ -1,15 +1,17 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatTile } from "@/components/admin/StatTile";
 import { LeadsPanel } from "@/components/admin/LeadsPanel";
-import { revenueMetrics, laundryMetrics, subscriberMetrics, leadsByStatusSource } from "@/lib/admin-metrics";
+import { CustomersPanel } from "@/components/admin/CustomersPanel";
+import { revenueMetrics, laundryMetrics, subscriberMetrics, leadsByStatusSource, customersList } from "@/lib/admin-metrics";
 import { eurCents } from "@/lib/format";
 
 export default async function AdminDashboard() {
-  const [rev, laundry, subs, leadsRes] = await Promise.all([
+  const [rev, laundry, subs, leadsRes, customers] = await Promise.all([
     revenueMetrics(),
     laundryMetrics(),
     subscriberMetrics(),
     leadsByStatusSource(),
+    customersList(),
   ]);
 
   return (
@@ -49,6 +51,13 @@ export default async function AdminDashboard() {
           <StatTile label="Disdetti ora" value={String(subs.currentCanceled)} />
           <StatTile label="In pausa ora" value={String(subs.currentPaused)} />
         </div>
+      </Card>
+
+      {/* Clienti (abbonati attivi) */}
+      <Card className="mb-6">
+        <h2 className="mb-1 font-display text-base font-extrabold text-navy">Clienti ({customers.length})</h2>
+        <p className="mb-4 text-xs font-medium text-muted">Abbonati con abbonamento attivo. Chi diventa cliente sparisce dai lead qui sotto.</p>
+        <CustomersPanel customers={customers} />
       </Card>
 
       {/* Lead per stato & provenienza */}

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { DashboardLead } from "@/lib/admin-metrics";
+import { DeleteUserButton } from "./DeleteUserButton";
 
 /** Lead per stato & provenienza, con filtri. Provenienza distinta per
  *  colore + icona (no solo colore): Sito = blu (globo), Lista d'attesa =
@@ -84,8 +85,9 @@ export function LeadsPanel({ leads, leadError }: { leads: DashboardLead[]; leadE
         <div className="space-y-2">
           {filtered.map((l) => {
             const src = SOURCE[l.source];
-            const Row = (
-              <div className="flex items-center gap-3">
+            const siteId = l.source === "site" ? l.key.replace(/^site-/, "") : null;
+            return (
+              <div key={l.key} className="flex items-center gap-3 rounded-[14px] border border-line bg-white px-3 py-2.5">
                 <span className={`h-9 w-1 flex-none rounded-full ${src.bar}`} aria-hidden />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -101,13 +103,11 @@ export function LeadsPanel({ leads, leadError }: { leads: DashboardLead[]; leadE
                     <span>{fmtDate(l.date)}</span>
                   </div>
                 </div>
-                {l.href && <span className="flex-none font-display text-xs font-bold text-blue">Apri →</span>}
+                <div className="flex flex-none items-center gap-3">
+                  {l.href && <Link href={l.href} className="font-display text-xs font-bold text-blue hover:underline">Apri →</Link>}
+                  {siteId && <DeleteUserButton id={siteId} name={l.name} />}
+                </div>
               </div>
-            );
-            return l.href ? (
-              <Link key={l.key} href={l.href} className="block rounded-[14px] border border-line bg-white px-3 py-2.5 transition-colors hover:bg-ice">{Row}</Link>
-            ) : (
-              <div key={l.key} className="rounded-[14px] border border-line bg-white px-3 py-2.5">{Row}</div>
             );
           })}
         </div>
