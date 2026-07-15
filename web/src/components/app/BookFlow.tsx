@@ -43,7 +43,8 @@ export function BookFlow({
   const [slotId, setSlotId] = useState<string | null>(null);
   const [bags, setBags] = useState(1);
   const [notes, setNotes] = useState("");
-  const [recurring, setRecurring] = useState(false);
+  // Ritiro sempre 1 volta a settimana (fisso per qualsiasi abbonamento).
+  const [recurring] = useState(true);
   const [openCat, setOpenCat] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -278,26 +279,16 @@ export function BookFlow({
             <RowEdit title="Consegna" sub="Entro 72h — scegli la fascia quando è pronto" />
           </div>
 
-          {/* Singolo o ricorrente */}
-          <div className="rounded-[18px] border border-line bg-white p-4">
-            <div className="font-display text-sm font-extrabold text-navy">Ogni quanto?</div>
-            <div className="mt-3 grid grid-cols-2 gap-2.5">
-              <button
-                onClick={() => setRecurring(false)}
-                className={`rounded-[14px] border-2 px-3 py-3 text-left transition-all ${!recurring ? "border-cyan bg-cyan/[0.06]" : "border-line"}`}
-              >
-                <div className="font-display text-sm font-extrabold text-navy">Solo questa volta</div>
-                <div className="mt-0.5 text-xs font-medium text-muted">Un ritiro singolo</div>
-              </button>
-              <button
-                onClick={() => setRecurring(true)}
-                className={`rounded-[14px] border-2 px-3 py-3 text-left transition-all ${recurring ? "border-cyan bg-cyan/[0.06]" : "border-line"}`}
-              >
-                <div className="font-display text-sm font-extrabold text-navy">Ogni settimana</div>
-                <div className="mt-0.5 text-xs font-medium text-muted">
-                  {selectedSlot ? `Ogni ${fmtDowLong(selectedSlot.starts_at)}` : "Si ripete"}
-                </div>
-              </button>
+          {/* Ritiro fisso: 1 volta a settimana (per qualsiasi abbonamento) */}
+          <div className="flex items-start gap-3 rounded-[18px] border border-line bg-white p-4">
+            <span className="grid h-11 w-11 flex-none place-items-center rounded-[13px] bg-cyan/[0.1] text-blue">
+              <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4" /></svg>
+            </span>
+            <div className="min-w-0">
+              <div className="font-display text-sm font-extrabold text-navy">Ritiro 1 volta a settimana</div>
+              <div className="mt-0.5 text-xs font-medium text-muted">
+                {selectedSlot ? `Si ripete ogni ${fmtDowLong(selectedSlot.starts_at)}, stessa fascia. Puoi saltare o modificare quando vuoi.` : "Si ripete ogni settimana, stessa fascia. Puoi saltare o modificare quando vuoi."}
+              </div>
             </div>
           </div>
 
