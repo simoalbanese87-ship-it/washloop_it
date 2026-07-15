@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
-import { notifyOrderStatus } from "@/lib/notify";
+import { notifyOrderStatus, notifySpecialAdded } from "@/lib/notify";
+import { chargeSpecialById } from "@/lib/billing-specials";
 import type { OrderStatus } from "@/lib/orders";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
@@ -70,16 +71,40 @@ export async function addSpecial(formData: FormData) {
   if (itemErr || !item) throw new Error("Capo non a listino");
   if (!item.active) throw new Error("Capo non più disponibile");
 
-  const { error } = await svc.from("order_specials").insert({
+  const { data: inserted, error } = await svc
+    .from("order_specials")
+    .insert({
+      order_id: orderId,
+      item_id: item.id,
+      item_name: item.name, // snapshot
+      qty,
+      comp_lav_cents: item.comp_lav_cents, // snapshot col. D
+      price_cli_cents: item.price_cli_cents, // snapshot col. E (mai esposto al partner)
+      added_by: profile.id,
+    })
+    .select("id")
+    .single<{ id: string }>();
+  if (error || !inserted) throw new Error(error?.message ?? "Errore inserimento capo");
+
+  // Ledger: costo dovuto alla lavanderia per l'extra (comp_lav, IVA escl.). Best-effort.
+  await svc.from("laundry_payouts").insert({
+    laundry_id: profile.laundry_id,
     order_id: orderId,
-    item_id: item.id,
-    item_name: item.name, // snapshot
-    qty,
-    comp_lav_cents: item.comp_lav_cents, // snapshot col. D
-    price_cli_cents: item.price_cli_cents, // snapshot col. E (mai esposto al partner)
-    added_by: profile.id,
+    special_id: inserted.id,
+    kind: "special",
+    amount_cents: item.comp_lav_cents * qty,
+    status: "pending",
   });
-  if (error) throw new Error(error.message);
+
+  // Auto-addebito al cliente (invoice item sulla prossima fattura) + notifica
+  // immediata. Best-effort: se Stripe fallisce, il capo resta e l'admin può
+  // addebitarlo dopo. L'admin può annullare l'addebito finché la fattura è aperta.
+  try {
+    const res = await chargeSpecialById(svc, inserted.id);
+    if (res.ok) await notifySpecialAdded(res.customerId, { itemName: res.itemName, priceCents: res.priceCents, orderId });
+  } catch (err) {
+    console.error(`[partner] auto-charge special ${inserted.id} fallito:`, err);
+  }
 
   revalidatePath(`/laundry/${orderId}`);
 }
@@ -95,6 +120,9 @@ export async function removeSpecial(formData: FormData) {
   const { data: row } = await svc.from("order_specials").select("id, order_id, charged_at").eq("id", specialId).single();
   if (!row || row.order_id !== orderId) throw new Error("Capo non trovato");
   if (row.charged_at) throw new Error("Già addebitato: non rimovibile");
+
+  // Azzera il payout dovuto alla lavanderia per questo capo.
+  await svc.from("laundry_payouts").update({ status: "void" }).eq("special_id", specialId);
 
   const { error } = await svc.from("order_specials").delete().eq("id", specialId);
   if (error) throw new Error(error.message);

@@ -212,6 +212,29 @@ export async function notifyRecurringChanged(customerId: string, schedule: { wee
   }
 }
 
+/** Notifica immediata al cliente che un capo speciale è stato aggiunto e verrà
+ *  addebitato sulla prossima fattura mensile. Best-effort (email + push). */
+export async function notifySpecialAdded(customerId: string, input: { itemName: string; priceCents: number; orderId: string }) {
+  try {
+    const svc = createServiceClient();
+    const price = "€" + (input.priceCents / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const email = await userEmail(svc, customerId);
+    if (email) {
+      const html = renderEmail({
+        title: "Capo speciale aggiunto",
+        body: `Nel tuo sacco abbiamo riconosciuto un capo speciale: <strong>${input.itemName}</strong> (${price}). Verrà addebitato in automatico sulla tua <strong>prossima fattura mensile</strong>, secondo il listino. Trovi il dettaglio nella tua area personale.`,
+        emoji: "✨",
+        preheader: `${input.itemName} · ${price} sulla prossima fattura`,
+        cta: { label: "Vedi l'ordine", href: `${site()}/app/ordini/${input.orderId}` },
+      });
+      await sendMail({ to: email, subject: `Capo speciale aggiunto · ${price} ✨`, html });
+    }
+    await sendPush(customerId, { title: "Capo speciale aggiunto ✨", body: `${input.itemName} · ${price} sulla prossima fattura`, url: `/app/ordini/${input.orderId}` });
+  } catch (err) {
+    console.error(`[notify] notifySpecialAdded(${customerId}) fallita:`, err);
+  }
+}
+
 /** Email di benvenuto a un cliente creato dall'admin (mini-CRM): credenziali di
  *  accesso + piano. La password è temporanea: invitiamo a cambiarla. */
 export async function notifyNewCustomer(input: {
