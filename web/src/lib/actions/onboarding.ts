@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { zoneIdForCap } from "@/lib/zones";
+import { geocodeAddress } from "@/lib/geo";
 
 /** Crea l'indirizzo principale durante l'onboarding (utente già registrato).
  *  Zona = prima zona attiva (serviamo tutta Milano). Ritorna ok/errore. */
@@ -39,11 +40,14 @@ export async function createOnboardingAddress(input: {
 
   // Zona derivata dal CAP (zone_caps). Se non mappato → null (l'admin risolve).
   const cap = (input.cap ?? "").trim();
+  const city = input.city?.trim() || "Milano";
   const zoneId = await zoneIdForCap(supabase, cap);
+  // Coordinate (best-effort) per la mappa del rider.
+  const geo = await geocodeAddress({ street, civico, cap, city });
 
   // Via + civico → riga indirizzo; CAP e città anche in colonne dedicate.
   const streetLine = `${street} ${civico}`.trim();
-  const fullStreet = [streetLine, cap, (input.city?.trim() || "Milano")].filter(Boolean).join(", ");
+  const fullStreet = [streetLine, cap, city].filter(Boolean).join(", ");
 
   const { error } = await supabase.from("addresses").insert({
     user_id: user.id,
@@ -51,6 +55,8 @@ export async function createOnboardingAddress(input: {
     street: fullStreet,
     cap: cap || null,
     civico: civico || null,
+    lat: geo?.lat ?? null,
+    lng: geo?.lng ?? null,
     zone_id: zoneId,
     intercom: mode !== "concierge" ? (input.intercom ?? "").trim() || null : null,
     floor: mode !== "concierge" ? (input.floor ?? "").trim() || null : null,

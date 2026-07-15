@@ -6,6 +6,7 @@ import {
   toggleZone,
   deleteZone,
   setZoneCourier,
+  backfillGeocode,
   createLaundry,
   updateLaundry,
   updatePlan,
@@ -168,10 +169,15 @@ export default async function CatalogoPage() {
             </div>
           )}
 
-          <form action={createZone} className="mt-4 flex gap-2 border-t border-line pt-4">
-            <input name="name" required placeholder="Nuova zona" className={`${input} max-w-xs`} />
-            <Button type="submit" size="md" variant="ghost-navy">+ Aggiungi zona</Button>
-          </form>
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+            <form action={createZone} className="flex gap-2">
+              <input name="name" required placeholder="Nuova zona" className={`${input} max-w-xs`} />
+              <Button type="submit" size="md" variant="ghost-navy">+ Aggiungi zona</Button>
+            </form>
+            <form action={backfillGeocode} className="ml-auto">
+              <Button type="submit" size="md" variant="ghost-navy">Geocodifica indirizzi mancanti (15/volta)</Button>
+            </form>
+          </div>
         </Card>
 
         {/* ---------- GENERATORE SLOT ---------- */}

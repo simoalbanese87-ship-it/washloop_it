@@ -1,8 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { getCurrentProfile } from "@/lib/auth";
 import { romeLocalToISO } from "@/lib/format";
+import { geocodeAddress } from "@/lib/geo";
+import { zoneIdForCap } from "@/lib/zones";
 
 const REV = "/admin/catalogo";
 
@@ -30,6 +33,37 @@ export async function deleteZone(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const { error } = await supabase.from("zones").delete().eq("id", id);
   if (error) throw new Error("Zona in uso, non eliminabile. Disattivala invece.");
+  revalidatePath(REV);
+}
+
+/** Backfill coordinate + zona per gli indirizzi esistenti (senza lat/lng). Geocoding
+ *  Nominatim: max ~1 req/s → processa un blocco alla volta (default 15) con pausa.
+ *  Riesegui il pulsante finché non resta nulla. Solo admin. */
+export async function backfillGeocode() {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+  const svc = createServiceClient();
+
+  const { data: rows } = await svc
+    .from("addresses")
+    .select("id, street, cap, civico")
+    .is("lat", null)
+    .limit(15)
+    .returns<{ id: string; street: string; cap: string | null; civico: string | null }[]>();
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  for (const a of rows ?? []) {
+    // CAP: colonna dedicata o estratto dalla street.
+    const cap = a.cap ?? (a.street.match(/(\d{5})/)?.[1] ?? null);
+    const geo = await geocodeAddress({ street: a.street, cap, city: "Milano" });
+    const zoneId = await zoneIdForCap(svc, cap);
+    const patch: Record<string, unknown> = {};
+    if (geo) { patch.lat = geo.lat; patch.lng = geo.lng; }
+    if (cap && !a.cap) patch.cap = cap;
+    if (zoneId) patch.zone_id = zoneId;
+    if (Object.keys(patch).length) await svc.from("addresses").update(patch).eq("id", a.id);
+    await sleep(1100); // rispetta la policy Nominatim
+  }
   revalidatePath(REV);
 }
 

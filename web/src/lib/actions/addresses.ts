@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { zoneIdForCap } from "@/lib/zones";
+import { geocodeAddress } from "@/lib/geo";
 
 export async function addAddress(formData: FormData) {
   const supabase = await createClient();
@@ -38,6 +39,8 @@ export async function addAddress(formData: FormData) {
 
   // Zona derivata dal CAP (zone_caps). Se il CAP non è mappato → null (l'admin risolve).
   const zoneId = await zoneIdForCap(supabase, cap);
+  // Coordinate (best-effort) per la mappa del rider.
+  const geo = await geocodeAddress({ street: streetRaw, civico, cap, city });
 
   const { error } = await supabase.from("addresses").insert({
     user_id: user.id,
@@ -45,6 +48,8 @@ export async function addAddress(formData: FormData) {
     street,
     cap: cap || null,
     civico: civico || null,
+    lat: geo?.lat ?? null,
+    lng: geo?.lng ?? null,
     zone_id: zoneId,
     intercom: accessMode !== "concierge" ? intercom || null : null,
     floor: accessMode !== "concierge" ? floor || null : null,

@@ -1,5 +1,7 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { CourierJobCard, type Job } from "@/components/app/CourierJobCard";
+import { RiderMapLoader } from "@/components/app/RiderMapLoader";
+import type { Stop } from "@/components/app/RiderMap";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { fmtSlot } from "@/lib/format";
@@ -10,7 +12,7 @@ type Row = {
   status: OrderStatus;
   bags: number;
   customer: { full_name: string | null; phone: string | null } | null;
-  addresses: { street: string; zones: { name: string } | null; access_mode: string | null; access_note: string | null } | null;
+  addresses: { street: string; lat: number | null; lng: number | null; zones: { name: string } | null; access_mode: string | null; access_note: string | null } | null;
   pickup_slot: { starts_at: string; ends_at: string } | null;
   delivery_slot: { starts_at: string; ends_at: string } | null;
 };
@@ -41,7 +43,7 @@ export default async function CourierToday() {
   const { data } = await supabase
     .from("orders")
     .select(
-      "id, status, bags, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, zones(name), access_mode, access_note), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
+      "id, status, bags, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, lat, lng, zones(name), access_mode, access_note), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
     )
     .eq("courier_id", profile?.id ?? "")
     .in("status", ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"])
@@ -55,9 +57,31 @@ export default async function CourierToday() {
     .filter((r) => r.status === "delivery_scheduled" || r.status === "out_for_delivery")
     .sort((a, b) => (a.delivery_slot?.starts_at ?? "").localeCompare(b.delivery_slot?.starts_at ?? ""));
 
+  // Fermate geolocalizzate per la mappa (numerate per tipo, ordine = orario slot).
+  const toStop = (r: Row, kind: "pickup" | "delivery", n: number): Stop | null => {
+    const lat = r.addresses?.lat, lng = r.addresses?.lng;
+    if (lat == null || lng == null) return null;
+    return {
+      id: r.id, kind, n, lat, lng,
+      name: r.customer?.full_name ?? "Cliente",
+      address: r.addresses?.street ?? "—",
+      when: fmt(kind === "pickup" ? r.pickup_slot : r.delivery_slot),
+    };
+  };
+  const stops: Stop[] = [
+    ...pickups.map((r, i) => toStop(r, "pickup", i + 1)),
+    ...deliveries.map((r, i) => toStop(r, "delivery", i + 1)),
+  ].filter((s): s is Stop => s !== null);
+
   return (
     <>
       <PageTitle kicker="Il tuo giro" title="Oggi" sub={`${pickups.length} ritiri · ${deliveries.length} consegne`} />
+
+      {stops.length > 0 && (
+        <Card className="mb-6 overflow-hidden !p-0">
+          <RiderMapLoader stops={stops} />
+        </Card>
+      )}
 
       <div className="grid gap-8 lg:grid-cols-2">
         <section>
