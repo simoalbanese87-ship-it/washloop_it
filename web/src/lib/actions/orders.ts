@@ -221,7 +221,7 @@ export async function advanceStatus(formData: FormData) {
   if (error) throw new Error(error.message);
   await notifyOrderStatus(id, status);
   revalidatePath(`/admin/ordini/${id}`);
-  revalidatePath("/admin");
+  revalidatePath("/admin/ordini");
   revalidatePath("/courier");
 }
 
@@ -264,7 +264,7 @@ export async function assignCourier(formData: FormData) {
   const { error } = await supabase.from("orders").update({ courier_id }).eq("id", id);
   if (error) throw new Error(error.message);
   if (courier_id) await notifyCourierAssigned(id);
-  revalidatePath("/admin");
+  revalidatePath("/admin/ordini");
   revalidatePath(`/admin/ordini/${id}`);
 }
 
@@ -291,9 +291,9 @@ export async function autoAssignCouriers() {
   ]);
 
   const courierIds = (couriers ?? []).map((c) => c.id);
-  if (courierIds.length === 0) redirect(`/admin?warn=${encodeURIComponent("Nessun corriere disponibile: creane uno prima.")}`);
+  if (courierIds.length === 0) redirect(`/admin/ordini?warn=${encodeURIComponent("Nessun corriere disponibile: creane uno prima.")}`);
   const todo = unassigned ?? [];
-  if (todo.length === 0) redirect(`/admin?ok=${encodeURIComponent("Nessun ordine da assegnare.")}`);
+  if (todo.length === 0) redirect(`/admin/ordini?ok=${encodeURIComponent("Nessun ordine da assegnare.")}`);
 
   // Carico attuale = fermate attive già assegnate per corriere.
   const load = new Map<string, number>(courierIds.map((id) => [id, 0]));
@@ -321,8 +321,8 @@ export async function autoAssignCouriers() {
   }
   await Promise.all(assignedIds.map((id) => notifyCourierAssigned(id)));
 
-  revalidatePath("/admin");
-  redirect(`/admin?ok=${encodeURIComponent(`${assignedIds.length} ordini assegnati a ${byCourier.size} corrieri, carico bilanciato.`)}`);
+  revalidatePath("/admin/ordini");
+  redirect(`/admin/ordini?ok=${encodeURIComponent(`${assignedIds.length} ordini assegnati a ${byCourier.size} corrieri, carico bilanciato.`)}`);
 }
 
 /** Assegna lo stesso rider a più ordini (assegnazione massiva). */
@@ -335,7 +335,7 @@ export async function bulkAssignCourier(formData: FormData) {
   const { error } = await supabase.from("orders").update({ courier_id }).in("id", ids);
   if (error) throw new Error(error.message);
   await Promise.all(ids.map((id) => notifyCourierAssigned(id)));
-  revalidatePath("/admin");
+  revalidatePath("/admin/ordini");
 }
 
 /** Lavanderia/admin: imposta o affina la data "pronto" (ETA). */

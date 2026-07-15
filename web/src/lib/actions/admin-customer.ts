@@ -195,12 +195,16 @@ export async function changeSubscription(formData: FormData) {
   if (action === "activate") {
     // Conferma pagamento (manuale): attiva e fissa/rinnova il periodo a 30gg.
     const periodEnd = new Date(Date.now() + 30 * 86_400_000).toISOString();
-    await svc.from("subscriptions").update({ status: "active", current_period_end: periodEnd }).eq("id", subId);
+    await svc.from("subscriptions").update({ status: "active", current_period_end: periodEnd, canceled_at: null }).eq("id", subId);
     // Data attivazione: solo la prima volta (non sovrascrivere se già valorizzata).
     await svc.from("subscriptions").update({ activated_at: new Date().toISOString() }).eq("id", subId).is("activated_at", null);
   } else {
     const status = action === "pause" ? "paused" : action === "cancel" ? "canceled" : "active";
-    await svc.from("subscriptions").update({ status }).eq("id", subId);
+    // Data di disdetta per il churn: valorizza su cancel, azzera su resume.
+    const patch: Record<string, unknown> = { status };
+    if (action === "cancel") patch.canceled_at = new Date().toISOString();
+    else if (action === "resume") patch.canceled_at = null;
+    await svc.from("subscriptions").update(patch).eq("id", subId);
   }
 
   const okMsg: Record<string, string> = {

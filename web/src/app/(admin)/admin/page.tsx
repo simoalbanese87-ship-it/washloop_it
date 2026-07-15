@@ -1,73 +1,62 @@
-import { PageTitle } from "@/components/app/AppShell";
-import { OrdersBoard, type BoardOrder } from "@/components/app/OrdersBoard";
-import { createClient } from "@/lib/supabase/server";
-import type { OrderStatus } from "@/lib/orders";
+import { Card, PageTitle } from "@/components/app/AppShell";
+import { StatTile } from "@/components/admin/StatTile";
+import { LeadsPanel } from "@/components/admin/LeadsPanel";
+import { revenueMetrics, laundryMetrics, subscriberMetrics, leadsByStatusSource } from "@/lib/admin-metrics";
+import { eurCents } from "@/lib/format";
 
-type Row = {
-  id: string;
-  status: OrderStatus;
-  bags: number;
-  created_at: string;
-  eta_ready_at: string | null;
-  courier_id: string | null;
-  laundry_id: string | null;
-  customer: { full_name: string | null; phone: string | null } | null;
-  addresses: { zones: { name: string } | null } | null;
-  laundries: { name: string } | null;
-  courier: { full_name: string | null } | null;
-  pickup_slot: { starts_at: string } | null;
-  delivery_slot: { starts_at: string } | null;
-};
-type Opt = { id: string; name: string };
-
-export default async function AdminBoard({ searchParams }: { searchParams: Promise<{ ok?: string; warn?: string }> }) {
-  const { ok, warn } = await searchParams;
-  const supabase = await createClient();
-
-  const [{ data: rows }, { data: couriers }, { data: laundries }, { data: zones }] = await Promise.all([
-    supabase
-      .from("orders")
-      .select(
-        "id, status, bags, created_at, eta_ready_at, courier_id, laundry_id, " +
-          "customer:profiles!orders_customer_id_fkey(full_name, phone), " +
-          "addresses(zones(name)), laundries(name), " +
-          "courier:profiles!orders_courier_id_fkey(full_name), " +
-          "pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at), " +
-          "delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at)",
-      )
-      .neq("status", "cancelled")
-      .order("created_at", { ascending: false })
-      .returns<Row[]>(),
-    supabase.from("profiles").select("id, full_name").eq("role", "courier").returns<{ id: string; full_name: string | null }[]>(),
-    supabase.from("laundries").select("id, name").eq("active", true).returns<Opt[]>(),
-    supabase.from("zones").select("id, name").eq("active", true).order("name").returns<Opt[]>(),
+export default async function AdminDashboard() {
+  const [rev, laundry, subs, leadsRes] = await Promise.all([
+    revenueMetrics(),
+    laundryMetrics(),
+    subscriberMetrics(),
+    leadsByStatusSource(),
   ]);
-
-  const orders: BoardOrder[] = (rows ?? []).map((r) => ({
-    id: r.id,
-    status: r.status,
-    bags: r.bags,
-    created_at: r.created_at,
-    eta_ready_at: r.eta_ready_at,
-    courier_id: r.courier_id,
-    laundry_id: r.laundry_id,
-    customer_name: r.customer?.full_name ?? null,
-    customer_phone: r.customer?.phone ?? null,
-    zone_name: r.addresses?.zones?.name ?? null,
-    laundry_name: r.laundries?.name ?? null,
-    courier_name: r.courier?.full_name ?? null,
-    pickup_at: r.pickup_slot?.starts_at ?? null,
-    delivery_at: r.delivery_slot?.starts_at ?? null,
-  }));
-
-  const courierOpts: Opt[] = (couriers ?? []).map((c) => ({ id: c.id, name: c.full_name ?? c.id.slice(0, 6) }));
 
   return (
     <>
-      <PageTitle kicker="Operations" title="Board ordini" sub={`${orders.length} ordini · aggiornamento in tempo reale`} />
-      {ok && <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
-      {warn && <div className="mb-4 rounded-[14px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>}
-      <OrdersBoard orders={orders} couriers={courierOpts} laundries={laundries ?? []} zones={zones ?? []} />
+      <PageTitle kicker="Dashboard" title="Panoramica" sub="Ricavi, abbonati, lavanderia e lead — mese e anno correnti." />
+
+      {/* Ricavi */}
+      <Card className="mb-6">
+        <h2 className="mb-3 font-display text-base font-extrabold text-navy">Ricavi</h2>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatTile label="Core · mese (MRR)" value={eurCents(rev.coreMrrCents)} sub="Abbonamenti attivi × prezzo" tone="text-[#1F8A5B]" />
+          <StatTile label="Extra · mese" value={eurCents(rev.extraMonthCents)} sub="Capi extra + addebiti" tone="text-blue" />
+          <StatTile label="Core · anno (proiez.)" value={eurCents(rev.coreYearProjCents)} sub="MRR × 12" />
+          <StatTile label="Extra · anno" value={eurCents(rev.extraYearCents)} sub="Da inizio anno" />
+        </div>
+        <p className="mt-2 text-[11px] font-medium text-muted">Core = ricavo ricorrente atteso da DB (include gli abbonamenti manuali). Extra esatti da data di creazione. IVA: Core/Extra IVA inclusa; il costo lavanderia sotto è IVA esclusa.</p>
+      </Card>
+
+      {/* Lavanderia */}
+      <Card className="mb-6">
+        <h2 className="mb-3 font-display text-base font-extrabold text-navy">Lavanderia</h2>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatTile label="Sacchi · mese" value={String(laundry.bagsMonth)} sub="Ritirati questo mese" />
+          <StatTile label="Sacchi · anno" value={String(laundry.bagsYear)} sub="Da inizio anno" />
+          <StatTile label="Da dare · mese" value={eurCents(laundry.laundryOwedMonthCents)} sub="Sacchi + extra (IVA escl.)" tone="text-[#C9881F]" />
+          <StatTile label="Da dare · anno" value={eurCents(laundry.laundryOwedYearCents)} sub="Totale maturato" tone="text-[#C9881F]" />
+        </div>
+      </Card>
+
+      {/* Abbonati */}
+      <Card className="mb-6">
+        <h2 className="mb-3 font-display text-base font-extrabold text-navy">Abbonati</h2>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <StatTile label="Nuovi · mese" value={String(subs.newSubsMonth)} sub={`${subs.newSubsYear} nell'anno`} tone="text-[#1F8A5B]" />
+          <StatTile label="Interrotti · mese" value={String(subs.canceledMonth)} sub={`${subs.canceledYear} nell'anno`} tone="text-[#C0392B]" />
+          <StatTile label="Attivi ora" value={String(subs.currentActive)} />
+          <StatTile label="Disdetti ora" value={String(subs.currentCanceled)} />
+          <StatTile label="In pausa ora" value={String(subs.currentPaused)} />
+        </div>
+      </Card>
+
+      {/* Lead per stato & provenienza */}
+      <Card>
+        <h2 className="mb-1 font-display text-base font-extrabold text-navy">Lead per stato & provenienza</h2>
+        <p className="mb-4 text-xs font-medium text-muted">Chi non ha un abbonamento attivo. Filtra per provenienza (Sito / Lista d&apos;attesa) e per stato.</p>
+        <LeadsPanel leads={leadsRes.leads} leadError={leadsRes.leadError} />
+      </Card>
     </>
   );
 }

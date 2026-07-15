@@ -47,9 +47,17 @@ export async function POST(request: NextRequest) {
     // Data attivazione: alla prima transizione a stato pagato (non sovrascrive).
     if (["active", "trialing"].includes(sub.status)) {
       await db.from("subscriptions")
-        .update({ activated_at: new Date().toISOString() })
+        .update({ activated_at: new Date().toISOString(), canceled_at: null })
         .eq("stripe_subscription_id", sub.id)
         .is("activated_at", null);
+      // Riattivazione: azzera comunque la data di disdetta.
+      await db.from("subscriptions").update({ canceled_at: null }).eq("stripe_subscription_id", sub.id);
+    } else if (sub.status === "canceled") {
+      // Disdetta: valorizza canceled_at solo la prima volta.
+      await db.from("subscriptions")
+        .update({ canceled_at: new Date().toISOString() })
+        .eq("stripe_subscription_id", sub.id)
+        .is("canceled_at", null);
     }
   }
 

@@ -4,6 +4,11 @@
 const TZ = "Europe/Rome";
 const L = "it-IT";
 
+/** Formatta un importo in cent EUR come "€1.234,50". */
+export function eurCents(cents: number): string {
+  return "€" + (cents / 100).toLocaleString(L, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function fmtDate(iso: string | Date): string {
   return new Date(iso).toLocaleDateString(L, { timeZone: TZ });
 }

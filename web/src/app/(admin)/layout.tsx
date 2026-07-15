@@ -4,7 +4,8 @@ import { getCurrentProfile } from "@/lib/auth";
 import { roleHome } from "@/lib/orders";
 
 const adminNav: NavItem[] = [
-  { href: "/admin", label: "Ordini" },
+  { href: "/admin", label: "Dashboard" },
+  { href: "/admin/ordini", label: "Ordini" },
   { href: "/admin/novita", label: "Novità" },
   { href: "/admin/archivio", label: "Archivio" },
   { href: "/admin/abbonati", label: "Abbonati" },
