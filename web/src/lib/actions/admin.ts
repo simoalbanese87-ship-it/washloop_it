@@ -124,8 +124,18 @@ export async function deleteLaundry(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("Lavanderia mancante");
   const svc = createServiceClient();
+
+  // Scollega gli ordini dalla lavanderia. Poi, per poter rimuovere gli slot,
+  // azzera i riferimenti degli ordini agli slot di questa lavanderia (FK).
   await svc.from("orders").update({ laundry_id: null }).eq("laundry_id", id);
-  await svc.from("slots").delete().eq("laundry_id", id);
+  const { data: slotRows } = await svc.from("slots").select("id").eq("laundry_id", id).returns<{ id: string }[]>();
+  const slotIds = (slotRows ?? []).map((s) => s.id);
+  if (slotIds.length) {
+    await svc.from("orders").update({ pickup_slot_id: null }).in("pickup_slot_id", slotIds);
+    await svc.from("orders").update({ delivery_slot_id: null }).in("delivery_slot_id", slotIds);
+    await svc.from("slots").delete().in("id", slotIds);
+  }
+
   const { error } = await svc.from("laundries").delete().eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath(REV);
