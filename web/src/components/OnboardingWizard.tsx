@@ -35,8 +35,11 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
   const [accepted, setAccepted] = useState(false);
 
   const [street, setStreet] = useState("");
+  const [civico, setCivico] = useState("");
   const [cap, setCap] = useState("");
   const [city, setCity] = useState("Milano");
+  const [intercom, setIntercom] = useState("");
+  const [floor, setFloor] = useState("");
   const [accessMode, setAccessMode] = useState<"door" | "home" | "concierge">("door");
   const [accessNote, setAccessNote] = useState("");
   const [conciergeHours, setConciergeHours] = useState("");
@@ -62,11 +65,21 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
   }
 
   async function doAddress() {
-    if (!street.trim()) return setError("Inserisci l'indirizzo");
+    if (!street.trim()) return setError("Inserisci la via");
+    if (!civico.trim()) return setError("Inserisci il numero civico");
+    if (accessMode === "concierge") {
+      if (!accessNote.trim()) return setError("Inserisci il nome del portinaio");
+      if (!conciergeHours.trim()) return setError("Inserisci l'orario della portineria");
+    } else {
+      if (!intercom.trim()) return setError("Inserisci il citofono");
+      if (!floor.trim()) return setError("Inserisci il piano");
+    }
     setLoading(true); setError(null);
     const res = await createOnboardingAddress({
-      street, cap, city, access_mode: accessMode,
-      access_note: accessNote.trim() || null,
+      street, civico, cap, city, access_mode: accessMode,
+      intercom: accessMode !== "concierge" ? intercom.trim() || null : null,
+      floor: accessMode !== "concierge" ? floor.trim() || null : null,
+      access_note: accessMode === "concierge" ? accessNote.trim() || null : accessNote.trim() || null,
       concierge_hours: accessMode === "concierge" ? conciergeHours.trim() || null : null,
     });
     setLoading(false);
@@ -146,11 +159,12 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
               <h2 className="mt-2.5 font-display text-[30px] font-black leading-[1.08]">Il tuo<br />indirizzo.</h2>
               <p className="mt-2.5 text-[15px] font-medium text-white/70">Serviamo tutta Milano. Dove passiamo a ritirare?</p>
               <div className="mt-6 space-y-3">
-                <input className={input} placeholder="Via e numero civico" value={street} onChange={(e) => setStreet(e.target.value)} />
+                <input className={input} placeholder="Via / indirizzo" value={street} onChange={(e) => setStreet(e.target.value)} />
                 <div className="flex gap-3">
+                  <input className={`${input} flex-1`} placeholder="Civico" value={civico} onChange={(e) => setCivico(e.target.value)} />
                   <input className={`${input} flex-1`} placeholder="CAP" value={cap} onChange={(e) => setCap(e.target.value)} />
-                  <input className={`${input} flex-[2]`} placeholder="Città" value={city} onChange={(e) => setCity(e.target.value)} />
                 </div>
+                <input className={input} placeholder="Città" value={city} onChange={(e) => setCity(e.target.value)} />
                 <div className="pt-1 font-display text-[12px] font-extrabold uppercase tracking-[0.08em] text-white/60">Come ritiriamo il sacco?</div>
                 {(["door", "home", "concierge"] as const).map((m) => (
                   <button
@@ -164,10 +178,15 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
                     <span className="font-display text-[15px] font-extrabold text-white">{ACCESS_MODE_LABEL[m]}</span>
                   </button>
                 ))}
-                {accessMode === "concierge" && (
+                {accessMode !== "concierge" ? (
+                  <div className="flex gap-3">
+                    <input className={`${input} flex-1`} placeholder="Citofono" value={intercom} onChange={(e) => setIntercom(e.target.value)} />
+                    <input className={`${input} flex-1`} placeholder="Piano" value={floor} onChange={(e) => setFloor(e.target.value)} />
+                  </div>
+                ) : (
                   <>
-                  <input className={input} placeholder="Nome del portinaio (facoltativo)" value={accessNote} onChange={(e) => setAccessNote(e.target.value)} />
-                  <input className={input} placeholder="Orario portineria (facoltativo)" value={conciergeHours} onChange={(e) => setConciergeHours(e.target.value)} />
+                    <input className={input} placeholder="Nome del portinaio" value={accessNote} onChange={(e) => setAccessNote(e.target.value)} />
+                    <input className={input} placeholder="Orario portineria" value={conciergeHours} onChange={(e) => setConciergeHours(e.target.value)} />
                   </>
                 )}
               </div>
