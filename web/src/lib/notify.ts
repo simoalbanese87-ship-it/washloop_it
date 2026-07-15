@@ -212,6 +212,23 @@ export async function notifyRecurringChanged(customerId: string, schedule: { wee
   }
 }
 
+/** Invia le credenziali di accesso a un membro dello staff appena creato
+ *  (lavanderia / rider / sales). Best-effort. */
+export async function notifyStaffAccount(input: { to: string; fullName: string; password: string; areaLabel: string; areaPath: string }) {
+  try {
+    const html = renderEmail({
+      title: `Accesso ${input.areaLabel}`,
+      body: `È stato creato il tuo accesso a <strong>${input.areaLabel}</strong> di WashLoop.<br/><br/>Email: <strong>${input.to}</strong><br/>Password temporanea: <strong>${input.password}</strong><br/><br/>Accedi e cambia la password dal tuo profilo.`,
+      emoji: "🔐",
+      preheader: `Le tue credenziali per ${input.areaLabel}`,
+      cta: { label: "Accedi ora", href: `${site()}${input.areaPath}` },
+    });
+    await sendMail({ to: input.to, subject: `Il tuo accesso a ${input.areaLabel} — WashLoop 🔐`, html });
+  } catch (err) {
+    console.error(`[notify] notifyStaffAccount(${input.to}) fallita:`, err);
+  }
+}
+
 /** Notifica immediata al cliente che un capo speciale è stato aggiunto e verrà
  *  addebitato sulla prossima fattura mensile. Best-effort (email + push). */
 export async function notifySpecialAdded(customerId: string, input: { itemName: string; priceCents: number; orderId: string }) {

@@ -4,7 +4,7 @@ import { createServerClient } from "@supabase/ssr";
 /** Next 16: `proxy` sostituisce `middleware` (runtime nodejs).
  *  Aggiorna la sessione Supabase e protegge le aree riservate. */
 
-const PROTECTED = ["/app", "/admin", "/courier", "/laundry"];
+const PROTECTED = ["/app", "/admin", "/courier", "/laundry", "/sales"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

@@ -40,7 +40,8 @@ function fmtDate(iso: string | null): string {
   try { return new Date(iso).toLocaleDateString("it-IT", { timeZone: "Europe/Rome", day: "2-digit", month: "2-digit", year: "2-digit" }); } catch { return "—"; }
 }
 
-export function LeadsPanel({ leads, leadError }: { leads: DashboardLead[]; leadError: string | null }) {
+/** readOnly = vista sales: niente link admin né elimina (solo consultazione). */
+export function LeadsPanel({ leads, leadError, readOnly = false }: { leads: DashboardLead[]; leadError: string | null; readOnly?: boolean }) {
   const [source, setSource] = useState<"all" | "site" | "funnel">("all");
   const [status, setStatus] = useState<string>("all");
 
@@ -103,10 +104,12 @@ export function LeadsPanel({ leads, leadError }: { leads: DashboardLead[]; leadE
                     <span>{fmtDate(l.date)}</span>
                   </div>
                 </div>
-                <div className="flex flex-none items-center gap-3">
-                  {l.href && <Link href={l.href} className="font-display text-xs font-bold text-blue hover:underline">Apri →</Link>}
-                  {siteId && <DeleteUserButton id={siteId} name={l.name} />}
-                </div>
+                {!readOnly && (
+                  <div className="flex flex-none items-center gap-3">
+                    {l.href && <Link href={l.href} className="font-display text-xs font-bold text-blue hover:underline">Apri →</Link>}
+                    {siteId && <DeleteUserButton id={siteId} name={l.name} />}
+                  </div>
+                )}
               </div>
             );
           })}

@@ -15,6 +15,7 @@ import {
   deleteSlot,
   generateSlots,
 } from "@/lib/actions/admin";
+import { DeleteLaundryButton } from "@/components/admin/DeleteLaundryButton";
 import { fmtDateTime } from "@/lib/format";
 import { pickupCounts, deliveryCounts } from "@/lib/slots";
 
@@ -82,21 +83,24 @@ export default async function CatalogoPage() {
           <h2 className="font-display text-base font-extrabold text-navy">Lavanderie partner</h2>
           <div className="mt-4 space-y-3">
             {(laundries ?? []).map((l) => (
-              <form key={l.id} action={updateLaundry} className="grid gap-2 rounded-[14px] border border-line p-3 sm:grid-cols-[1.3fr_1fr_1.3fr_1fr_auto_auto] sm:items-center">
-                <input type="hidden" name="id" value={l.id} />
-                <input name="name" defaultValue={l.name} placeholder="Nome" className={input} />
-                <select name="zone_id" defaultValue={l.zone_id ?? ""} className={input}>
-                  <option value="">Zona…</option>
-                  {(zones ?? []).map((z) => (<option key={z.id} value={z.id}>{z.name}</option>))}
-                </select>
-                <input name="address" defaultValue={l.address ?? ""} placeholder="Indirizzo" className={input} />
-                <input name="phone" defaultValue={l.phone ?? ""} placeholder="Telefono" className={input} />
-                <input name="email" type="email" defaultValue={l.email ?? ""} placeholder="Email (notifiche)" className={input} />
-                <label className="flex h-10 items-center gap-1.5 text-xs font-bold text-navy"><input type="checkbox" name="active" defaultChecked={l.active} className="accent-[#2b7fd4]" />Attiva</label>
-                <div className="flex gap-2">
+              <div key={l.id} className="rounded-[14px] border border-line p-3">
+                <form action={updateLaundry} className="grid gap-2 sm:grid-cols-[1.3fr_1fr_1.3fr_1fr_auto_auto] sm:items-center">
+                  <input type="hidden" name="id" value={l.id} />
+                  <input name="name" defaultValue={l.name} placeholder="Nome" className={input} />
+                  <select name="zone_id" defaultValue={l.zone_id ?? ""} className={input}>
+                    <option value="">Zona…</option>
+                    {(zones ?? []).map((z) => (<option key={z.id} value={z.id}>{z.name}</option>))}
+                  </select>
+                  <input name="address" defaultValue={l.address ?? ""} placeholder="Indirizzo" className={input} />
+                  <input name="phone" defaultValue={l.phone ?? ""} placeholder="Telefono" className={input} />
+                  <input name="email" type="email" defaultValue={l.email ?? ""} placeholder="Email (notifiche)" className={input} />
+                  <label className="flex h-10 items-center gap-1.5 text-xs font-bold text-navy"><input type="checkbox" name="active" defaultChecked={l.active} className="accent-[#2b7fd4]" />Attiva</label>
                   <Button type="submit" size="md" variant="ghost-navy">Salva</Button>
+                </form>
+                <div className="mt-2 flex justify-end border-t border-line pt-2">
+                  <DeleteLaundryButton id={l.id} name={l.name} />
                 </div>
-              </form>
+              </div>
             ))}
             {(!laundries || laundries.length === 0) && <p className="text-sm font-medium text-muted">Nessuna lavanderia.</p>}
           </div>

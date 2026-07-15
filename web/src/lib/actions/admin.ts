@@ -114,11 +114,20 @@ export async function updateLaundry(formData: FormData) {
   revalidatePath(REV);
 }
 
+/** Elimina DEFINITIVAMENTE una lavanderia. Prima scollega gli ordini
+ *  (laundry_id → null) e rimuove i suoi slot, così l'eliminazione va a buon fine
+ *  anche se ci sono riferimenti. I payout collegati vanno in cascade; i profili
+ *  partner vengono scollegati (FK on delete set null). Solo admin. */
 export async function deleteLaundry(formData: FormData) {
-  const supabase = await createClient();
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
   const id = String(formData.get("id") ?? "");
-  const { error } = await supabase.from("laundries").delete().eq("id", id);
-  if (error) throw new Error("Lavanderia in uso, non eliminabile. Disattivala invece.");
+  if (!id) throw new Error("Lavanderia mancante");
+  const svc = createServiceClient();
+  await svc.from("orders").update({ laundry_id: null }).eq("laundry_id", id);
+  await svc.from("slots").delete().eq("laundry_id", id);
+  const { error } = await svc.from("laundries").delete().eq("id", id);
+  if (error) throw new Error(error.message);
   revalidatePath(REV);
 }
 

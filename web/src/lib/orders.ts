@@ -64,7 +64,7 @@ export const ACCESS_MODE_LABEL: Record<AccessMode, string> = {
   concierge: "Portineria",
 };
 
-export type UserRole = "customer" | "courier" | "partner" | "admin";
+export type UserRole = "customer" | "courier" | "partner" | "admin" | "sales";
 
 /** Home di destinazione dopo il login, per ruolo. */
 export function roleHome(role: UserRole): string {
@@ -75,6 +75,8 @@ export function roleHome(role: UserRole): string {
       return "/courier";
     case "partner":
       return "/laundry"; // portale lavanderia dedicato (dati anonimizzati)
+    case "sales":
+      return "/sales"; // dashboard lead per il team commerciale
     default:
       return "/app";
   }
