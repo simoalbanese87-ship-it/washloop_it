@@ -7,6 +7,7 @@ import {
   deleteZone,
   setZoneCourier,
   backfillGeocode,
+  updateDepot,
   createLaundry,
   updateLaundry,
   updatePlan,
@@ -21,6 +22,7 @@ import { pickupCounts, deliveryCounts } from "@/lib/slots";
 
 type Zone = { id: string; name: string; active: boolean; courier_id: string | null };
 type Courier = { id: string; full_name: string | null };
+type DepotRow = { id: string; name: string; address: string | null; lat: number | null; lng: number | null };
 type Laundry = { id: string; name: string; zone_id: string | null; address: string | null; phone: string | null; email: string | null; active: boolean };
 type Slot = { id: string; kind: string; starts_at: string; ends_at: string; capacity: number | null; laundries: { name: string } | null };
 type Plan = { id: string; name: string; price_month_cents: number; turnaround_hours: number; pickups_per_week: number; active: boolean; stripe_price_id: string | null };
@@ -41,6 +43,7 @@ export default async function CatalogoPage() {
     supabase.from("plans").select("id, name, price_month_cents, turnaround_hours, pickups_per_week, active, stripe_price_id").order("sort").returns<Plan[]>(),
     supabase.from("profiles").select("id, full_name").eq("role", "courier").order("full_name").returns<Courier[]>(),
   ]);
+  const { data: depot } = await supabase.from("depots").select("id, name, address, lat, lng").eq("active", true).limit(1).maybeSingle<DepotRow>();
 
   // Occupazione per slot: ordini non annullati agganciati (ritiro vs consegna).
   const pickIds = (slots ?? []).filter((s) => s.kind === "pickup").map((s) => s.id);
@@ -76,6 +79,21 @@ export default async function CatalogoPage() {
               </div>
             ))}
           </div>
+        </Card>
+
+        {/* ---------- DEPOSITO ---------- */}
+        <Card>
+          <h2 className="font-display text-base font-extrabold text-navy">Deposito (hub interno)</h2>
+          <p className="mt-1 text-sm font-medium text-muted">Punto di raccolta/rientro del furgone e partenza dei rider. Interno: <strong>mai visibile al cliente</strong>. L&apos;indirizzo viene geocodificato per il percorso e la mappa rider.</p>
+          <form action={updateDepot} className="mt-4 grid gap-2 sm:grid-cols-[1fr_1.6fr_auto] sm:items-end">
+            {depot?.id && <input type="hidden" name="depot_id" value={depot.id} />}
+            <label className="text-xs font-bold text-muted">Nome<input name="name" defaultValue={depot?.name ?? "Deposito Milano"} className={input} /></label>
+            <label className="text-xs font-bold text-muted">Indirizzo<input name="address" defaultValue={depot?.address ?? ""} placeholder="Via, civico, CAP città" className={input} /></label>
+            <Button type="submit" size="md">Salva deposito</Button>
+          </form>
+          <p className="mt-2 text-[11px] font-medium text-muted">
+            {depot?.lat != null ? `Coordinate ok (${depot.lat.toFixed(4)}, ${depot.lng?.toFixed(4)}).` : "Coordinate non impostate: salva un indirizzo valido."}
+          </p>
         </Card>
 
         {/* ---------- LAVANDERIE ---------- */}

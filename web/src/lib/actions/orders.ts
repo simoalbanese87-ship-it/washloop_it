@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
-import type { OrderStatus, ScanResult } from "@/lib/orders";
+import { haversineKm } from "@/lib/route";
+import type { OrderStatus, ScanResult, RiderLivePos } from "@/lib/orders";
 import { romeLocalToISO, romeWeekday, romeHHMM } from "@/lib/format";
 import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
 import { slotFullMessage } from "@/lib/slots";
@@ -242,6 +243,52 @@ export async function courierAdvance(formData: FormData) {
   }
   await notifyOrderStatus(id, status);
   revalidatePath("/courier");
+}
+
+/** Rider: aggiorna la propria posizione live (mentre è in giro). RLS: solo la
+ *  propria riga. Best-effort. */
+export async function pingCourierLocation(lat: number, lng: number): Promise<{ ok: boolean }> {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "courier") return { ok: false };
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { ok: false };
+  const supabase = await createClient();
+  await supabase.from("courier_locations").upsert(
+    { courier_id: me.id, lat, lng, updated_at: new Date().toISOString() },
+    { onConflict: "courier_id" },
+  );
+  return { ok: true };
+}
+
+/** Cliente: posizione live del rider per un proprio ordine. Ritorna la posizione
+ *  SOLO se: (1) è il proprio ordine, (2) fase attiva (ritiro imminente o consegna),
+ *  (3) posizione fresca (<3 min), (4) rider vicino al cliente (≤2.5 km) → "prima-
+ *  ultima parte". Non espone MAI il deposito né le altre fermate. */
+export async function riderLivePosition(orderId: string): Promise<RiderLivePos> {
+  const me = await getCurrentProfile();
+  if (!me) return null;
+  const svc = createServiceClient();
+  const { data: order } = await svc
+    .from("orders")
+    .select("id, customer_id, courier_id, status, addresses(lat, lng)")
+    .eq("id", orderId)
+    .maybeSingle<{ id: string; customer_id: string; courier_id: string | null; status: OrderStatus; addresses: { lat: number | null; lng: number | null } | null }>();
+  if (!order || order.customer_id !== me.id || !order.courier_id) return null;
+  if (!["pickup_scheduled", "out_for_delivery"].includes(order.status)) return null;
+
+  const custLat = order.addresses?.lat, custLng = order.addresses?.lng;
+  if (custLat == null || custLng == null) return null;
+
+  const { data: loc } = await svc
+    .from("courier_locations")
+    .select("lat, lng, updated_at")
+    .eq("courier_id", order.courier_id)
+    .maybeSingle<{ lat: number; lng: number; updated_at: string }>();
+  if (!loc) return null;
+  if (Date.now() - Date.parse(loc.updated_at) > 3 * 60 * 1000) return null; // posizione stantia
+  if (haversineKm(loc.lat, loc.lng, custLat, custLng) > 2.5) return null;    // non ancora vicino
+
+  const label = order.status === "out_for_delivery" ? "Il rider è in consegna" : "Il rider sta arrivando per il ritiro";
+  return { lat: loc.lat, lng: loc.lng, label, custLat, custLng };
 }
 
 /** Rider: scansiona il QR sulla borsa (= client_code). La modalità è dedotta dallo

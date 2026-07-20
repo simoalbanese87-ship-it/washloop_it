@@ -1,6 +1,7 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { CourierJobCard, type Job } from "@/components/app/CourierJobCard";
 import { RiderScanner } from "@/components/app/RiderScanner";
+import { RiderLocationPinger } from "@/components/app/RiderLocationPinger";
 import { RiderMapLoader } from "@/components/app/RiderMapLoader";
 import type { Stop, Depot } from "@/components/app/RiderMap";
 import { createClient } from "@/lib/supabase/server";
@@ -15,7 +16,6 @@ type Row = {
   bags: number;
   customer: { full_name: string | null; phone: string | null } | null;
   addresses: { street: string; lat: number | null; lng: number | null; zones: { name: string } | null; access_mode: string | null; access_note: string | null } | null;
-  laundries: { lat: number | null; lng: number | null } | null;
   pickup_slot: { starts_at: string; ends_at: string } | null;
   delivery_slot: { starts_at: string; ends_at: string } | null;
 };
@@ -46,24 +46,24 @@ export default async function CourierToday() {
   const profile = await getCurrentProfile();
   const supabase = await createClient();
 
-  const { data } = await supabase
-    .from("orders")
-    .select(
-      "id, status, bags, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, lat, lng, zones(name), access_mode, access_note), laundries(lat, lng), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
-    )
-    .eq("courier_id", profile?.id ?? "")
-    .in("status", ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"])
-    .returns<Row[]>();
+  const [{ data }, { data: depotRow }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select(
+        "id, status, bags, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, lat, lng, zones(name), access_mode, access_note), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
+      )
+      .eq("courier_id", profile?.id ?? "")
+      .in("status", ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"])
+      .returns<Row[]>(),
+    supabase.from("depots").select("lat, lng").eq("active", true).limit(1).maybeSingle<{ lat: number | null; lng: number | null }>(),
+  ]);
 
   const rows = data ?? [];
   const kindOf = (r: Row): "pickup" | "delivery" => (r.status === "pickup_scheduled" ? "pickup" : "delivery");
   const slotOf = (r: Row) => (kindOf(r) === "pickup" ? r.pickup_slot : r.delivery_slot);
 
-  // Deposito = coordinate della lavanderia (prima disponibile). Solo lato rider.
-  const depot: Depot = (() => {
-    const l = rows.find((r) => r.laundries?.lat != null && r.laundries?.lng != null)?.laundries;
-    return l && l.lat != null && l.lng != null ? { lat: l.lat, lng: l.lng } : null;
-  })();
+  // Deposito = hub logistico interno (tabella depots). Solo lato rider, mai al cliente.
+  const depot: Depot = depotRow?.lat != null && depotRow?.lng != null ? { lat: depotRow.lat, lng: depotRow.lng } : null;
 
   // Fermate con coordinate → ottimizzazione; senza coord → in coda per orario.
   const geo = rows.filter((r) => r.addresses?.lat != null && r.addresses?.lng != null);
@@ -96,7 +96,8 @@ export default async function CourierToday() {
     <>
       <PageTitle kicker="Il tuo giro" title="Oggi" sub={`${pickups.length} ritiri · ${deliveries.length} consegne`} />
 
-      <div className="mb-6"><RiderScanner /></div>
+      <div className="mb-4"><RiderScanner /></div>
+      <div className="mb-6"><RiderLocationPinger /></div>
 
       {finish && (
         <div className="mb-4 flex items-center gap-2 rounded-[14px] bg-navy px-4 py-3 text-white">
@@ -135,7 +136,7 @@ export default async function CourierToday() {
               );
             })}
           </ol>
-          {!depot && <p className="mt-3 text-[11px] font-medium text-muted">Deposito non impostato: aggiungi l&apos;indirizzo della lavanderia nel Catalogo per partenza/rientro sul percorso.</p>}
+          {!depot && <p className="mt-3 text-[11px] font-medium text-muted">Deposito non impostato: l&apos;admin lo configura nel Catalogo (sezione Deposito).</p>}
         </Card>
       )}
 

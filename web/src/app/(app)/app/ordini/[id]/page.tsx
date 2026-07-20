@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { OrderTimeline } from "@/components/app/OrderTimeline";
+import { LiveRider } from "@/components/app/LiveRider";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { createClient } from "@/lib/supabase/server";
 import { bookDelivery } from "@/lib/actions/orders";
@@ -104,6 +105,14 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
             : `${order.bags} ${order.bags === 1 ? "sacco" : "sacchi"} · creato il ${fmtDate(order.created_at)}`}
         </p>
       </section>
+
+      {/* Rider live (solo ritiro imminente / in consegna, e solo quando è vicino) */}
+      {(order.status === "out_for_delivery" || order.status === "pickup_scheduled") && (
+        <section className="rounded-[18px] border border-line bg-white p-5">
+          <div className="mb-3 font-display text-sm font-extrabold text-navy">Il tuo rider</div>
+          <LiveRider orderId={order.id} />
+        </section>
+      )}
 
       {/* Dettaglio + timeline */}
       <section className="rounded-[18px] border border-line bg-white p-5">

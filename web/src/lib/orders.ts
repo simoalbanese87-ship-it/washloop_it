@@ -69,6 +69,9 @@ export type ScanResult =
   | { ok: true; mode: "pickup" | "delivery"; seq: number; total: number; done: boolean; client: string; token?: string }
   | { ok: false; error: string };
 
+/** Posizione live del rider mostrata al cliente (solo quando vicino e in fase attiva). */
+export type RiderLivePos = { lat: number; lng: number; label: string; custLat: number; custLng: number } | null;
+
 export type UserRole = "customer" | "courier" | "partner" | "admin" | "sales";
 
 /** Home di destinazione dopo il login, per ruolo. */

@@ -78,6 +78,21 @@ export async function setZoneCourier(formData: FormData) {
   revalidatePath(REV);
 }
 
+// ---------- DEPOSITO (hub logistico interno) ----------
+export async function updateDepot(formData: FormData) {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+  const svc = createServiceClient();
+  const id = String(formData.get("depot_id") ?? "") || null;
+  const name = String(formData.get("name") ?? "").trim() || "Deposito Milano";
+  const address = String(formData.get("address") ?? "").trim() || null;
+  const geo = address ? await geocodeAddress({ street: address, city: "Milano" }) : null;
+  const patch = { name, address, lat: geo?.lat ?? null, lng: geo?.lng ?? null, active: true };
+  if (id) await svc.from("depots").update(patch).eq("id", id);
+  else await svc.from("depots").insert(patch);
+  revalidatePath(REV);
+}
+
 // ---------- LAVANDERIE ----------
 export async function createLaundry(formData: FormData) {
   const supabase = await createClient();
