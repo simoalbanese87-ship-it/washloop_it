@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import {
+  DndContext, useDraggable, useDroppable, useSensor, useSensors,
+  PointerSensor, TouchSensor, type DragEndEvent,
+} from "@dnd-kit/core";
 import { Card } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { advanceStatus, setPartnerStatus } from "@/lib/actions/partner";
@@ -36,17 +40,102 @@ function fmtEta(iso: string | null): string | null {
   try { return new Date(iso).toLocaleString("it-IT", { timeZone: "Europe/Rome", weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return null; }
 }
 
+const GripIcon = () => (
+  <svg width={18} height={18} viewBox="0 0 24 24" fill="currentColor" aria-hidden><circle cx="9" cy="6" r="1.6" /><circle cx="15" cy="6" r="1.6" /><circle cx="9" cy="12" r="1.6" /><circle cx="15" cy="12" r="1.6" /><circle cx="9" cy="18" r="1.6" /><circle cx="15" cy="18" r="1.6" /></svg>
+);
+
+function DraggableCard({ o }: { o: PartnerOrder }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: o.order_id });
+  const cta = NEXT_CTA[o.status];
+  const eta = fmtEta(o.eta_ready_at);
+  const style: React.CSSProperties = {
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.85 : 1,
+    touchAction: "manipulation",
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <Card className="!p-4">
+        <div className="flex items-start justify-between gap-2">
+          <Link href={`/laundry/${o.order_id}`} className="font-display text-base font-black tracking-tight text-navy hover:text-blue">
+            {o.client_code ?? "—"}
+          </Link>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-ice px-2.5 py-1 font-display text-[10px] font-extrabold uppercase tracking-wider text-blue">
+              {o.bags} {o.bags === 1 ? "sacco" : "sacchi"}
+            </span>
+            {/* Maniglia di trascinamento (touch + mouse) */}
+            <button
+              {...listeners}
+              {...attributes}
+              aria-label="Trascina per spostare"
+              className="grid h-8 w-8 flex-none cursor-grab touch-none place-items-center rounded-[8px] text-navy/40 hover:bg-ice hover:text-navy active:cursor-grabbing"
+              style={{ touchAction: "none" }}
+            >
+              <GripIcon />
+            </button>
+          </div>
+        </div>
+        <dl className="mt-2.5 space-y-1 text-sm font-medium text-muted">
+          {o.service && <div>{o.service}</div>}
+          {o.fragrance && <div>Profumo: {o.fragrance}</div>}
+          {eta && <div className="text-navy/70">Pronto entro: {eta}</div>}
+        </dl>
+        <div className="mt-3 flex items-center gap-2">
+          <Link href={`/laundry/${o.order_id}`} className="font-display text-sm font-bold text-navy/55 hover:text-navy">Dettaglio</Link>
+          {cta && (
+            <form action={advanceStatus} className="ml-auto">
+              <input type="hidden" name="order_id" value={o.order_id} />
+              <Button type="submit" size="md" className="!min-h-[40px] !px-4 !text-sm">{cta}</Button>
+            </form>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function DroppableColumn({ col, items }: { col: (typeof COLUMNS)[number]; items: PartnerOrder[] }) {
+  const { setNodeRef, isOver } = useDroppable({ id: col.status });
+  return (
+    <section>
+      <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-extrabold text-navy">
+        {col.title}
+        <span className="rounded-full bg-navy px-2 py-0.5 font-display text-[11px] font-bold text-cyan">{items.length}</span>
+      </h2>
+      <div ref={setNodeRef} className={`min-h-[120px] space-y-3 rounded-[18px] p-1 transition-colors ${isOver ? "bg-blue/[0.06] outline-2 outline-dashed outline-blue/40" : ""}`}>
+        {items.length > 0 ? (
+          items.map((o) => <DraggableCard key={o.order_id} o={o} />)
+        ) : (
+          <div className="grid min-h-[100px] place-items-center rounded-[14px] border border-dashed border-line text-xs font-medium text-muted">Trascina qui</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function LaundryBoardDnD({ orders }: { orders: PartnerOrder[] }) {
   const router = useRouter();
   const [items, setItems] = useState(orders);
   const [, start] = useTransition();
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [overKey, setOverKey] = useState<string | null>(null);
 
   // Riallinea allo stato server dopo un refresh (post azione).
   useEffect(() => { setItems(orders); }, [orders]);
 
-  function move(id: string, status: OrderStatus) {
+  // Mouse: parte dopo 8px di movimento (i click passano). Touch: press-hold 180ms
+  // così lo scroll normale della pagina resta possibile.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+  );
+
+  function onDragEnd(e: DragEndEvent) {
+    const id = String(e.active.id);
+    const status = e.over?.id as OrderStatus | undefined;
+    if (!status) return;
+    const current = items.find((o) => o.order_id === id);
+    if (!current || current.status === status) return;
     setItems((prev) => prev.map((o) => (o.order_id === id ? { ...o, status } : o)));
     start(async () => {
       try { await setPartnerStatus(id, status); } finally { router.refresh(); }
@@ -54,75 +143,12 @@ export function LaundryBoardDnD({ orders }: { orders: PartnerOrder[] }) {
   }
 
   return (
-    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-      {COLUMNS.map((col) => {
-        const colItems = items.filter((o) => o.status === col.status);
-        const isOver = overKey === col.key;
-        return (
-          <section
-            key={col.key}
-            onDragOver={(e) => { e.preventDefault(); setOverKey(col.key); }}
-            onDragLeave={() => setOverKey((k) => (k === col.key ? null : k))}
-            onDrop={(e) => {
-              e.preventDefault();
-              const id = e.dataTransfer.getData("text/plain") || dragId;
-              setOverKey(null); setDragId(null);
-              if (id) move(id, col.status);
-            }}
-          >
-            <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-extrabold text-navy">
-              {col.title}
-              <span className="rounded-full bg-navy px-2 py-0.5 font-display text-[11px] font-bold text-cyan">{colItems.length}</span>
-            </h2>
-            <div className={`min-h-[120px] space-y-3 rounded-[18px] p-1 transition-colors ${isOver ? "bg-blue/[0.06] outline-2 outline-dashed outline-blue/40" : ""}`}>
-              {colItems.length > 0 ? (
-                colItems.map((o) => {
-                  const cta = NEXT_CTA[o.status];
-                  const eta = fmtEta(o.eta_ready_at);
-                  return (
-                    <div
-                      key={o.order_id}
-                      draggable
-                      onDragStart={(e) => { setDragId(o.order_id); e.dataTransfer.setData("text/plain", o.order_id); e.dataTransfer.effectAllowed = "move"; }}
-                      onDragEnd={() => { setDragId(null); setOverKey(null); }}
-                      className={`cursor-grab active:cursor-grabbing ${dragId === o.order_id ? "opacity-50" : ""}`}
-                    >
-                      <Card className="!p-4">
-                        <div className="flex items-start justify-between gap-2">
-                          <Link href={`/laundry/${o.order_id}`} className="font-display text-base font-black tracking-tight text-navy hover:text-blue">
-                            {o.client_code ?? "—"}
-                          </Link>
-                          <span className="rounded-full bg-ice px-2.5 py-1 font-display text-[10px] font-extrabold uppercase tracking-wider text-blue">
-                            {o.bags} {o.bags === 1 ? "sacco" : "sacchi"}
-                          </span>
-                        </div>
-                        <dl className="mt-2.5 space-y-1 text-sm font-medium text-muted">
-                          {o.service && <div>{o.service}</div>}
-                          {o.fragrance && <div>Profumo: {o.fragrance}</div>}
-                          {eta && <div className="text-navy/70">Pronto entro: {eta}</div>}
-                        </dl>
-                        <div className="mt-3 flex items-center gap-2">
-                          <Link href={`/laundry/${o.order_id}`} className="font-display text-sm font-bold text-navy/55 hover:text-navy">Dettaglio</Link>
-                          {cta && (
-                            <form action={advanceStatus} className="ml-auto">
-                              <input type="hidden" name="order_id" value={o.order_id} />
-                              <Button type="submit" size="md" className="!min-h-[40px] !px-4 !text-sm">{cta}</Button>
-                            </form>
-                          )}
-                        </div>
-                      </Card>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="grid min-h-[100px] place-items-center rounded-[14px] border border-dashed border-line text-xs font-medium text-muted">
-                  Trascina qui
-                </div>
-              )}
-            </div>
-          </section>
-        );
-      })}
-    </div>
+    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {COLUMNS.map((col) => (
+          <DroppableColumn key={col.key} col={col} items={items.filter((o) => o.status === col.status)} />
+        ))}
+      </div>
+    </DndContext>
   );
 }
