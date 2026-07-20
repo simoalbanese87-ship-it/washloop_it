@@ -5,7 +5,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus, notifySpecialAdded } from "@/lib/notify";
 import { chargeSpecialById } from "@/lib/billing-specials";
-import type { OrderStatus } from "@/lib/orders";
+import { statusIndex, type OrderStatus } from "@/lib/orders";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
 const PARTNER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -46,6 +46,29 @@ export async function advanceStatus(formData: FormData) {
   if (error) throw new Error(error.message);
 
   await notifyOrderStatus(orderId, next);
+  revalidatePath("/laundry");
+  revalidatePath(`/laundry/${orderId}`);
+}
+
+/** Stati gestibili dalla lavanderia (colonne del board). */
+const PARTNER_STATUSES: OrderStatus[] = ["picked_up", "at_laundry", "washing", "ready"];
+
+/** Imposta lo stato dell'ordine su uno degli stati lavanderia (usato dal
+ *  drag-and-drop: drop in una colonna = quello stato). Consente anche di tornare
+ *  indietro. Notifica il cliente solo in avanzamento (evita notifiche spurie). */
+export async function setPartnerStatus(orderId: string, status: string) {
+  const profile = await requirePartner();
+  if (!PARTNER_STATUSES.includes(status as OrderStatus)) throw new Error("Stato non consentito");
+  const order = await assertOrderInLaundry(orderId, profile.laundry_id!);
+  if (order.status === status) return;
+
+  const supabase = await createClient(); // RLS: solo ordini della propria lavanderia
+  const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
+  if (error) throw new Error(error.message);
+
+  if (statusIndex(status as OrderStatus) > statusIndex(order.status)) {
+    await notifyOrderStatus(orderId, status as OrderStatus);
+  }
   revalidatePath("/laundry");
   revalidatePath(`/laundry/${orderId}`);
 }
