@@ -83,12 +83,16 @@ export async function createLaundry(formData: FormData) {
   const supabase = await createClient();
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Nome lavanderia obbligatorio");
+  const address = String(formData.get("address") ?? "") || null;
+  const geo = address ? await geocodeAddress({ street: address, city: "Milano" }) : null;
   const { error } = await supabase.from("laundries").insert({
     name,
     zone_id: String(formData.get("zone_id") ?? "") || null,
-    address: String(formData.get("address") ?? "") || null,
+    address,
     phone: String(formData.get("phone") ?? "") || null,
     email: String(formData.get("email") ?? "") || null,
+    lat: geo?.lat ?? null,
+    lng: geo?.lng ?? null,
   });
   if (error) throw new Error(error.message);
   revalidatePath(REV);
@@ -99,17 +103,20 @@ export async function updateLaundry(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
   if (!id || !name) throw new Error("Dati lavanderia mancanti");
-  const { error } = await supabase
-    .from("laundries")
-    .update({
-      name,
-      zone_id: String(formData.get("zone_id") ?? "") || null,
-      address: String(formData.get("address") ?? "") || null,
-      phone: String(formData.get("phone") ?? "") || null,
-      email: String(formData.get("email") ?? "") || null,
-      active: formData.has("active"),
-    })
-    .eq("id", id);
+  const address = String(formData.get("address") ?? "") || null;
+  // Geocodifica l'indirizzo (deposito) al salvataggio, best-effort.
+  const geo = address ? await geocodeAddress({ street: address, city: "Milano" }) : null;
+  const patch: Record<string, unknown> = {
+    name,
+    zone_id: String(formData.get("zone_id") ?? "") || null,
+    address,
+    phone: String(formData.get("phone") ?? "") || null,
+    email: String(formData.get("email") ?? "") || null,
+    active: formData.has("active"),
+  };
+  if (geo) { patch.lat = geo.lat; patch.lng = geo.lng; }
+  else if (!address) { patch.lat = null; patch.lng = null; }
+  const { error } = await supabase.from("laundries").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath(REV);
 }

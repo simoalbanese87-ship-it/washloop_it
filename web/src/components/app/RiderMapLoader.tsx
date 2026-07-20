@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { Stop } from "./RiderMap";
+import type { Stop, Depot } from "./RiderMap";
 
 /** Wrapper client: carica la mappa solo lato browser (Leaflet usa `window`).
  *  ssr:false è consentito qui perché è un client component. */
@@ -12,6 +12,6 @@ const RiderMap = dynamic(() => import("./RiderMap"), {
   ),
 });
 
-export function RiderMapLoader({ stops }: { stops: Stop[] }) {
-  return <RiderMap stops={stops} />;
+export function RiderMapLoader({ stops, depot = null }: { stops: Stop[]; depot?: Depot }) {
+  return <RiderMap stops={stops} depot={depot} />;
 }
