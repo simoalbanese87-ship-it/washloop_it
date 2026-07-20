@@ -17,12 +17,12 @@ type PartnerOrder = {
   status: OrderStatus;
   eta_ready_at: string | null;
   created_at: string;
-  zone_name: string | null;
 };
 
 const COLUMNS: { key: string; title: string; statuses: OrderStatus[]; cta?: string }[] = [
-  { key: "arrivo", title: "In arrivo", statuses: ["picked_up"], cta: "Segna arrivato" },
-  { key: "lavoro", title: "In lavorazione", statuses: ["at_laundry", "washing"] },
+  { key: "arrivo", title: "In arrivo", statuses: ["picked_up"] },
+  { key: "arrivato", title: "Arrivato", statuses: ["at_laundry"] },
+  { key: "lavoro", title: "In lavorazione", statuses: ["washing"] },
   { key: "pronti", title: "Pronti", statuses: ["ready"] },
 ];
 
@@ -48,7 +48,6 @@ function OrderCard({ o }: { o: PartnerOrder }) {
       <dl className="mt-2.5 space-y-1 text-sm font-medium text-muted">
         {o.service && <div>{o.service}</div>}
         {o.fragrance && <div>Profumo: {o.fragrance}</div>}
-        {o.zone_name && <div>Zona: {o.zone_name}</div>}
         {o.eta_ready_at && <div className="text-navy/70">Pronto entro: {fmtFull(o.eta_ready_at)}</div>}
       </dl>
 
@@ -71,7 +70,7 @@ export default async function LaundryBoard() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("partner_orders")
-    .select("order_id, client_code, bags, service, fragrance, status, eta_ready_at, created_at, zone_name")
+    .select("order_id, client_code, bags, service, fragrance, status, eta_ready_at, created_at")
     .order("created_at", { ascending: true })
     .returns<PartnerOrder[]>();
 
@@ -86,7 +85,7 @@ export default async function LaundryBoard() {
         sub={`${active.length} ordini attivi · solo dati operativi, nessun dato personale`}
       />
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {COLUMNS.map((col) => {
           const items = active.filter((r) => col.statuses.includes(r.status));
           return (

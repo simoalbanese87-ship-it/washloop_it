@@ -18,7 +18,7 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   requested: "Richiesto",
   pickup_scheduled: "Ritiro programmato",
   picked_up: "Ritirato",
-  at_laundry: "In lavanderia",
+  at_laundry: "Arrivato",
   washing: "In lavaggio",
   ready: "Pronto",
   delivery_scheduled: "Consegna programmata",

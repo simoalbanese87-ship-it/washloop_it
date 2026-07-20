@@ -20,7 +20,6 @@ type PartnerOrder = {
   status: OrderStatus;
   eta_ready_at: string | null;
   created_at: string;
-  zone_name: string | null;
 };
 
 type Special = {
@@ -48,7 +47,7 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
   const [{ data: order }, { data: specials }, { data: listino }] = await Promise.all([
     supabase
       .from("partner_orders")
-      .select("order_id, client_code, bags, service, fragrance, status, eta_ready_at, created_at, zone_name")
+      .select("order_id, client_code, bags, service, fragrance, status, eta_ready_at, created_at")
       .eq("order_id", orderId)
       .maybeSingle<PartnerOrder>(),
     supabase
@@ -89,7 +88,6 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
             <div className="flex justify-between"><dt>Sacchi</dt><dd className="font-bold text-navy">{order.bags}</dd></div>
             {order.service && <div className="flex justify-between"><dt>Servizio</dt><dd className="font-bold text-navy">{order.service}</dd></div>}
             {order.fragrance && <div className="flex justify-between"><dt>Profumo</dt><dd className="font-bold text-navy">{order.fragrance}</dd></div>}
-            {order.zone_name && <div className="flex justify-between"><dt>Zona</dt><dd className="font-bold text-navy">{order.zone_name}</dd></div>}
             {order.eta_ready_at && <div className="flex justify-between"><dt>Pronto entro</dt><dd className="font-bold text-navy">{fmtFull(order.eta_ready_at)}</dd></div>}
           </dl>
 
