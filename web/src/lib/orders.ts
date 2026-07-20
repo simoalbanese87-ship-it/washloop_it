@@ -64,6 +64,11 @@ export const ACCESS_MODE_LABEL: Record<AccessMode, string> = {
   concierge: "Portineria",
 };
 
+/** Esito di una scansione borsa del rider (RITIRO/CONSEGNA dedotta dallo stato). */
+export type ScanResult =
+  | { ok: true; mode: "pickup" | "delivery"; seq: number; total: number; done: boolean; client: string; token?: string }
+  | { ok: false; error: string };
+
 export type UserRole = "customer" | "courier" | "partner" | "admin" | "sales";
 
 /** Home di destinazione dopo il login, per ruolo. */

@@ -1,5 +1,6 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { CourierJobCard, type Job } from "@/components/app/CourierJobCard";
+import { RiderScanner } from "@/components/app/RiderScanner";
 import { RiderMapLoader } from "@/components/app/RiderMapLoader";
 import type { Stop } from "@/components/app/RiderMap";
 import { createClient } from "@/lib/supabase/server";
@@ -76,6 +77,10 @@ export default async function CourierToday() {
   return (
     <>
       <PageTitle kicker="Il tuo giro" title="Oggi" sub={`${pickups.length} ritiri · ${deliveries.length} consegne`} />
+
+      <div className="mb-6">
+        <RiderScanner />
+      </div>
 
       {stops.length > 0 && (
         <Card className="mb-6 overflow-hidden !p-0">

@@ -1,10 +1,11 @@
 "use server";
 
+import crypto from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
-import type { OrderStatus } from "@/lib/orders";
+import type { OrderStatus, ScanResult } from "@/lib/orders";
 import { romeLocalToISO, romeWeekday, romeHHMM } from "@/lib/format";
 import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
 import { slotFullMessage } from "@/lib/slots";
@@ -241,6 +242,83 @@ export async function courierAdvance(formData: FormData) {
   }
   await notifyOrderStatus(id, status);
   revalidatePath("/courier");
+}
+
+/** Rider: scansiona il QR sulla borsa (= client_code). La modalità è dedotta dallo
+ *  stato dell'ordine: RITIRO (pickup_scheduled) o CONSEGNA (delivery_scheduled/
+ *  out_for_delivery). Ogni scan al ritiro crea un pacco univoco (token); alla
+ *  consegna marca il prossimo pacco. A completamento avanza lo stato + notifica. */
+export async function scanBag(clientCodeRaw: string): Promise<ScanResult> {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "courier") return { ok: false, error: "Solo rider" };
+
+  // Il QR può contenere il codice puro o un URL che lo termina: estrai WL-####.
+  const raw = (clientCodeRaw ?? "").trim();
+  const m = raw.match(/WL-\d{3,}/i);
+  const clientCode = (m ? m[0] : raw).toUpperCase();
+  if (!/^WL-\d{3,}$/.test(clientCode)) return { ok: false, error: "QR non valido (atteso codice WL-…)" };
+
+  const svc = createServiceClient();
+  const { data: prof } = await svc.from("profiles").select("id, full_name").eq("client_code", clientCode).maybeSingle<{ id: string; full_name: string | null }>();
+  if (!prof) return { ok: false, error: `Cliente ${clientCode} non trovato` };
+
+  const { data: orders } = await svc
+    .from("orders")
+    .select("id, status, bags, created_at")
+    .eq("customer_id", prof.id)
+    .eq("courier_id", me.id)
+    .in("status", ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"])
+    .order("created_at", { ascending: true })
+    .returns<{ id: string; status: OrderStatus; bags: number; created_at: string }[]>();
+  const order = (orders ?? [])[0];
+  if (!order) return { ok: false, error: "Nessun ordine attivo per questo cliente nel tuo giro" };
+
+  const client = prof.full_name ?? clientCode;
+  const mode: "pickup" | "delivery" = order.status === "pickup_scheduled" ? "pickup" : "delivery";
+
+  const { data: bagsRows } = await svc
+    .from("order_bags")
+    .select("id, seq, pickup_scanned_at, delivery_scanned_at")
+    .eq("order_id", order.id)
+    .order("seq", { ascending: true })
+    .returns<{ id: string; seq: number; pickup_scanned_at: string | null; delivery_scanned_at: string | null }[]>();
+  const list = bagsRows ?? [];
+
+  if (mode === "pickup") {
+    const total = order.bags ?? 1;
+    if (list.length >= total) return { ok: false, error: `Tutti i ${total} pacchi già ritirati per ${client}` };
+    const seq = list.length + 1;
+    const token = `WLB-${crypto.randomBytes(5).toString("hex")}`;
+    const { error } = await svc.from("order_bags").insert({
+      order_id: order.id, seq, token,
+      pickup_scanned_at: new Date().toISOString(), pickup_by: me.id,
+    });
+    if (error) return { ok: false, error: error.message };
+    const done = seq >= total;
+    if (done) {
+      await svc.from("orders").update({ status: "picked_up" }).eq("id", order.id);
+      await notifyOrderStatus(order.id, "picked_up");
+    }
+    revalidatePath("/courier");
+    return { ok: true, mode, seq, total, done, client, token };
+  }
+
+  // CONSEGNA: marca il prossimo pacco non consegnato.
+  if (list.length === 0) return { ok: false, error: "Nessun pacco registrato al ritiro: usa il bottone manuale" };
+  const next = list.find((b) => !b.delivery_scanned_at);
+  const total = list.length;
+  if (!next) return { ok: false, error: `Tutti i ${total} pacchi già consegnati a ${client}` };
+
+  await svc.from("order_bags").update({ delivery_scanned_at: new Date().toISOString(), delivery_by: me.id }).eq("id", next.id);
+  if (order.status === "delivery_scheduled") await svc.from("orders").update({ status: "out_for_delivery" }).eq("id", order.id);
+  const delivered = list.filter((b) => b.delivery_scanned_at).length + 1;
+  const done = delivered >= total;
+  if (done) {
+    await svc.from("orders").update({ status: "delivered" }).eq("id", order.id);
+    await notifyOrderStatus(order.id, "delivered");
+  }
+  revalidatePath("/courier");
+  return { ok: true, mode, seq: delivered, total, done, client };
 }
 
 /** Admin: assegna corriere e lavanderia. */

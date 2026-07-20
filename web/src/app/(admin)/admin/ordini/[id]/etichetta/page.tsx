@@ -11,7 +11,7 @@ type Order = {
   status: OrderStatus;
   bags: number;
   eta_ready_at: string | null;
-  customer: { full_name: string | null; phone: string | null } | null;
+  customer: { full_name: string | null; phone: string | null; client_code: string | null } | null;
   addresses: { street: string; zones: { name: string } | null } | null;
   laundries: { name: string } | null;
 };
@@ -21,14 +21,16 @@ export default async function EtichettaPage({ params }: { params: Promise<{ id: 
   const supabase = await createClient();
   const { data: order } = await supabase
     .from("orders")
-    .select("id, status, bags, eta_ready_at, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, zones(name)), laundries(name)")
+    .select("id, status, bags, eta_ready_at, customer:profiles!orders_customer_id_fkey(full_name, phone, client_code), addresses(street, zones(name)), laundries(name)")
     .eq("id", id)
     .maybeSingle<Order>();
 
   if (!order) notFound();
 
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it";
-  const qr = await QRCode.toDataURL(`${base}/admin/ordini/${order.id}`, { margin: 1, width: 260 });
+  // Il QR sulla borsa codifica il CODICE CLIENTE (fisso, riusabile ritiro+consegna):
+  // è quello che scansiona il rider. La modalità la deduce la webapp dallo stato.
+  const clientCode = order.customer?.client_code ?? null;
+  const qr = await QRCode.toDataURL(clientCode ?? `WL-${order.id.slice(0, 4).toUpperCase()}`, { margin: 1, width: 260 });
 
   return (
     <div className="mx-auto max-w-md">
@@ -43,12 +45,12 @@ export default async function EtichettaPage({ params }: { params: Promise<{ id: 
       <div className="label-card rounded-[18px] border border-line bg-white p-6 shadow-[var(--shadow-sm)]">
         <div className="flex items-center justify-between">
           <Logo size={26} />
-          <span className="font-mono text-sm font-bold text-navy">#{order.id.slice(0, 8).toUpperCase()}</span>
+          <span className="font-mono text-sm font-bold text-navy">{clientCode ?? `#${order.id.slice(0, 8).toUpperCase()}`}</span>
         </div>
 
         <div className="my-5 flex items-center gap-5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qr} alt="QR ordine" className="h-32 w-32" />
+          <img src={qr} alt="QR codice cliente" className="h-32 w-32" />
           <div className="space-y-1">
             <div className="font-display text-xl font-black text-navy">{order.customer?.full_name ?? "Cliente"}</div>
             {order.customer?.phone && <div className="text-sm font-semibold text-muted">{order.customer.phone}</div>}
