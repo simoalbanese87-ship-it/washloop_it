@@ -74,7 +74,7 @@ export function LeadForm({ utm }: { utm: { source: string; medium: string; campa
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label htmlFor="lead-cap" className={label}>CAP Milano</label>
+            <label htmlFor="lead-cap" className={label}>CAP</label>
             <input
               id="lead-cap"
               name="cap"

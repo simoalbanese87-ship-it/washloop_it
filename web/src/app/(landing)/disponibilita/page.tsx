@@ -85,8 +85,8 @@ const faqs = [
     a: "Dipende dal piano: S 1 sacco a settimana, M 2, L 3. Il ritiro è sempre una volta a settimana. Ogni sacchetto contiene fino a 3 camicie.",
   },
   {
-    q: "Quali zone coprite a Milano?",
-    a: "Stiamo partendo dal centro e dai quartieri semicentrali di Milano. Inserisci il tuo CAP: ti diciamo subito se sei in zona o ti avvisiamo all'apertura.",
+    q: "Quali zone coprite?",
+    a: "Stiamo partendo dal centro e dai quartieri semicentrali di Milano, più l'hinterland sud-ovest: Assago, Buccinasco e Rozzano. Inserisci il tuo CAP: ti diciamo subito se sei in zona o ti avvisiamo all'apertura.",
   },
 ];
 

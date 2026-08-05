@@ -18,7 +18,7 @@ export function CapHeroForm() {
       className="mt-9 max-w-lg"
     >
       <label htmlFor="hero-cap" className="mb-2 block font-display text-xs font-extrabold uppercase tracking-[0.14em] text-cyan">
-        Il tuo CAP a Milano
+        Il tuo CAP
       </label>
       <div className="flex flex-col gap-2.5 rounded-[40px] border border-white/15 bg-white/5 p-2 sm:flex-row sm:items-center">
         <input
@@ -40,7 +40,9 @@ export function CapHeroForm() {
           Verifica disponibilità →
         </button>
       </div>
-      <p className="mt-3 font-display text-xs font-bold text-white/45">Campo CAP specifico per la copertura Milano.</p>
+      <p className="mt-3 font-display text-xs font-bold text-white/45">
+        Milano e hinterland sud-ovest: Assago, Buccinasco, Rozzano.
+      </p>
     </form>
   );
 }
