@@ -4,7 +4,14 @@ import { renderEmail, sendMail } from "@/lib/email";
 /** Conferma al lead della landing "/disponibilita" che la richiesta è arrivata.
  *  Il destinatario NON ha un account WashLoop: `footerNote` sostituisce la riga
  *  standard del layout, che parlerebbe di area personale.
- *  Best-effort come tutto lo stack email: `sendMail` non lancia mai. */
+ *  Best-effort come tutto lo stack email: `sendMail` non lancia mai.
+ *
+ *  ⚠️ INVIO IN PAUSA. Il flusso resta cablato e funzionante ma non parte nulla
+ *  finché non si imposta LEAD_CONFIRM_EMAIL=on. Prima di riattivarlo servono
+ *  disiscrizione (link + header List-Unsubscribe) e il resto della gestione
+ *  delle comunicazioni. Riattivare = una variabile d'ambiente, nessun deploy. */
+
+const INVIO_ATTIVO = process.env.LEAD_CONFIRM_EMAIL === "on";
 
 export type LeadConfirmInput = {
   to: string;
@@ -15,6 +22,8 @@ export type LeadConfirmInput = {
 };
 
 export async function sendLeadConfirmation(d: LeadConfirmInput) {
+  if (!INVIO_ATTIVO) return { skipped: true as const, reason: "in pausa" };
+
   const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://washloop.it").replace(/\/+$/, "");
   const firstName = d.fullName.trim().split(/\s+/)[0] || "";
 
