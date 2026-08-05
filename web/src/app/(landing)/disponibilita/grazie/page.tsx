@@ -40,16 +40,21 @@ export default async function GraziePage({
 
         <p className="mx-auto mt-6 max-w-lg text-lg font-medium leading-relaxed text-white/70">
           {covered
-            ? "Buone notizie: il tuo CAP rientra nell'area che copriamo a Milano. Ti ricontattiamo a breve per concordare il giorno fisso di ritiro."
+            ? "Buone notizie: il tuo CAP rientra nell'area che copriamo a Milano. Ti ricontatteremo per fornirti maggiori informazioni sul servizio."
             : "Il tuo CAP non è ancora tra le zone che serviamo. Ti avvisiamo appena apriamo da te."}
         </p>
 
-        <Link
-          href="/"
-          className="mt-10 inline-flex min-h-[52px] items-center justify-center rounded-[40px] bg-white px-7 font-display text-base font-extrabold text-navy transition-transform hover:-translate-y-0.5"
-        >
-          Scopri WashLoop →
-        </Link>
+        {/* Il pulsante verso il sito vetrina compare solo a chi è in zona: a chi
+            non copriamo non serve un invito a esplorare un servizio che non può
+            ancora attivare. */}
+        {covered && (
+          <Link
+            href="/"
+            className="mt-10 inline-flex min-h-[52px] items-center justify-center rounded-[40px] bg-white px-7 font-display text-base font-extrabold text-navy transition-transform hover:-translate-y-0.5"
+          >
+            Scopri WashLoop →
+          </Link>
+        )}
       </div>
     </section>
   );
