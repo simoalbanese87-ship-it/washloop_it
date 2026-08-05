@@ -6,8 +6,8 @@
  *  giorni di lavorazione, i tre volumi crescenti. Il numero diventa il titolo
  *  di un fatto, non una statistica generica.
  *
- *  Ritmo: la card centrale è navy e leggermente sollevata su desktop, così i
- *  tre blocchi non leggono come una griglia piatta. Tutto in CSS, nessun JS. */
+ *  I tre blocchi hanno lo stesso identico stile e lo stesso peso visivo: a
+ *  distinguerli è solo il diagramma. Tutto in CSS, nessun JS. */
 
 const GIORNI = ["L", "M", "M", "G", "V", "S", "D"];
 const GIORNO_SCELTO = 3; // giovedì, solo esempio visivo
@@ -48,34 +48,26 @@ function CardRitiro() {
 
 function CardRiconsegna() {
   return (
-    <article className="group relative flex h-full flex-col overflow-hidden rounded-[24px] bg-navy p-7 text-white shadow-[var(--shadow-md)] transition-all duration-300 hover:-translate-y-1 md:-translate-y-3 md:hover:-translate-y-4">
-      {/* alone cyan in alto a destra, per dare profondità al navy pieno */}
-      <span
-        className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-cyan/20 blur-2xl"
-        aria-hidden
-      />
+    <article className="group relative flex h-full flex-col overflow-hidden rounded-[24px] border border-line bg-white p-7 shadow-[var(--shadow-sm)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-md)]">
+      <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.22em] text-blue">Riconsegna</div>
 
-      <div className="relative flex flex-1 flex-col">
-        <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.22em] text-cyan">Riconsegna</div>
+      <div className="mt-5 flex items-baseline gap-2">
+        <span className="font-display text-6xl font-black leading-none tracking-[-0.04em] text-navy">3</span>
+        <span className="font-display text-lg font-extrabold text-navy/45">giorni feriali</span>
+      </div>
 
-        <div className="mt-5 flex items-baseline gap-2">
-          <span className="font-display text-6xl font-black leading-none tracking-[-0.04em] text-cyan">3</span>
-          <span className="font-display text-lg font-extrabold text-white/55">giorni feriali</span>
-        </div>
+      <p className="mt-3 text-sm font-medium leading-relaxed text-muted">
+        al massimo, dal ritiro all&apos;armadio
+      </p>
 
-        <p className="mt-3 text-sm font-medium leading-relaxed text-white/60">
-          al massimo, dal ritiro all&apos;armadio
-        </p>
-
-        {/* i tre giorni di lavorazione, come una barra di avanzamento */}
-        <div className="mt-auto flex items-center gap-2 pt-7" aria-hidden>
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="flex flex-1 items-center gap-2">
-              <span className="h-2 flex-1 rounded-full bg-cyan/70" />
-              <span className="font-display text-[11px] font-extrabold text-white/40">{i + 1}</span>
-            </div>
-          ))}
-        </div>
+      {/* i tre giorni di lavorazione, come una barra di avanzamento */}
+      <div className="mt-auto flex items-center gap-2 pt-7" aria-hidden>
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex flex-1 items-center gap-2">
+            <span className="h-2 flex-1 rounded-full bg-grad" />
+            <span className="font-display text-[11px] font-extrabold text-navy/45">{i + 1}</span>
+          </div>
+        ))}
       </div>
     </article>
   );
