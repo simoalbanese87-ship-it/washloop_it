@@ -21,7 +21,7 @@ export async function sendLeadConfirmation(d: LeadConfirmInput) {
   // Le due varianti riprendono il copy già pubblicato sul sito (FAQ zone):
   // "ti diciamo subito se sei in zona, o ti avvisiamo appena apriamo da te".
   const zona = d.covered
-    ? `Buone notizie: il CAP <strong>${d.cap}</strong> rientra nell'area che copriamo a Milano. Ti ricontattiamo a breve per concordare il giorno fisso di ritiro.`
+    ? `Buone notizie: il CAP <strong>${d.cap}</strong> rientra nell'area che copriamo a Milano. Ti ricontatteremo per fornirti maggiori informazioni sul servizio.`
     : `Il CAP <strong>${d.cap}</strong> non è ancora tra le zone che serviamo. Ti avvisiamo appena apriamo da te.`;
 
   const html = renderEmail({
