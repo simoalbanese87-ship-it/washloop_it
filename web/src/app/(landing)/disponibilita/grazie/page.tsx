@@ -44,10 +44,6 @@ export default async function GraziePage({
             : "Il tuo CAP non è ancora tra le zone che serviamo. Ti avvisiamo appena apriamo da te."}
         </p>
 
-        <p className="mx-auto mt-5 max-w-md text-sm font-semibold text-white/45">
-          Ti abbiamo inviato una email di conferma: se non la trovi, controlla anche nello spam.
-        </p>
-
         <Link
           href="/"
           className="mt-10 inline-flex min-h-[52px] items-center justify-center rounded-[40px] bg-white px-7 font-display text-base font-extrabold text-navy transition-transform hover:-translate-y-0.5"
