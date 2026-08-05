@@ -12,6 +12,7 @@ export type LeadSheetRow = {
   createdAt: string;   // ISO
   fullName: string;
   email: string;
+  phone: string;
   cap: string;
   plan: string;
   covered: boolean;

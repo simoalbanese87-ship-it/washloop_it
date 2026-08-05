@@ -41,12 +41,18 @@ export async function submitLead(_prev: LeadFormState, formData: FormData): Prom
 
   const fullName = String(formData.get("full_name") ?? "").trim().replace(/\s+/g, " ");
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const phone = String(formData.get("phone") ?? "").trim().replace(/\s+/g, " ");
   const cap = String(formData.get("cap") ?? "").trim();
   const plan = String(formData.get("plan") ?? "").trim().toUpperCase();
   const consent = formData.get("privacy") != null;
 
   if (fullName.length < 2) return { error: "Inserisci nome e cognome." };
   if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) return { error: "Inserisci un indirizzo email valido." };
+  // Volutamente permissiva: accetta prefisso internazionale, spazi, punti e
+  // trattini. Conta solo che ci siano abbastanza cifre per richiamare.
+  if (!/^\+?[\d\s.\-()]{8,20}$/.test(phone) || (phone.match(/\d/g) ?? []).length < 8) {
+    return { error: "Inserisci un numero di telefono valido." };
+  }
   if (!/^\d{5}$/.test(cap)) return { error: "Il CAP deve essere di 5 cifre." };
   if (!PLANS.has(plan)) return { error: "Scegli un piano." };
   if (!consent) return { error: "Serve il consenso al trattamento dei dati per procedere." };
@@ -105,6 +111,7 @@ export async function submitLead(_prev: LeadFormState, formData: FormData): Prom
       {
         full_name: fullName,
         email,
+        phone,
         cap,
         plan,
         zone_id: zoneId,
@@ -127,7 +134,7 @@ export async function submitLead(_prev: LeadFormState, formData: FormData): Prom
   // può più far fallire l'invio.
   after(async () => {
     const jobs: Promise<unknown>[] = [
-      appendLeadToSheet({ createdAt: now, fullName, email, cap, plan, covered, zone: zoneName, utmSource, utmMedium, utmCampaign }),
+      appendLeadToSheet({ createdAt: now, fullName, email, phone, cap, plan, covered, zone: zoneName, utmSource, utmMedium, utmCampaign }),
     ];
     if (!alreadyConfirmed) {
       jobs.push(sendLeadConfirmation({ to: email, fullName, cap, covered, planLabel: PLAN_LABEL[plan] }));

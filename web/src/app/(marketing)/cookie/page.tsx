@@ -26,8 +26,10 @@ export default function CookiePage() {
         </ul>
       </LegalSection>
 
-      <LegalSection n="3" title="Cookie di misurazione (previo consenso)">
-        <p>Possiamo utilizzare cookie di misurazione/analytics per capire come viene usato il sito e migliorarlo. Sono attivati <strong>solo se scegli "Accetta tutti"</strong> nel banner. Scegliendo "Solo necessari" non vengono installati. Non utilizziamo cookie pubblicitari o di profilazione di terze parti.</p>
+      <LegalSection n="3" title="Cookie di misurazione e pubblicitari (previo consenso)">
+        <p>Possiamo utilizzare cookie di misurazione/analytics per capire come viene usato il sito e migliorarlo.</p>
+        <p>Utilizziamo inoltre il <strong>pixel di Meta (Facebook/Instagram)</strong>, un cookie pubblicitario di terza parte che ci permette di misurare i risultati delle campagne e di mostrare annunci più pertinenti a chi ha visitato il sito. Il pixel comunica a Meta Platforms Ireland Ltd. la visita alle pagine; Meta può usare questi dati anche per finalità proprie, come descritto nella sua <a href="https://www.facebook.com/privacy/policy/" target="_blank" rel="noopener noreferrer" className="text-blue hover:underline">informativa</a>.</p>
+        <p>Entrambe le categorie sono attivate <strong>solo se scegli "Accetta tutti"</strong> nel banner. Scegliendo "Solo necessari" non vengono installate, e il pixel non viene nemmeno caricato.</p>
       </LegalSection>
 
       <LegalSection n="4" title="Come gestire o revocare il consenso">

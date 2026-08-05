@@ -58,6 +58,20 @@ export function LeadForm({ utm }: { utm: { source: string; medium: string; campa
           <input id="lead-email" name="email" type="email" required autoComplete="email" placeholder="nome@email.it" className={field} />
         </div>
 
+        <div>
+          <label htmlFor="lead-phone" className={label}>Telefono</label>
+          <input
+            id="lead-phone"
+            name="phone"
+            type="tel"
+            required
+            inputMode="tel"
+            autoComplete="tel"
+            placeholder="349 1234567"
+            className={field}
+          />
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="lead-cap" className={label}>CAP Milano</label>

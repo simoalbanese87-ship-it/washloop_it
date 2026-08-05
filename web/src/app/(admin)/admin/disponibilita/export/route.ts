@@ -10,6 +10,7 @@ import { getCurrentProfile } from "@/lib/auth";
 type Row = {
   full_name: string;
   email: string;
+  phone: string | null;
   cap: string | null;
   plan: string | null;
   covered: boolean;
@@ -19,7 +20,7 @@ type Row = {
 };
 
 const HEADERS = [
-  "Data", "Nome e cognome", "Email", "CAP", "Zona", "Copertura", "Piano",
+  "Data", "Nome e cognome", "Email", "Telefono", "CAP", "Zona", "Copertura", "Piano",
   "UTM source", "UTM medium", "UTM campaign",
 ];
 
@@ -50,7 +51,7 @@ export async function GET(req: Request) {
   const svc = createServiceClient();
   const { data } = await svc
     .from("leads")
-    .select("full_name, email, cap, plan, covered, created_at, utm, zones(name)")
+    .select("full_name, email, phone, cap, plan, covered, created_at, utm, zones(name)")
     .order("created_at", { ascending: false })
     .returns<Row[]>();
 
@@ -58,7 +59,7 @@ export async function GET(req: Request) {
     if (zona === "in" && !l.covered) return false;
     if (zona === "fuori" && l.covered) return false;
     if (!needle) return true;
-    return `${l.full_name} ${l.email} ${l.cap ?? ""} ${l.zones?.name ?? ""}`.toLowerCase().includes(needle);
+    return `${l.full_name} ${l.email} ${l.phone ?? ""} ${l.cap ?? ""} ${l.zones?.name ?? ""}`.toLowerCase().includes(needle);
   });
 
   const lines = [
@@ -68,6 +69,7 @@ export async function GET(req: Request) {
         fmtDate(l.created_at),
         l.full_name,
         l.email,
+        l.phone,
         l.cap,
         l.zones?.name ?? "",
         l.covered ? "In zona" : "Fuori zona",

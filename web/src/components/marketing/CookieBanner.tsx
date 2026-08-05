@@ -4,8 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 const COOKIE = "wl_cookie_consent";
-const VERSION = "1"; // bump per richiedere di nuovo il consenso a tutti
+// v2: dall'introduzione del pixel Meta il sito usa anche cookie pubblicitari,
+// quindi il consenso raccolto sulla v1 non è più valido e va richiesto di nuovo.
+const VERSION = "2";
 export const COOKIE_PREFS_EVENT = "wl:open-cookie-prefs";
+/** Emesso quando l'utente sceglie: gli script non essenziali si attivano o
+ *  restano spenti senza bisogno di ricaricare la pagina. */
+export const CONSENT_CHANGED_EVENT = "wl:consent-changed";
 
 type Consent = "all" | "essential";
 
@@ -19,10 +24,16 @@ function currentConsent(): string | null {
   return row ? row.split("=")[1] : null;
 }
 
-/** Banner cookie GDPR. Oggi WashLoop usa solo cookie tecnici necessari; i
- *  cookie di misurazione/analytics sono attivati SOLO con consenso ("Accetta
- *  tutti"). "Solo necessari" rifiuta i non essenziali. Le due scelte hanno
- *  pari evidenza (linee guida Garante). Riapribile da "Preferenze cookie". */
+/** True solo con "Accetta tutti" sulla versione corrente del banner.
+ *  In assenza di scelta il default è NO: nessuno script di marketing parte. */
+export function hasMarketingConsent(): boolean {
+  return currentConsent() === `all.${VERSION}`;
+}
+
+/** Banner cookie GDPR. I cookie tecnici sono sempre attivi; misurazione e
+ *  pubblicità (pixel Meta) SOLO con "Accetta tutti". "Solo necessari" rifiuta
+ *  tutto il resto. Le due scelte hanno pari evidenza (linee guida Garante).
+ *  Riapribile da "Preferenze cookie". */
 export function CookieBanner() {
   const [show, setShow] = useState(false);
 
@@ -37,7 +48,8 @@ export function CookieBanner() {
   function choose(value: Consent) {
     setConsent(value);
     setShow(false);
-    // Qui, in futuro, si attivano/disattivano gli script non essenziali in base a `value`.
+    // Sveglia gli script non essenziali (es. pixel Meta) senza ricaricare.
+    window.dispatchEvent(new CustomEvent(CONSENT_CHANGED_EVENT, { detail: value }));
   }
 
   if (!show) return null;
@@ -47,7 +59,8 @@ export function CookieBanner() {
       <div className="mx-auto max-w-3xl rounded-[20px] border border-line bg-white p-5 shadow-[0_12px_40px_rgba(11,31,58,0.18)]">
         <p className="text-sm font-medium leading-relaxed text-navy/75">
           Usiamo <strong>cookie tecnici necessari</strong> al funzionamento del sito (accesso e pagamenti) e, solo con il tuo
-          consenso, cookie di <strong>misurazione</strong> per migliorare il servizio. Nessun cookie pubblicitario.{" "}
+          consenso, cookie di <strong>misurazione</strong> e <strong>pubblicitari di terze parti</strong> (Meta) per mostrarti
+          annunci più pertinenti.{" "}
           <Link href="/cookie" className="font-bold text-blue hover:underline">
             Cookie Policy
           </Link>

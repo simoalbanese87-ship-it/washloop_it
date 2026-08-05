@@ -9,6 +9,7 @@ export type AdminLead = {
   id: string;
   full_name: string;
   email: string;
+  phone: string | null;
   cap: string | null;
   plan: string | null;
   covered: boolean;
@@ -36,7 +37,7 @@ export default async function DisponibilitaAdminPage({
   const svc = createServiceClient();
   const { data, error } = await svc
     .from("leads")
-    .select("id, full_name, email, cap, plan, covered, created_at, utm, zones(name)")
+    .select("id, full_name, email, phone, cap, plan, covered, created_at, utm, zones(name)")
     .order("created_at", { ascending: false })
     .returns<AdminLead[]>();
 
@@ -45,7 +46,7 @@ export default async function DisponibilitaAdminPage({
     if (zona === "in" && !l.covered) return false;
     if (zona === "fuori" && l.covered) return false;
     if (!needle) return true;
-    return `${l.full_name} ${l.email} ${l.cap ?? ""} ${l.zones?.name ?? ""}`.toLowerCase().includes(needle);
+    return `${l.full_name} ${l.email} ${l.phone ?? ""} ${l.cap ?? ""} ${l.zones?.name ?? ""}`.toLowerCase().includes(needle);
   });
 
   const inZona = all.filter((l) => l.covered).length;
@@ -70,7 +71,7 @@ export default async function DisponibilitaAdminPage({
       <Card className="mb-4">
         <form className="flex flex-wrap items-end gap-2">
           <label className="min-w-[240px] flex-1 text-xs font-bold text-muted">
-            Cerca per nome, email, CAP o zona
+            Cerca per nome, email, telefono, CAP o zona
             <input name="q" defaultValue={q ?? ""} placeholder="mario, mario@email.it, 20143…" className={`${input} mt-1`} />
           </label>
           <label className="text-xs font-bold text-muted">
@@ -102,6 +103,7 @@ export default async function DisponibilitaAdminPage({
                   <div className="font-display text-sm font-extrabold text-navy">{l.full_name}</div>
                   <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs font-medium text-muted">
                     <a href={`mailto:${l.email}`} className="text-blue hover:underline">{l.email}</a>
+                    {l.phone && <a href={`tel:${l.phone.replace(/\s/g, "")}`} className="text-blue hover:underline">{l.phone}</a>}
                     {l.cap && <span>CAP {l.cap}</span>}
                     {l.zones?.name && <span>{l.zones.name}</span>}
                     {l.plan && <span>Piano {l.plan}</span>}

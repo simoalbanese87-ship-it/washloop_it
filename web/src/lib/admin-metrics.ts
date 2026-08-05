@@ -156,8 +156,8 @@ export async function leadsByStatusSource(): Promise<LeadsResult> {
     svc.from("subscriptions").select("user_id, status, created_at").order("created_at", { ascending: false })
       .returns<{ user_id: string; status: string; created_at: string }[]>(),
     waitlistLeads(),
-    svc.from("leads").select("id, full_name, email, cap, plan, covered, created_at").order("created_at", { ascending: false })
-      .returns<{ id: string; full_name: string; email: string; cap: string | null; plan: string | null; covered: boolean; created_at: string }[]>(),
+    svc.from("leads").select("id, full_name, email, phone, cap, plan, covered, created_at").order("created_at", { ascending: false })
+      .returns<{ id: string; full_name: string; email: string; phone: string | null; cap: string | null; plan: string | null; covered: boolean; created_at: string }[]>(),
   ]);
 
   const latest = new Map<string, string>();
@@ -232,11 +232,12 @@ export async function leadsByStatusSource(): Promise<LeadsResult> {
   // in anagrafica compaiono lì, non qui.
   for (const l of landing ?? []) {
     const emailKey = l.email.toLowerCase().trim();
-    if (knownEmails.has(emailKey)) continue;
+    const phoneKey = normPhone(l.phone);
+    if (knownEmails.has(emailKey) || (phoneKey && knownPhones.has(phoneKey))) continue;
     leads.push({
       key: `landing-${l.id}`,
       name: l.full_name,
-      phone: null,
+      phone: l.phone,
       email: l.email,
       source: "landing",
       status: "landing",

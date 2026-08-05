@@ -3,6 +3,7 @@ import { Nunito, Nunito_Sans } from "next/font/google";
 import { PWARegister } from "@/components/PWARegister";
 import { CookieBanner } from "@/components/marketing/CookieBanner";
 import { GoogleAdsTag } from "@/components/GoogleAdsTag";
+import { MetaPixel } from "@/components/MetaPixel";
 import "./globals.css";
 
 const nunito = Nunito({
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <CookieBanner />
         <PWARegister />
         <GoogleAdsTag />
+        <MetaPixel />
       </body>
     </html>
   );
