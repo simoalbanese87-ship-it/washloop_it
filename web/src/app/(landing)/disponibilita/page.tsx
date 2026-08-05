@@ -4,6 +4,7 @@ import { CapHeroForm } from "@/components/landing/CapHeroForm";
 import { PlanCards } from "@/components/landing/PlanCards";
 import { PhoneMockup } from "@/components/landing/PhoneMockup";
 import { LeadForm } from "@/components/landing/LeadForm";
+import { TrustBlocks } from "@/components/landing/TrustBlocks";
 
 /* ============================================================
    Landing "Verifica disponibilità" — pagina per campagne a pagamento.
@@ -60,12 +61,6 @@ const profiles = [
   { t: "Professionista", d: "Per chi vuole proteggere il tempo fuori dall'ufficio senza sacrificare la cura del guardaroba." },
   { t: "Famiglia", d: "Per chi desidera alleggerire una delle incombenze più ricorrenti della settimana." },
   { t: "Lifestyle", d: "Per chi cerca una routine curata, flessibile e allineata a uno standard di vita più semplice." },
-];
-
-const numbers = [
-  { n: "1", d: "giorno fisso di ritiro scelto da te" },
-  { n: "3", d: "giorni feriali massimi per la riconsegna" },
-  { n: "3", d: "piani per adattare il servizio al tuo volume" },
 ];
 
 const guaranteePoints = ["Ritiro nel giorno scelto", "Lavaggio e stiraggio professionali", "Flessibilità per la tua agenda"];
@@ -205,23 +200,7 @@ export default async function DisponibilitaPage({
             ))}
           </div>
 
-          <aside aria-label="Indicatori di affidabilità del servizio" className="mt-10 rounded-[24px] bg-navy px-7 py-10 text-white">
-            <h3 className="font-display text-2xl font-black tracking-[-0.02em]">Fiducia, in numeri chiari.</h3>
-            <div className="mt-7 grid gap-7 sm:grid-cols-3">
-              {numbers.map((n) => (
-                <div key={n.d}>
-                  <div className="font-display text-5xl font-black leading-none text-cyan">{n.n}</div>
-                  <p className="mt-2 text-sm font-medium text-white/60">{n.d}</p>
-                </div>
-              ))}
-            </div>
-            <a
-              href="#richiesta"
-              className="mt-8 inline-flex min-h-[48px] items-center justify-center rounded-[40px] bg-white px-6 font-display text-[15px] font-extrabold text-navy transition-transform hover:-translate-y-0.5"
-            >
-              Verifica disponibilità →
-            </a>
-          </aside>
+          <TrustBlocks />
         </div>
       </section>
 
