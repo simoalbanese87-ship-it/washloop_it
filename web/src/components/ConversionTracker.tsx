@@ -13,16 +13,18 @@ declare global {
 /** Spara la conversione Google Ads una sola volta al caricamento della pagina
  *  di conferma. `send_to` = NEXT_PUBLIC_GADS_CONVERSION_LABEL (es.
  *  "AW-123456789/AbC-D_efg"). Deduplica su session_id via sessionStorage così
- *  un refresh non conta due volte. Se le env non ci sono, è un no-op. */
-export function ConversionTracker() {
+ *  un refresh non conta due volte. Se le env non ci sono, è un no-op.
+ *  `label` permette una conversione diversa dall'acquisto (es. lead della
+ *  landing /disponibilita), senza sporcare quella del checkout. */
+export function ConversionTracker({ label: labelProp }: { label?: string } = {}) {
   const params = useSearchParams();
 
   useEffect(() => {
-    const label = process.env.NEXT_PUBLIC_GADS_CONVERSION_LABEL;
+    const label = labelProp || process.env.NEXT_PUBLIC_GADS_CONVERSION_LABEL;
     if (!label || typeof window.gtag !== "function") return;
 
     const sessionId = params.get("session_id") ?? "";
-    const key = `wl_conv_${sessionId || "once"}`;
+    const key = `wl_conv_${label}_${sessionId || "once"}`;
     if (sessionStorage.getItem(key)) return;
 
     const value = Number(params.get("value"));
@@ -33,7 +35,7 @@ export function ConversionTracker() {
       ...(Number.isFinite(value) && value > 0 ? { value } : {}),
     });
     sessionStorage.setItem(key, "1");
-  }, [params]);
+  }, [params, labelProp]);
 
   return null;
 }

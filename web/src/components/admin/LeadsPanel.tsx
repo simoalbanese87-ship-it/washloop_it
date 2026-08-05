@@ -7,21 +7,25 @@ import { DeleteUserButton } from "./DeleteUserButton";
 
 /** Lead per stato & provenienza, con filtri. Provenienza distinta per
  *  colore + icona (no solo colore): Sito = blu (globo), Lista d'attesa =
- *  ambra (clessidra). Chip di stato con palette semantica. */
+ *  ambra (clessidra), Disponibilità = verde (segnaposto).
+ *  Chip di stato con palette semantica. */
 
 const STATUS_LABEL: Record<string, string> = {
   active: "Attivo", trialing: "In prova", past_due: "Pagamento sospeso",
   unpaid: "Non pagato", canceled: "Disdetto", paused: "In pausa",
   incomplete: "Da attivare", pending: "Nuovo lead", waitlist: "Lista d'attesa",
+  landing: "Richiesta disponibilità",
 };
 const statusTone = (s: string) =>
   s === "past_due" || s === "unpaid" ? "bg-[#C0392B]/12 text-[#C0392B]"
     : s === "canceled" || s === "paused" ? "bg-navy/10 text-navy"
+    : s === "landing" ? "bg-[#1F8A5B]/15 text-[#1F8A5B]"
     : "bg-[#C9881F]/15 text-[#C9881F]"; // pending/incomplete/waitlist
 
 const SOURCE = {
   site: { label: "Sito", chip: "bg-[#2b7fd4]/12 text-[#2b7fd4]", bar: "bg-[#2b7fd4]" },
   funnel: { label: "Lista d'attesa", chip: "bg-[#C9881F]/15 text-[#C9881F]", bar: "bg-[#C9881F]" },
+  landing: { label: "Disponibilità", chip: "bg-[#1F8A5B]/12 text-[#1F8A5B]", bar: "bg-[#1F8A5B]" },
 } as const;
 
 const GlobeIcon = () => (
@@ -34,6 +38,13 @@ const HourglassIcon = () => (
     <path d="M6 3h12M6 21h12M6 3c0 4 3 6 6 9c3-3 6-5 6-9M6 21c0-4 3-6 6-9" />
   </svg>
 );
+const PinIcon = () => (
+  <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11Z" /><circle cx="12" cy="10" r="2.4" />
+  </svg>
+);
+
+const SOURCE_ICON = { site: GlobeIcon, funnel: HourglassIcon, landing: PinIcon } as const;
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -42,7 +53,7 @@ function fmtDate(iso: string | null): string {
 
 /** readOnly = vista sales: niente link admin né elimina (solo consultazione). */
 export function LeadsPanel({ leads, leadError, readOnly = false }: { leads: DashboardLead[]; leadError: string | null; readOnly?: boolean }) {
-  const [source, setSource] = useState<"all" | "site" | "funnel">("all");
+  const [source, setSource] = useState<"all" | "site" | "funnel" | "landing">("all");
   const [status, setStatus] = useState<string>("all");
 
   const statuses = useMemo(() => Array.from(new Set(leads.map((l) => l.status))), [leads]);
@@ -54,6 +65,7 @@ export function LeadsPanel({ leads, leadError, readOnly = false }: { leads: Dash
 
   const siteCount = leads.filter((l) => l.source === "site").length;
   const funnelCount = leads.filter((l) => l.source === "funnel").length;
+  const landingCount = leads.filter((l) => l.source === "landing").length;
 
   const seg = (active: boolean) =>
     `rounded-full px-3.5 py-1.5 font-display text-xs font-extrabold transition-colors ${active ? "bg-navy text-white" : "bg-ice text-navy hover:bg-navy/10"}`;
@@ -67,6 +79,7 @@ export function LeadsPanel({ leads, leadError, readOnly = false }: { leads: Dash
           <button onClick={() => setSource("all")} className={seg(source === "all")}>Tutte ({leads.length})</button>
           <button onClick={() => setSource("site")} className={seg(source === "site")}>Sito ({siteCount})</button>
           <button onClick={() => setSource("funnel")} className={seg(source === "funnel")}>Lista d&apos;attesa ({funnelCount})</button>
+          <button onClick={() => setSource("landing")} className={seg(source === "landing")}>Disponibilità ({landingCount})</button>
         </div>
         <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${selCls} ml-auto`} aria-label="Filtra per stato">
           <option value="all">Tutti gli stati</option>
@@ -86,6 +99,7 @@ export function LeadsPanel({ leads, leadError, readOnly = false }: { leads: Dash
         <div className="space-y-2">
           {filtered.map((l) => {
             const src = SOURCE[l.source];
+            const SourceIcon = SOURCE_ICON[l.source];
             const siteId = l.source === "site" ? l.key.replace(/^site-/, "") : null;
             return (
               <div key={l.key} className="flex items-center gap-3 rounded-[14px] border border-line bg-white px-3 py-2.5">
@@ -94,13 +108,14 @@ export function LeadsPanel({ leads, leadError, readOnly = false }: { leads: Dash
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-display text-sm font-extrabold text-navy">{l.name}</span>
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-display text-[10px] font-bold ${src.chip}`}>
-                      {l.source === "site" ? <GlobeIcon /> : <HourglassIcon />}{src.label}
+                      <SourceIcon />{src.label}
                     </span>
                     <span className={`rounded-full px-2 py-0.5 font-display text-[10px] font-bold ${statusTone(l.status)}`}>{STATUS_LABEL[l.status] ?? l.status}</span>
                   </div>
                   <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs font-medium text-muted">
                     {l.email && <span>{l.email}</span>}
                     {l.phone && <span>{l.phone}</span>}
+                    {l.detail && <span>{l.detail}</span>}
                     <span>{fmtDate(l.date)}</span>
                   </div>
                 </div>

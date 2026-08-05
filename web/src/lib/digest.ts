@@ -17,7 +17,15 @@ const SUB_LABEL: Record<string, string> = {
 
 export type DigestCustomer = { id: string; name: string; email: string | null; phone: string | null; status: string; created_at: string };
 export type DigestLead = { name: string; email: string; phone: string; address: string; dateLabel: string };
-export type DigestData = { sinceIso: string; hours: number; newCustomers: DigestCustomer[]; newLeads: DigestLead[]; leadError: string | null };
+export type DigestLandingLead = { name: string; email: string; cap: string; plan: string; covered: boolean; created_at: string };
+export type DigestData = {
+  sinceIso: string;
+  hours: number;
+  newCustomers: DigestCustomer[];
+  newLeads: DigestLead[];
+  newLandingLeads: DigestLandingLead[];
+  leadError: string | null;
+};
 
 /** Raccoglie clienti e lead comparsi nelle ultime `hours` ore. */
 export async function gatherDigest(hours = 24): Promise<DigestData> {
@@ -63,7 +71,24 @@ export async function gatherDigest(hours = 24): Promise<DigestData> {
     leadError = wl.error;
   }
 
-  return { sinceIso, hours, newCustomers, newLeads, leadError };
+  // Nuove richieste dalla landing /disponibilita (tabella `leads`).
+  const { data: landing } = await svc
+    .from("leads")
+    .select("full_name, email, cap, plan, covered, created_at")
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: false })
+    .returns<{ full_name: string; email: string; cap: string | null; plan: string | null; covered: boolean; created_at: string }[]>();
+
+  const newLandingLeads: DigestLandingLead[] = (landing ?? []).map((l) => ({
+    name: l.full_name,
+    email: l.email,
+    cap: l.cap ?? "",
+    plan: l.plan ?? "",
+    covered: l.covered,
+    created_at: l.created_at,
+  }));
+
+  return { sinceIso, hours, newCustomers, newLeads, newLandingLeads, leadError };
 }
 
 /** Email di tutti gli admin (+ eventuali destinatari extra da env DIGEST_RECIPIENTS). */
@@ -94,6 +119,13 @@ function digestEmailHtml(d: DigestData): string {
       <td style="padding:8px 10px;border-bottom:1px solid #E1E8F1;font-size:13px;color:#46586E">${esc(l.address || "—")}</td>
     </tr>`).join("");
 
+  const dRows = d.newLandingLeads.map((l) => `
+    <tr>
+      <td style="padding:8px 10px;border-bottom:1px solid #E1E8F1;font-size:14px;color:#0B1F3A"><strong>${esc(l.name)}</strong></td>
+      <td style="padding:8px 10px;border-bottom:1px solid #E1E8F1;font-size:13px;color:#46586E">${esc(l.email)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #E1E8F1;font-size:13px;color:#46586E">${esc(l.cap || "—")}${l.plan ? ` · Piano ${esc(l.plan)}` : ""}<br/>${l.covered ? "in zona" : "fuori zona"}</td>
+    </tr>`).join("");
+
   const table = (title: string, headers: string[], rows: string, empty: string) => `
     <div style="margin:18px 0 6px;font-family:'Nunito',Arial,sans-serif;font-size:15px;font-weight:800;color:#0B1F3A">${title}</div>
     ${rows
@@ -105,16 +137,17 @@ function digestEmailHtml(d: DigestData): string {
 
   const body = `
     Riepilogo delle ultime ${d.hours} ore.<br/>
-    <strong>${d.newCustomers.length}</strong> nuovi clienti · <strong>${d.newLeads.length}</strong> nuovi lead dal funnel.
+    <strong>${d.newCustomers.length}</strong> nuovi clienti · <strong>${d.newLeads.length}</strong> lead dal funnel · <strong>${d.newLandingLeads.length}</strong> richieste di disponibilità.
     ${table("👤 Nuovi clienti", ["Nome", "Contatti", "Stato"], cRows, "Nessun nuovo cliente.")}
     ${table("🌱 Nuovi lead (funnel)", ["Nome", "Contatti", "Indirizzo"], lRows, d.leadError ? `Lista d'attesa non raggiungibile: ${esc(d.leadError)}` : "Nessun nuovo lead.")}
+    ${table("📍 Richieste disponibilità (landing)", ["Nome", "Email", "Zona"], dRows, "Nessuna nuova richiesta.")}
   `;
 
   return renderEmail({
     title: "Novità di oggi",
     body,
     emoji: "📈",
-    preheader: `${d.newCustomers.length} clienti · ${d.newLeads.length} lead nelle ultime ${d.hours}h`,
+    preheader: `${d.newCustomers.length} clienti · ${d.newLeads.length + d.newLandingLeads.length} lead nelle ultime ${d.hours}h`,
     cta: { label: "Apri la dashboard", href: `${site()}/admin/novita` },
   });
 }
@@ -122,18 +155,21 @@ function digestEmailHtml(d: DigestData): string {
 /** Invia il digest agli admin se c'è almeno una novità. Ritorna l'esito. */
 export async function sendDailyDigest(hours = 24): Promise<{ sent: boolean; customers: number; leads: number; recipients: number; reason?: string }> {
   const data = await gatherDigest(hours);
-  const total = data.newCustomers.length + data.newLeads.length;
+  // I lead della landing contano nel totale: senza, un giorno con sole richieste
+  // di disponibilità non farebbe partire nessun digest.
+  const leadCount = data.newLeads.length + data.newLandingLeads.length;
+  const total = data.newCustomers.length + leadCount;
   if (total === 0) return { sent: false, customers: 0, leads: 0, recipients: 0, reason: "nessuna novità" };
 
   const to = await digestRecipients();
-  if (to.length === 0) return { sent: false, customers: data.newCustomers.length, leads: data.newLeads.length, recipients: 0, reason: "nessun destinatario admin" };
+  if (to.length === 0) return { sent: false, customers: data.newCustomers.length, leads: leadCount, recipients: 0, reason: "nessun destinatario admin" };
 
   await sendMail({
     to: to.join(","),
-    subject: `WashLoop · ${data.newCustomers.length} nuovi clienti, ${data.newLeads.length} nuovi lead (${hours}h)`,
+    subject: `WashLoop · ${data.newCustomers.length} nuovi clienti, ${leadCount} nuovi lead (${hours}h)`,
     html: digestEmailHtml(data),
   });
-  return { sent: true, customers: data.newCustomers.length, leads: data.newLeads.length, recipients: to.length };
+  return { sent: true, customers: data.newCustomers.length, leads: leadCount, recipients: to.length };
 }
 
 function esc(s: string): string {

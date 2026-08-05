@@ -136,28 +136,47 @@ export type DashboardLead = {
   name: string;
   phone: string | null;
   email: string | null;
-  source: "site" | "funnel";
+  source: "site" | "funnel" | "landing";
   status: string;      // stato grezzo per il filtro
   date: string | null; // ISO
   href: string | null; // link anagrafica (solo site)
+  detail?: string | null; // riga extra (es. "CAP 20121 · Piano M · in zona")
 };
 export type LeadsResult = { leads: DashboardLead[]; leadError: string | null };
 
 /** Lead = chi NON ha un abbonamento attivo. Sito = profili in DB (stato reale),
- *  Funnel = lead dal Google Sheet (stato sintetico "waitlist"). */
+ *  Funnel = lead dal Google Sheet (stato sintetico "waitlist"),
+ *  Disponibilità = tabella `leads`, dalla landing /disponibilita. */
 export async function leadsByStatusSource(): Promise<LeadsResult> {
   const svc = createServiceClient();
 
-  const [{ data: profs }, { data: subs }, wl] = await Promise.all([
+  const [{ data: profs }, { data: subs }, wl, { data: landing }] = await Promise.all([
     svc.from("profiles").select("id, full_name, phone, created_at").eq("role", "customer").order("created_at", { ascending: false })
       .returns<{ id: string; full_name: string | null; phone: string | null; created_at: string }[]>(),
     svc.from("subscriptions").select("user_id, status, created_at").order("created_at", { ascending: false })
       .returns<{ user_id: string; status: string; created_at: string }[]>(),
     waitlistLeads(),
+    svc.from("leads").select("id, full_name, email, cap, plan, covered, created_at").order("created_at", { ascending: false })
+      .returns<{ id: string; full_name: string; email: string; cap: string | null; plan: string | null; covered: boolean; created_at: string }[]>(),
   ]);
 
   const latest = new Map<string, string>();
   for (const s of subs ?? []) if (!latest.has(s.user_id)) latest.set(s.user_id, s.status);
+
+  // Email di TUTTI i profili in una sola listUsers paginata (prima erano N
+  // getUserById, uno per cliente attivo). Serve a due cose: mostrare l'email
+  // anche sui lead "sito", e deduplicare contro chiunque sia già in anagrafica —
+  // non solo contro i clienti attivi.
+  const emailById = new Map<string, string>();
+  for (let page = 1; ; page++) {
+    const { data } = await svc.auth.admin.listUsers({ page, perPage: 1000 });
+    const users = data?.users ?? [];
+    for (const u of users) {
+      const e = u.email?.toLowerCase().trim();
+      if (e) emailById.set(u.id, e);
+    }
+    if (users.length < 1000) break;
+  }
 
   const leads: DashboardLead[] = [];
   for (const p of profs ?? []) {
@@ -167,7 +186,7 @@ export async function leadsByStatusSource(): Promise<LeadsResult> {
       key: `site-${p.id}`,
       name: p.full_name ?? "—",
       phone: p.phone,
-      email: null,
+      email: emailById.get(p.id) ?? null,
       source: "site",
       status,
       date: p.created_at,
@@ -175,24 +194,25 @@ export async function leadsByStatusSource(): Promise<LeadsResult> {
     });
   }
 
-  // Contatti dei clienti ATTIVI (email + telefono) per deduplicare i lead funnel:
-  // se una lead della lista d'attesa è già diventata cliente, non è più un lead.
-  const activeIds = [...latest.entries()].filter(([, st]) => ACTIVE.includes(st)).map(([id]) => id);
-  const activePhones = new Set<string>();
-  for (const p of profs ?? []) if (activeIds.includes(p.id)) { const n = normPhone(p.phone); if (n) activePhones.add(n); }
-  const activeEmails = new Set<string>();
-  await Promise.all(activeIds.map(async (id) => {
-    const { data } = await svc.auth.admin.getUserById(id);
-    const e = data?.user?.email?.toLowerCase().trim();
-    if (e) activeEmails.add(e);
-  }));
+  // Contatti di TUTTA l'anagrafica (non solo dei clienti attivi): chi è già un
+  // profilo compare una volta sola, come lead "sito" o come cliente. Senza
+  // questo, chi si registrava sul sito senza attivare l'abbonamento finiva
+  // elencato due volte, una per provenienza.
+  const knownEmails = new Set<string>();
+  const knownPhones = new Set<string>();
+  for (const p of profs ?? []) {
+    const e = emailById.get(p.id);
+    if (e) knownEmails.add(e);
+    const n = normPhone(p.phone);
+    if (n) knownPhones.add(n);
+  }
 
   let leadError: string | null = null;
   if (wl.ok) {
     for (const l of wl.leads) {
       const emailKey = (l.email || "").toLowerCase().trim();
       const phoneKey = normPhone(l.phone);
-      if ((emailKey && activeEmails.has(emailKey)) || (phoneKey && activePhones.has(phoneKey))) continue; // già cliente
+      if ((emailKey && knownEmails.has(emailKey)) || (phoneKey && knownPhones.has(phoneKey))) continue; // già in anagrafica
       leads.push({
         key: `funnel-${l.id || l.email}-${l.dateLabel}`,
         name: l.name,
@@ -206,6 +226,26 @@ export async function leadsByStatusSource(): Promise<LeadsResult> {
     }
   } else {
     leadError = wl.error;
+  }
+
+  // Lead dalla landing /disponibilita. Stessa regola del funnel: se sono già
+  // in anagrafica compaiono lì, non qui.
+  for (const l of landing ?? []) {
+    const emailKey = l.email.toLowerCase().trim();
+    if (knownEmails.has(emailKey)) continue;
+    leads.push({
+      key: `landing-${l.id}`,
+      name: l.full_name,
+      phone: null,
+      email: l.email,
+      source: "landing",
+      status: "landing",
+      date: l.created_at,
+      href: null,
+      detail: [l.cap ? `CAP ${l.cap}` : null, l.plan ? `Piano ${l.plan}` : null, l.covered ? "in zona" : "fuori zona"]
+        .filter(Boolean)
+        .join(" · "),
+    });
   }
 
   // Più recenti in cima (le date nulle in fondo).

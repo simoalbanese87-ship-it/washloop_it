@@ -54,18 +54,23 @@ function stripHtml(html: string) {
 /** Layout email brand WashLoop — responsive, table-based (compatibile con la
  *  maggior parte dei client). Palette: navy #0B1F3A, cyan #7FE3D6, blu #2D7DD2.
  *  `body` può contenere HTML semplice. `preheader` = testo di anteprima inbox. */
+/** `footerNote` sovrascrive la riga «Ricevi questa email perché hai un account
+ *  WashLoop»: serve per i destinatari che un account NON ce l'hanno (es. i lead
+ *  della landing). Omesso → footer invariato, le email esistenti non cambiano. */
 export function renderEmail({
   title,
   body,
   cta,
   preheader,
   emoji,
+  footerNote,
 }: {
   title: string;
   body: string;
   cta?: { label: string; href: string };
   preheader?: string;
   emoji?: string;
+  footerNote?: string;
 }) {
   const site = clean(process.env.NEXT_PUBLIC_SITE_URL) || "https://washloop.it";
   const host = site.replace(/^https?:\/\//, "");
@@ -110,7 +115,7 @@ export function renderEmail({
             WashLoop · lavanderia a domicilio · <a href="${site}" style="color:#2D7DD2;text-decoration:none">${host}</a>
           </p>
           <p style="margin:0;font-size:11px;line-height:1.6;color:#A6B4C5">
-            Ricevi questa email perché hai un account WashLoop. Gestisci tutto nella tua <a href="${site}/app" style="color:#8597AB">area personale</a>.
+            ${footerNote ?? `Ricevi questa email perché hai un account WashLoop. Gestisci tutto nella tua <a href="${site}/app" style="color:#8597AB">area personale</a>.`}
           </p>
         </td></tr>
       </table>

@@ -63,7 +63,7 @@ export default async function AdminDashboard() {
       {/* Lead per stato & provenienza */}
       <Card>
         <h2 className="mb-1 font-display text-base font-extrabold text-navy">Lead per stato & provenienza</h2>
-        <p className="mb-4 text-xs font-medium text-muted">Chi non ha un abbonamento attivo. Filtra per provenienza (Sito / Lista d&apos;attesa) e per stato.</p>
+        <p className="mb-4 text-xs font-medium text-muted">Chi non ha un abbonamento attivo. Filtra per provenienza (Sito / Lista d&apos;attesa / Disponibilità) e per stato.</p>
         <LeadsPanel leads={leadsRes.leads} leadError={leadsRes.leadError} />
       </Card>
     </>

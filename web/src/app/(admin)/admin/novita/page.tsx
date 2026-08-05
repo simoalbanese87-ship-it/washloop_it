@@ -77,6 +77,30 @@ export default async function NovitaPage({ searchParams }: { searchParams: Promi
           </div>
           <Link href="/admin/lista-attesa" className="mt-3 inline-flex font-display text-sm font-bold text-blue hover:underline">Tutti i lead →</Link>
         </Card>
+
+        {/* Richieste dalla landing /disponibilita */}
+        <Card>
+          <h2 className="font-display text-base font-extrabold text-navy">Richieste disponibilità — landing ({data.newLandingLeads.length})</h2>
+          <div className="mt-3 space-y-2">
+            {data.newLandingLeads.length === 0 ? (
+              <p className="text-sm font-medium text-muted">Nessuna nuova richiesta negli ultimi 7 giorni.</p>
+            ) : (
+              data.newLandingLeads.map((l) => (
+                <div key={`${l.email}-${l.created_at}`} className="flex items-center justify-between gap-3 rounded-[12px] border border-line px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="font-bold text-navy">{l.name}</div>
+                    <div className="truncate text-xs font-medium text-muted">
+                      {l.email}{l.cap ? ` · CAP ${l.cap}` : ""}{l.plan ? ` · Piano ${l.plan}` : ""} · {fmtFull(l.created_at)}
+                    </div>
+                  </div>
+                  <span className={`flex-none rounded-full px-2 py-0.5 font-display text-[11px] font-bold ${l.covered ? "bg-[#1F8A5B]/15 text-[#1F8A5B]" : "bg-[#C9881F]/15 text-[#C9881F]"}`}>
+                    {l.covered ? "In zona" : "Fuori zona"}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
       </div>
     </>
   );
