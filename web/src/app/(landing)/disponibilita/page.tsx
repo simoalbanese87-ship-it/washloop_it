@@ -134,7 +134,9 @@ export default async function DisponibilitaPage({
       </section>
 
       {/* ============ GARANZIE ============ */}
-      <section className="bg-white">
+      {/* `relative z-10`: l'hero è posizionato, quindi senza questo verrebbe
+          disegnato sopra la barra e la taglierebbe a metà. */}
+      <section className="relative z-10 bg-white">
         <div className="mx-auto -mt-8 max-w-5xl px-5">
           <div className="grid gap-px overflow-hidden rounded-[24px] border border-line bg-line shadow-[var(--shadow-md)] sm:grid-cols-3">
             {guarantees.map((g) => (
