@@ -174,9 +174,11 @@ export default async function DisponibilitaPage({
       </section>
 
       {/* ============ GARANZIE ============ */}
-      {/* `relative z-10`: l'hero è posizionato, quindi senza questo verrebbe
+      {/* Fondo ice come la sezione sotto: con `bg-white` restava una banda
+          bianca sotto la barra e lo stacco si vedeva.
+          `relative z-10`: l'hero è posizionato, quindi senza questo verrebbe
           disegnato sopra la barra e la taglierebbe a metà. */}
-      <section className="relative z-10 bg-white">
+      <section className="relative z-10 bg-ice">
         <div className="mx-auto -mt-8 max-w-5xl px-5">
           <div className="grid gap-px overflow-hidden rounded-[24px] border border-line bg-line shadow-[var(--shadow-md)] sm:grid-cols-3">
             {guarantees.map((g) => (
@@ -307,7 +309,9 @@ export default async function DisponibilitaPage({
       </section>
 
       {/* ============ FAQ ============ */}
-      <section className="bg-white">
+      {/* Ritmo dei fondi come nel riferimento: ice → navy → ice → bianco → ice →
+          navy. Due sezioni bianche di fila appiattirebbero la pagina. */}
+      <section className="bg-ice">
         <div className="mx-auto grid max-w-6xl gap-10 px-5 py-20 md:grid-cols-2">
           <div>
             <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Tutto chiaro, fin da subito</div>
