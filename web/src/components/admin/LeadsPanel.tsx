@@ -4,6 +4,9 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { DashboardLead } from "@/lib/admin-metrics";
 import { DeleteUserButton } from "./DeleteUserButton";
+import { LeadActions } from "./LeadActions";
+import { LeadStatusSelect } from "./LeadStatusSelect";
+import { CONTACT_STATUS_LABEL, isContactStatus } from "@/lib/lead-status";
 
 /** Lead per stato & provenienza, con filtri. Provenienza distinta per
  *  colore + icona (no solo colore): Sito = blu (globo), Lista d'attesa =
@@ -14,12 +17,11 @@ const STATUS_LABEL: Record<string, string> = {
   active: "Attivo", trialing: "In prova", past_due: "Pagamento sospeso",
   unpaid: "Non pagato", canceled: "Disdetto", paused: "In pausa",
   incomplete: "Da attivare", pending: "Nuovo lead", waitlist: "Lista d'attesa",
-  landing: "Richiesta disponibilità",
+  ...CONTACT_STATUS_LABEL,
 };
 const statusTone = (s: string) =>
   s === "past_due" || s === "unpaid" ? "bg-[#C0392B]/12 text-[#C0392B]"
     : s === "canceled" || s === "paused" ? "bg-navy/10 text-navy"
-    : s === "landing" ? "bg-[#1F8A5B]/15 text-[#1F8A5B]"
     : "bg-[#C9881F]/15 text-[#C9881F]"; // pending/incomplete/waitlist
 
 const SOURCE = {
@@ -101,6 +103,7 @@ export function LeadsPanel({ leads, leadError, readOnly = false }: { leads: Dash
             const src = SOURCE[l.source];
             const SourceIcon = SOURCE_ICON[l.source];
             const siteId = l.source === "site" ? l.key.replace(/^site-/, "") : null;
+            const landingId = l.source === "landing" ? l.key.replace(/^landing-/, "") : null;
             return (
               <div key={l.key} className="flex items-center gap-3 rounded-[14px] border border-line bg-white px-3 py-2.5">
                 <span className={`h-9 w-1 flex-none rounded-full ${src.bar}`} aria-hidden />
@@ -110,7 +113,11 @@ export function LeadsPanel({ leads, leadError, readOnly = false }: { leads: Dash
                     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-display text-[10px] font-bold ${src.chip}`}>
                       <SourceIcon />{src.label}
                     </span>
-                    <span className={`rounded-full px-2 py-0.5 font-display text-[10px] font-bold ${statusTone(l.status)}`}>{STATUS_LABEL[l.status] ?? l.status}</span>
+                    {landingId && !readOnly && isContactStatus(l.status) ? (
+                      <LeadStatusSelect leadId={landingId} value={l.status} back="/admin" />
+                    ) : (
+                      <span className={`rounded-full px-2 py-0.5 font-display text-[10px] font-bold ${statusTone(l.status)}`}>{STATUS_LABEL[l.status] ?? l.status}</span>
+                    )}
                   </div>
                   <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs font-medium text-muted">
                     {l.email && <span>{l.email}</span>}
@@ -123,6 +130,7 @@ export function LeadsPanel({ leads, leadError, readOnly = false }: { leads: Dash
                   <div className="flex flex-none items-center gap-3">
                     {l.href && <Link href={l.href} className="font-display text-xs font-bold text-blue hover:underline">Apri →</Link>}
                     {siteId && <DeleteUserButton id={siteId} name={l.name} />}
+                    {landingId && <LeadActions leadId={landingId} name={l.name} back="/admin" />}
                   </div>
                 )}
               </div>

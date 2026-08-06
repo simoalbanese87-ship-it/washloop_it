@@ -4,7 +4,6 @@ import { CapHeroForm } from "@/components/landing/CapHeroForm";
 import { PlanCards } from "@/components/landing/PlanCards";
 import { PhoneMockup } from "@/components/landing/PhoneMockup";
 import { LeadForm } from "@/components/landing/LeadForm";
-import { TrustBlocks } from "@/components/landing/TrustBlocks";
 
 /* ============================================================
    Landing "Verifica disponibilità" — pagina per campagne a pagamento.
@@ -58,12 +57,22 @@ const steps = [
 ];
 
 const profiles = [
-  { t: "Professionista", d: "Per chi vuole proteggere il tempo fuori dall'ufficio senza sacrificare la cura del guardaroba." },
-  { t: "Famiglia", d: "Per chi desidera alleggerire una delle incombenze più ricorrenti della settimana." },
-  { t: "Lifestyle", d: "Per chi cerca una routine curata, flessibile e allineata a uno standard di vita più semplice." },
+  { t: "Professionista", icon: "work", d: "Per chi vuole proteggere il tempo fuori dall'ufficio senza sacrificare la cura del guardaroba." },
+  { t: "Famiglia", icon: "family", d: "Per chi desidera alleggerire una delle incombenze più ricorrenti della settimana." },
+  { t: "Lifestyle", icon: "spark", d: "Per chi cerca una routine curata, flessibile e allineata a uno standard di vita più semplice." },
+] as const;
+
+const numbers = [
+  { n: "1", d: "giorno fisso di ritiro scelto da te" },
+  { n: "3", d: "giorni feriali massimi per la riconsegna" },
+  { n: "3", d: "piani per adattare il servizio al tuo volume" },
 ];
 
-const guaranteePoints = ["Ritiro nel giorno scelto", "Lavaggio e stiraggio professionali", "Flessibilità per la tua agenda"];
+const guaranteePoints = [
+  { t: "Ritiro nel giorno scelto", icon: "clock" },
+  { t: "Lavaggio e stiraggio professionali", icon: "box" },
+  { t: "Flessibilità per la tua agenda", icon: "pause" },
+] as const;
 
 // Risposte dal copy già pubblicato su washloop.it (nessun testo inventato).
 const faqs = [
@@ -90,6 +99,42 @@ function GuaranteeIcon({ kind }: { kind: (typeof guarantees)[number]["icon"] }) 
   if (kind === "pause") return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M10 9v6M14 9v6" /></svg>;
   if (kind === "truck") return <svg {...common}><path d="M3 16V6h11v10" /><path d="M14 9h4l3 3v4h-7" /><circle cx="7" cy="18" r="1.8" /><circle cx="17.5" cy="18" r="1.8" /></svg>;
   return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M8 12.5 11 15.5 16 9.5" /></svg>;
+}
+
+function ProfileIcon({ kind }: { kind: (typeof profiles)[number]["icon"] }) {
+  const common = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (kind === "family") return <svg {...common}><circle cx="9" cy="8" r="3" /><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5" /><path d="M16.5 11a2.5 2.5 0 1 0 0-5" /><path d="M17 20c0-2.2-.7-3.7-2-4.6" /></svg>;
+  if (kind === "spark") return <svg {...common}><path d="M12 3.5 13.8 9l5.5 1.8-5.5 1.8L12 18l-1.8-5.4L4.7 10.8 10.2 9 12 3.5Z" /><path d="M18.5 16.5 19.3 19l2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.5Z" /></svg>;
+  return <svg {...common}><rect x="3" y="7.5" width="18" height="12" rx="2.5" /><path d="M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5" /><path d="M3 13h18" /></svg>;
+}
+
+function GuaranteeRowIcon({ kind }: { kind: (typeof guaranteePoints)[number]["icon"] }) {
+  const common = { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (kind === "box") return <svg {...common}><path d="M12 3 20.5 7.5v9L12 21l-8.5-4.5v-9L12 3Z" /><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9" /></svg>;
+  if (kind === "pause") return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M10 9v6M14 9v6" /></svg>;
+  return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>;
+}
+
+/** Visual della sezione Garanzia: aloni concentrici e un blob navy con lo scudo.
+ *  Tutto in markup, nessuna immagine da gestire. */
+function ShieldBlob() {
+  return (
+    <div className="flex justify-center" aria-hidden>
+      <div className="relative flex h-[300px] w-[300px] items-center justify-center md:h-[360px] md:w-[360px]">
+        <span className="absolute inset-0 rounded-full border border-cyan/20 bg-cyan/[0.04]" />
+        <span className="absolute inset-[14%] rounded-full bg-cyan/[0.07]" />
+        <span
+          className="relative flex h-[58%] w-[58%] items-center justify-center bg-navy shadow-[0_30px_60px_-20px_rgba(27,45,94,.45)]"
+          style={{ borderRadius: "42% 58% 46% 54% / 52% 44% 56% 48%" }}
+        >
+          <svg width="44%" height="44%" viewBox="0 0 24 24" fill="none" stroke="#00c8f0" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3.2 19.2 6v6.1c0 4.3-2.9 7.4-7.2 8.7-4.3-1.3-7.2-4.4-7.2-8.7V6L12 3.2Z" />
+            <path d="M9 12.2 11.2 14.5 15.3 10.2" />
+          </svg>
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export default async function DisponibilitaPage({
@@ -145,7 +190,7 @@ export default async function DisponibilitaPage({
       </section>
 
       {/* ============ PIANI (senza prezzi) ============ */}
-      <section className="bg-white">
+      <section className="bg-ice">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <div className="text-center">
             <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Un piano, ogni settimana</div>
@@ -161,19 +206,25 @@ export default async function DisponibilitaPage({
       </section>
 
       {/* ============ COME FUNZIONA ============ */}
-      <section className="bg-ice">
+      <section className="bg-navy text-white">
         <div className="mx-auto max-w-6xl px-5 py-20">
-          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Una routine in quattro gesti</div>
-          <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">Come funziona</h2>
-          <p className="mt-3 max-w-xl text-base font-medium text-muted">
+          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-cyan">Una routine in quattro gesti</div>
+          <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] md:text-4xl">Come funziona</h2>
+          <p className="mt-3 max-w-xl text-base font-medium text-white/60">
             Nessuna corsa, nessuna chat da gestire, nessun promemoria da impostare ogni settimana.
           </p>
           <div className="mt-12 grid gap-6 md:grid-cols-4">
-            {steps.map((s) => (
-              <div key={s.n} className="rounded-[24px] border border-line bg-white p-7">
-                <div className="font-display text-3xl font-black text-cyan">{s.n}</div>
-                <h3 className="mt-4 font-display text-lg font-extrabold text-navy">{s.t}</h3>
-                <p className="mt-2 text-sm font-medium leading-relaxed text-muted">{s.d}</p>
+            {steps.map((s, i) => (
+              <div key={s.n} className="relative rounded-[24px] border border-white/10 bg-navy-hi/40 p-7">
+                {/* filo che lega uno step al successivo: la routine è una sequenza */}
+                {i < steps.length - 1 && (
+                  <span className="pointer-events-none absolute left-full top-1/2 hidden h-px w-6 bg-white/15 md:block" aria-hidden />
+                )}
+                <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-[12px] bg-cyan px-2 font-display text-sm font-black text-navy">
+                  {s.n}
+                </span>
+                <h3 className="mt-5 font-display text-lg font-extrabold">{s.t}</h3>
+                <p className="mt-2 text-sm font-medium leading-relaxed text-white/60">{s.d}</p>
               </div>
             ))}
           </div>
@@ -181,51 +232,77 @@ export default async function DisponibilitaPage({
       </section>
 
       {/* ============ PROFILI + NUMERI ============ */}
-      <section className="bg-white">
-        <div className="mx-auto max-w-6xl px-5 py-20">
-          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Pensato per la tua realtà</div>
-          <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
-            Il servizio cambia. Il tuo tempo no.
-          </h2>
-          <p className="mt-3 max-w-xl text-base font-medium text-muted">
-            Abbiamo progettato ogni dettaglio per alleggerire una routine ricorrente, senza rinunciare alla cura dei capi.
-          </p>
+      <section className="bg-ice">
+        <div className="mx-auto grid max-w-6xl gap-12 px-5 py-20 md:grid-cols-[1.05fr_.95fr] md:items-center">
+          <div>
+            <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Pensato per la tua realtà</div>
+            <h2 className="mt-3 font-display text-3xl font-black leading-[1.1] tracking-[-0.02em] text-navy md:text-4xl">
+              Il servizio cambia. Il tuo tempo no.
+            </h2>
+            <p className="mt-3 max-w-lg text-base font-medium text-muted">
+              Abbiamo progettato ogni dettaglio per alleggerire una routine ricorrente, senza rinunciare alla cura dei capi.
+            </p>
 
-          <div className="mt-10 grid gap-6 md:grid-cols-3">
-            {profiles.map((p) => (
-              <article key={p.t} className="rounded-[24px] border border-line bg-ice p-7">
-                <h3 className="font-display text-lg font-extrabold text-navy">{p.t}</h3>
-                <p className="mt-2 text-sm font-medium leading-relaxed text-muted">{p.d}</p>
-              </article>
-            ))}
+            <div className="mt-8 space-y-4">
+              {profiles.map((p) => (
+                <article key={p.t} className="flex gap-4 rounded-[20px] bg-white p-5 shadow-[var(--shadow-sm)]">
+                  <span className="flex h-11 w-11 flex-none items-center justify-center rounded-[14px] bg-cyan/15 text-blue" aria-hidden>
+                    <ProfileIcon kind={p.icon} />
+                  </span>
+                  <div>
+                    <h3 className="font-display text-base font-extrabold text-navy">{p.t}</h3>
+                    <p className="mt-1 text-sm font-medium leading-relaxed text-muted">{p.d}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
           </div>
 
-          <TrustBlocks />
+          {/* Fiducia, in numeri chiari — pannello navy con la CTA dentro */}
+          <aside aria-label="Indicatori di affidabilità del servizio" className="relative overflow-hidden rounded-[24px] bg-navy p-8 text-white shadow-[var(--shadow-md)]">
+            <span className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-cyan/15 blur-3xl" aria-hidden />
+            <div className="relative">
+              <h3 className="font-display text-2xl font-black tracking-[-0.02em]">Fiducia, in numeri chiari.</h3>
+              <dl className="mt-7 space-y-5">
+                {numbers.map((n) => (
+                  <div key={n.d} className="flex items-baseline gap-5">
+                    <dt className="w-8 flex-none font-display text-3xl font-black leading-none text-cyan">{n.n}</dt>
+                    <dd className="font-display text-sm font-bold leading-snug text-white/70">{n.d}</dd>
+                  </div>
+                ))}
+              </dl>
+              <a
+                href="#richiesta"
+                className="mt-8 inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-[40px] bg-cyan px-6 font-display text-base font-extrabold text-navy transition-transform hover:-translate-y-0.5"
+              >
+                Verifica disponibilità →
+              </a>
+            </div>
+          </aside>
         </div>
       </section>
 
       {/* ============ GARANZIA WASHLOOP ============ */}
-      <section className="bg-ice">
-        <div className="mx-auto grid max-w-6xl gap-10 px-5 py-20 md:grid-cols-2 md:items-center">
+      <section className="bg-white">
+        <div className="mx-auto grid max-w-6xl gap-12 px-5 py-20 md:grid-cols-2 md:items-center">
+          <ShieldBlob />
           <div>
             <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">La Garanzia WashLoop</div>
-            <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
+            <h2 className="mt-3 font-display text-3xl font-black leading-[1.1] tracking-[-0.02em] text-navy md:text-4xl">
               Una routine chiara, dalla porta di casa al tuo armadio.
             </h2>
-            <p className="mt-4 text-base font-medium leading-relaxed text-muted">
+            <p className="mt-4 max-w-lg text-base font-medium leading-relaxed text-muted">
               WashLoop nasce per togliere incertezza alla gestione dei capi: un giorno concordato, una cura professionale e una riconsegna entro il terzo giorno feriale.
             </p>
+            <ul className="mt-8 space-y-4">
+              {guaranteePoints.map((g) => (
+                <li key={g.t} className="flex items-center gap-3 font-display text-base font-extrabold text-navy">
+                  <span className="flex-none text-cyan" aria-hidden><GuaranteeRowIcon kind={g.icon} /></span>
+                  {g.t}
+                </li>
+              ))}
+            </ul>
           </div>
-          <ul className="space-y-3">
-            {guaranteePoints.map((g) => (
-              <li key={g} className="flex items-center gap-3 rounded-[18px] border border-line bg-white px-5 py-4 font-display text-base font-extrabold text-navy">
-                <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-cyan/15 text-blue">
-                  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><path d="M4 12.5 9.5 18 20 6.5" /></svg>
-                </span>
-                {g}
-              </li>
-            ))}
-          </ul>
         </div>
       </section>
 
@@ -241,14 +318,16 @@ export default async function DisponibilitaPage({
               Abbiamo reso semplici anche i dettagli, così puoi decidere con consapevolezza.
             </p>
           </div>
-          <div className="space-y-3">
+          <div>
             {faqs.map((f) => (
-              <details key={f.q} className="group rounded-[18px] border border-line bg-ice p-5">
+              <details key={f.q} className="group border-b border-line py-5 first:border-t">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-display text-base font-extrabold text-navy">
                   {f.q}
-                  <span className="text-cyan transition-transform group-open:rotate-45">＋</span>
+                  <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" className="flex-none text-navy/40 transition-transform group-open:rotate-180" aria-hidden>
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
                 </summary>
-                <p className="mt-3 text-sm font-medium leading-relaxed text-muted">{f.a}</p>
+                <p className="mt-3 max-w-xl text-sm font-medium leading-relaxed text-muted">{f.a}</p>
               </details>
             ))}
           </div>

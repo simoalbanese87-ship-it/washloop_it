@@ -4,7 +4,9 @@ import { useLead, type PlanCode } from "./LeadContext";
 
 /** Card dei piani, SENZA prezzi: questa pagina raccoglie lead, non vende.
  *  Il bottone preseleziona il piano nel form e porta lì l'utente — non apre
- *  il checkout. */
+ *  il checkout. Layout allineato alla creatività approvata: badge in alto a
+ *  destra a cavallo del bordo, riga divisoria sotto la descrizione, feature in
+ *  grassetto navy. */
 
 type Plan = {
   code: PlanCode;
@@ -43,23 +45,28 @@ export function PlanCards() {
         <article
           key={p.code}
           className={
-            "relative flex flex-col rounded-[24px] border bg-white p-7 " +
-            (p.popular ? "border-cyan shadow-[var(--shadow-cy)] md:-translate-y-3" : "border-line shadow-[var(--shadow-sm)]")
+            "relative flex flex-col rounded-[24px] bg-white p-7 transition-all duration-300 hover:-translate-y-1 " +
+            (p.popular
+              ? "border-2 border-cyan shadow-[var(--shadow-cy)]"
+              : "border border-line shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-md)]")
           }
         >
           {p.popular && (
-            <span className="absolute -top-3 left-7 rounded-full bg-grad px-3 py-1 font-display text-[10px] font-extrabold uppercase tracking-[0.14em] text-white">
+            <span className="absolute -top-3 right-7 rounded-full bg-cyan px-3.5 py-1 font-display text-[10px] font-extrabold uppercase tracking-[0.14em] text-navy">
               Più scelto
             </span>
           )}
+
           <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Piano</div>
           <div className="mt-1 font-display text-5xl font-black leading-none text-navy">{p.code}</div>
-          <div className="mt-3 font-display text-sm font-extrabold text-navy">{p.volume}</div>
+          <div className="mt-4 font-display text-sm font-extrabold text-navy">{p.volume}</div>
           <p className="mt-2 text-sm font-medium leading-relaxed text-muted">{p.who}</p>
 
-          <ul className="mt-5 flex-1 space-y-2.5">
+          <hr className="mt-6 border-line" />
+
+          <ul className="mt-6 flex-1 space-y-3">
             {FEATURES.map((f) => (
-              <li key={f} className="flex gap-2 text-sm font-semibold text-navy">
+              <li key={f} className="flex gap-2.5 font-display text-sm font-extrabold text-navy">
                 <Check />
                 <span>{f}</span>
               </li>

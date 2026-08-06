@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
+import { CONTACT_STATUS_LABEL, isContactStatus } from "@/lib/lead-status";
 
 /** Export CSV delle richieste dalla landing /disponibilita.
  *  Rispetta gli stessi filtri della pagina (?q=, ?zona=): scarichi quello che vedi.
@@ -14,13 +15,14 @@ type Row = {
   cap: string | null;
   plan: string | null;
   covered: boolean;
+  contact_status: string;
   created_at: string;
   utm: { source?: string | null; medium?: string | null; campaign?: string | null } | null;
   zones: { name: string } | null;
 };
 
 const HEADERS = [
-  "Data", "Nome e cognome", "Email", "Telefono", "CAP", "Zona", "Copertura", "Piano",
+  "Data", "Nome e cognome", "Email", "Telefono", "CAP", "Zona", "Copertura", "Piano", "Stato contatto",
   "UTM source", "UTM medium", "UTM campaign",
 ];
 
@@ -47,17 +49,19 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const needle = (searchParams.get("q") ?? "").trim().toLowerCase();
   const zona = searchParams.get("zona");
+  const stato = searchParams.get("stato");
 
   const svc = createServiceClient();
   const { data } = await svc
     .from("leads")
-    .select("full_name, email, phone, cap, plan, covered, created_at, utm, zones(name)")
+    .select("full_name, email, phone, cap, plan, covered, contact_status, created_at, utm, zones(name)")
     .order("created_at", { ascending: false })
     .returns<Row[]>();
 
   const rows = (data ?? []).filter((l) => {
     if (zona === "in" && !l.covered) return false;
     if (zona === "fuori" && l.covered) return false;
+    if (stato && l.contact_status !== stato) return false;
     if (!needle) return true;
     return `${l.full_name} ${l.email} ${l.phone ?? ""} ${l.cap ?? ""} ${l.zones?.name ?? ""}`.toLowerCase().includes(needle);
   });
@@ -74,6 +78,7 @@ export async function GET(req: Request) {
         l.zones?.name ?? "",
         l.covered ? "In zona" : "Fuori zona",
         l.plan ? `Piano ${l.plan}` : "",
+        isContactStatus(l.contact_status) ? CONTACT_STATUS_LABEL[l.contact_status] : l.contact_status,
         l.utm?.source ?? "",
         l.utm?.medium ?? "",
         l.utm?.campaign ?? "",

@@ -2,12 +2,16 @@
 
 import crypto from "crypto";
 import { after } from "next/server";
+import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { zoneIdForCap } from "@/lib/zones";
 import { appendLeadToSheet } from "@/lib/leads-sheet";
 import { sendLeadConfirmation } from "@/lib/lead-email";
+import { getCurrentProfile } from "@/lib/auth";
+import { notifyNewCustomer } from "@/lib/notify";
+import { CONTACT_STATUS_LABEL, isContactStatus, type ContactStatus } from "@/lib/lead-status";
 
 /** Invio del form della landing "/disponibilita" — pubblico e non autenticato.
  *  Fonte di verità: la tabella `leads` su Supabase. Copia sul Google Sheet e mail
@@ -144,4 +148,125 @@ export async function submitLead(_prev: LeadFormState, formData: FormData): Prom
 
   // Nel querystring solo il flag di copertura: nessun dato personale in URL.
   redirect(`/disponibilita/grazie?c=${covered ? 1 : 0}`);
+}
+
+// ---------------------------------------------------------------------------
+// Gestione lead lato admin
+// ---------------------------------------------------------------------------
+
+/** Piano indicato dal lead (S/M/L) → `code` del piano in DB. */
+const PLAN_CODE: Record<string, string> = { S: "essential", M: "plus", L: "family" };
+
+async function requireAdmin() {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+  return me;
+}
+
+/** Torna alla pagina da cui è partita l'azione con un messaggio. Le azioni admin
+ *  non lanciano per errori "di business": mostrerebbero la pagina di errore di
+ *  Next invece del banner. Stessa convenzione del resto dell'area admin. */
+function backWith(formData: FormData, params: Record<string, string>): string {
+  const back = String(formData.get("back") ?? "/admin/disponibilita") || "/admin/disponibilita";
+  const qs = new URLSearchParams(params).toString();
+  return `${back}${back.includes("?") ? "&" : "?"}${qs}`;
+}
+
+export async function setLeadContactStatus(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("lead_id") ?? "");
+  const status = String(formData.get("contact_status") ?? "");
+  if (!id || !isContactStatus(status)) {
+    redirect(backWith(formData, { warn: "Stato non valido." }));
+  }
+
+  const { error } = await createServiceClient().from("leads").update({ contact_status: status }).eq("id", id);
+  if (error) redirect(backWith(formData, { warn: `Stato non salvato: ${error.message}` }));
+
+  revalidatePath("/admin/disponibilita");
+  revalidatePath("/admin");
+  redirect(backWith(formData, { ok: `Stato aggiornato: ${CONTACT_STATUS_LABEL[status as ContactStatus]}.` }));
+}
+
+/** Elimina la richiesta. Tocca solo la tabella `leads`: nessun cliente, nessun
+ *  ordine, e la copia eventualmente finita sul foglio resta dov'è. */
+export async function deleteLead(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("lead_id") ?? "");
+  if (!id) redirect(backWith(formData, { warn: "Lead non trovato." }));
+
+  const { error } = await createServiceClient().from("leads").delete().eq("id", id);
+  if (error) redirect(backWith(formData, { warn: `Eliminazione fallita: ${error.message}` }));
+
+  revalidatePath("/admin/disponibilita");
+  revalidatePath("/admin");
+  redirect(backWith(formData, { ok: "Richiesta eliminata." }));
+}
+
+/** Trasforma la richiesta in un cliente vero: account, profilo e abbonamento
+ *  "incomplete" (l'admin lo attiva con «Segna come pagato»). Stessa procedura di
+ *  `createCustomer` in admin-customer.ts, con i dati presi dal lead.
+ *  Il lead resta in tabella marcato "convertito"; sparisce dall'elenco lead
+ *  perché la deduplica in admin-metrics lo riconosce come cliente. */
+export async function convertLeadToCustomer(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("lead_id") ?? "");
+  if (!id) redirect(backWith(formData, { warn: "Lead non trovato." }));
+
+  const svc = createServiceClient();
+  const { data: lead } = await svc
+    .from("leads")
+    .select("id, full_name, email, phone, plan")
+    .eq("id", id)
+    .maybeSingle<{ id: string; full_name: string; email: string; phone: string | null; plan: string | null }>();
+  if (!lead) redirect(backWith(formData, { warn: "Lead non trovato." }));
+
+  const email = lead.email.toLowerCase().trim();
+  const password = `WL!${crypto.randomBytes(4).toString("hex")}`;
+  const { data: created, error: authError } = await svc.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: lead.full_name, phone: lead.phone },
+  });
+  if (authError || !created?.user) {
+    // Il caso frequente è l'email già registrata: meglio dirlo che dare "errore".
+    const msg = authError?.message.includes("already") ? "Esiste già un utente con questa email." : authError?.message;
+    redirect(backWith(formData, { warn: `Conversione non riuscita: ${msg ?? "errore"}` }));
+  }
+  const uid = created!.user.id;
+  await svc.from("profiles").update({ full_name: lead.full_name, phone: lead.phone }).eq("id", uid);
+
+  // Piano preferito indicato nel form: è una preferenza, non un acquisto.
+  let planId: string | null = null;
+  let planName: string | null = null;
+  let priceLabel: string | null = null;
+  const code = lead.plan ? PLAN_CODE[lead.plan] : null;
+  if (code) {
+    const { data: plan } = await svc.from("plans").select("id, name, price_month_cents").eq("code", code)
+      .maybeSingle<{ id: string; name: string; price_month_cents: number }>();
+    if (plan) {
+      planId = plan.id;
+      planName = plan.name;
+      priceLabel = "€" + (plan.price_month_cents / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+  }
+
+  await svc.from("subscriptions").insert({
+    user_id: uid,
+    plan_id: planId,
+    status: "incomplete",
+    manual: true,
+    current_period_end: null,
+  });
+
+  await svc.from("leads").update({ contact_status: "convertito" }).eq("id", id);
+
+  // Benvenuto con le credenziali temporanee (best-effort, non blocca).
+  await notifyNewCustomer({ to: email, fullName: lead.full_name, password, planName, priceLabel });
+
+  revalidatePath("/admin/disponibilita");
+  revalidatePath("/admin/abbonati");
+  revalidatePath("/admin");
+  redirect(`/admin/abbonati/${uid}?ok=${encodeURIComponent("Lead convertito in cliente. Attiva l'abbonamento quando ha pagato.")}`);
 }

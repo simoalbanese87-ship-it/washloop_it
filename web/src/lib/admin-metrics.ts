@@ -156,8 +156,8 @@ export async function leadsByStatusSource(): Promise<LeadsResult> {
     svc.from("subscriptions").select("user_id, status, created_at").order("created_at", { ascending: false })
       .returns<{ user_id: string; status: string; created_at: string }[]>(),
     waitlistLeads(),
-    svc.from("leads").select("id, full_name, email, phone, cap, plan, covered, created_at").order("created_at", { ascending: false })
-      .returns<{ id: string; full_name: string; email: string; phone: string | null; cap: string | null; plan: string | null; covered: boolean; created_at: string }[]>(),
+    svc.from("leads").select("id, full_name, email, phone, cap, plan, covered, created_at, contact_status").order("created_at", { ascending: false })
+      .returns<{ id: string; full_name: string; email: string; phone: string | null; cap: string | null; plan: string | null; covered: boolean; created_at: string; contact_status: string }[]>(),
   ]);
 
   const latest = new Map<string, string>();
@@ -240,7 +240,9 @@ export async function leadsByStatusSource(): Promise<LeadsResult> {
       phone: l.phone,
       email: l.email,
       source: "landing",
-      status: "landing",
+      // Lo stato vero della lavorazione, non più un'etichetta fissa: così il
+      // filtro per stato in dashboard serve a qualcosa anche per questi lead.
+      status: l.contact_status,
       date: l.created_at,
       href: null,
       detail: [l.cap ? `CAP ${l.cap}` : null, l.plan ? `Piano ${l.plan}` : null, l.covered ? "in zona" : "fuori zona"]
