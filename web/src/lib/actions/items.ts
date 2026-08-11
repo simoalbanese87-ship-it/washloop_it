@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { getCurrentProfile } from "@/lib/auth";
 import type { ItemStatus, OrderStatus } from "@/lib/orders";
 
 /** Aggiunge un capo all'ordine (tipo + stato + foto opzionale). */
@@ -52,7 +54,7 @@ export async function setStaffNotes(formData: FormData) {
   revalidatePath(`/admin/ordini/${id}`);
 }
 
-/** Annulla l'ordine. */
+/** Annulla l'ordine: resta in archivio, non sparisce. */
 export async function cancelOrder(formData: FormData) {
   const supabase = await createClient();
   const id = String(formData.get("order_id") ?? "");
@@ -60,4 +62,43 @@ export async function cancelOrder(formData: FormData) {
   if (error) throw new Error(error.message);
   revalidatePath(`/admin/ordini/${id}`);
   revalidatePath("/admin");
+}
+
+/** Elimina l'ordine per sempre, con tutto il suo storico (capi, eventi, borse:
+ *  cancellati a cascata). Serve per ripulire i dati di prova senza toccare il
+ *  database a mano.
+ *
+ *  Volutamente ammessa solo su ordini chiusi o annullati: un ordine vivo si
+ *  annulla, non si fa sparire — il cliente e il rider stanno ancora contando su
+ *  quella riga. E solo admin: è l'unica operazione irreversibile del pannello. */
+export async function deleteOrder(formData: FormData) {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
+  const id = String(formData.get("order_id") ?? "");
+  if (!id) redirect("/admin/ordini?warn=" + encodeURIComponent("Ordine non trovato."));
+
+  const svc = createServiceClient();
+  const { data: order } = await svc
+    .from("orders")
+    .select("id, status")
+    .eq("id", id)
+    .maybeSingle<{ id: string; status: OrderStatus }>();
+  if (!order) redirect("/admin/ordini?warn=" + encodeURIComponent("Ordine non trovato."));
+
+  const eliminabili: OrderStatus[] = ["delivered", "completed", "cancelled"];
+  if (!eliminabili.includes(order!.status)) {
+    redirect(
+      `/admin/ordini/${id}?warn=` +
+        encodeURIComponent("Puoi eliminare solo ordini consegnati, completati o annullati. Annullalo prima."),
+    );
+  }
+
+  const { error } = await svc.from("orders").delete().eq("id", id);
+  if (error) redirect(`/admin/ordini/${id}?warn=` + encodeURIComponent(`Eliminazione fallita: ${error.message}`));
+
+  revalidatePath("/admin/ordini");
+  revalidatePath("/admin/archivio");
+  revalidatePath("/admin");
+  redirect("/admin/archivio?ok=" + encodeURIComponent("Ordine eliminato definitivamente."));
 }

@@ -41,3 +41,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 design-reference/
+
+# Backup del database: contengono dati personali, non vanno in git
+backup/

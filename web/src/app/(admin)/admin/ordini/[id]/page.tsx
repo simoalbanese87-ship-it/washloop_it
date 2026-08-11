@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
 import { advanceStatus, assignOrder, setEta } from "@/lib/actions/orders";
 import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
+import { DeleteOrderButton } from "@/components/admin/DeleteOrderButton";
 import { chargeOrderSpecials, refundOrderSpecial, addSpecialAdmin } from "@/lib/actions/charge";
 import { AdminItems, type Item } from "@/components/app/AdminItems";
 import { signedProofUrl } from "@/lib/orders";
@@ -223,13 +224,16 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
             </form>
           </Card>
 
-          {order.status !== "cancelled" && order.status !== "delivered" && order.status !== "completed" && (
+          {order.status !== "cancelled" && order.status !== "delivered" && order.status !== "completed" ? (
             <form action={cancelOrder}>
               <input type="hidden" name="order_id" value={order.id} />
               <button type="submit" className="font-display text-sm font-bold text-[#C0392B] hover:underline">
                 Annulla ordine
               </button>
             </form>
+          ) : (
+            // Un ordine chiuso si può togliere di mezzo: serve per i dati di prova.
+            <DeleteOrderButton id={order.id} code={`#${order.id.slice(0, 8)}`} />
           )}
         </div>
 
