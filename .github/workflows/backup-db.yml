@@ -1,0 +1,57 @@
+name: Backup database
+
+# Gira in cloud, non sul Mac di nessuno: è l'unica differenza che conta tra un
+# backup che esiste e uno che dovresti ricordarti di lanciare.
+#
+# Il progetto Supabase è sul piano gratuito, che NON offre backup ripristinabili
+# né point-in-time recovery. Finché resta così, questi artifact sono l'unica rete.
+#
+# Serve impostare due segreti nel repository
+# (Settings → Secrets and variables → Actions → New repository secret):
+#   SUPABASE_PROJECT_REF     il ref del progetto (20 caratteri)
+#   SUPABASE_ACCESS_TOKEN    token personale Supabase (inizia con sbp_)
+
+on:
+  schedule:
+    # 03:15 UTC ogni notte: fuori dagli orari di servizio, e non alle 03:00 in
+    # punto dove si accalcano i cron di mezzo mondo.
+    - cron: "15 3 * * *"
+  workflow_dispatch: # permette anche l'esecuzione manuale dal tab Actions
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Esporta il database
+        working-directory: web
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/backup-db.mjs "$GITHUB_WORKSPACE/backup-out"
+
+      - name: Conserva il backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: washloop-db-${{ github.run_id }}
+          path: backup-out
+          # 90 giorni è il massimo su GitHub. I file contengono dati personali:
+          # restano nel repository privato, non vanno da nessun'altra parte.
+          retention-days: 90
+
+      - name: Riepilogo
+        run: |
+          echo "### Backup completato" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '| Tabella | Righe |' >> "$GITHUB_STEP_SUMMARY"
+          echo '|---|---:|' >> "$GITHUB_STEP_SUMMARY"
+          for f in "$GITHUB_WORKSPACE"/backup-out/*/*.json; do
+            n=$(node -e "const d=require('$f');console.log(Array.isArray(d)?d.length:0)")
+            echo "| $(basename "$f" .json) | $n |" >> "$GITHUB_STEP_SUMMARY"
+          done
