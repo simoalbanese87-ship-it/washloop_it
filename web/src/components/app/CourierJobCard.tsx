@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { courierAdvance } from "@/lib/actions/orders";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/app/StatusBadge";
+import { RiderScanner } from "@/components/app/RiderScanner";
 import { ACCESS_MODE_LABEL, type OrderStatus, type AccessMode } from "@/lib/orders";
 
 export type Job = {
@@ -121,6 +122,13 @@ export function CourierJobCard({ job }: { job: Job }) {
               {state.error}
             </p>
           )}
+          {/* Scanner legato a QUESTA tappa: il QR porta il codice cliente, non
+              quello dell'ordine, quindi se il cliente ha più ordini aperti solo
+              partendo da qui si sa di quale si tratta. */}
+          {(job.status === "pickup_scheduled" || job.status === "delivery_scheduled" || job.status === "out_for_delivery") && (
+            <RiderScanner orderId={job.id} label="Scansiona le borse" compact />
+          )}
+
           <div className="flex flex-wrap gap-2">
             {actions.map((a) => (
               <form key={a.to} action={formAction}>

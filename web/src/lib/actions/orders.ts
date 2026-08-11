@@ -324,7 +324,7 @@ export async function riderLivePosition(orderId: string): Promise<RiderLivePos> 
  *  stato dell'ordine: RITIRO (pickup_scheduled) o CONSEGNA (delivery_scheduled/
  *  out_for_delivery). Ogni scan al ritiro crea un pacco univoco (token); alla
  *  consegna marca il prossimo pacco. A completamento avanza lo stato + notifica. */
-export async function scanBag(clientCodeRaw: string): Promise<ScanResult> {
+export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<ScanResult> {
   const me = await getCurrentProfile();
   if (!me || me.role !== "courier") return { ok: false, error: "Solo rider" };
 
@@ -346,8 +346,24 @@ export async function scanBag(clientCodeRaw: string): Promise<ScanResult> {
     .in("status", ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"])
     .order("created_at", { ascending: true })
     .returns<{ id: string; status: OrderStatus; bags: number; created_at: string }[]>();
-  const order = (orders ?? [])[0];
-  if (!order) return { ok: false, error: "Nessun ordine attivo per questo cliente nel tuo giro" };
+
+  const attivi = orders ?? [];
+  if (attivi.length === 0) return { ok: false, error: "Nessun ordine attivo per questo cliente nel tuo giro" };
+
+  // Il QR porta il codice CLIENTE, non quello dell'ordine: con un abbonato che
+  // ha insieme una consegna aperta e un ritiro nuovo — il caso normale del
+  // modello ad abbonamento — non c'è modo di indovinare cosa il rider abbia in
+  // mano. Prima si prendeva il più vecchio, cioè quasi sempre quello sbagliato.
+  // Se apri lo scanner dalla singola tappa l'ordine è già deciso; altrimenti,
+  // in caso di ambiguità, si chiede invece di tirare a indovinare.
+  const order = orderId ? attivi.find((o) => o.id === orderId) : attivi.length === 1 ? attivi[0] : null;
+  if (orderId && !order) return { ok: false, error: "Quell'ordine non è più nel tuo giro: ricarica la pagina." };
+  if (!order) {
+    return {
+      ok: false,
+      error: `${prof.full_name ?? clientCode} ha ${attivi.length} ordini aperti nel tuo giro. Apri la tappa giusta e usa "Scansiona" da lì.`,
+    };
+  }
 
   const client = prof.full_name ?? clientCode;
   const mode: "pickup" | "delivery" = order.status === "pickup_scheduled" ? "pickup" : "delivery";
