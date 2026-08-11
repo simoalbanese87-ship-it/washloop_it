@@ -131,7 +131,7 @@ export function RiderScanner({
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-[100] flex flex-col bg-black/95">
+        <div className="fixed inset-0 z-[2000] flex flex-col bg-black">
           <div className="flex items-center justify-between px-4 py-3">
             <span className="font-display text-sm font-extrabold text-white/90">
               {feedback ? "Esito" : "Inquadra il QR sulla borsa"}

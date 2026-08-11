@@ -94,3 +94,13 @@ body {
   );
   border: 1px solid rgba(255, 255, 255, 0.25);
 }
+
+/* Leaflet spinge i propri controlli fino a z-index 1000. Senza contenerlo, la
+   mappa del rider trapassava l'overlay a schermo intero dello scanner QR e si
+   vedeva sopra la fotocamera. Dando un z-index alla mappa (che è position
+   relative) si crea uno stacking context: tutto ciò che sta dentro resta
+   dentro, qualunque valore usi Leaflet. */
+.leaflet-container {
+  position: relative;
+  z-index: 0;
+}

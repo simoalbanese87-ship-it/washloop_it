@@ -5,7 +5,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus, notifySpecialAdded } from "@/lib/notify";
 import { chargeSpecialById } from "@/lib/billing-specials";
-import { statusIndex, type OrderStatus } from "@/lib/orders";
+import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
 const PARTNER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -83,7 +83,15 @@ export async function addSpecial(formData: FormData) {
   const qty = Math.max(1, parseInt(String(formData.get("qty") ?? "1"), 10) || 1);
   if (!itemId) throw new Error("Capo obbligatorio");
 
-  await assertOrderInLaundry(orderId, profile.laundry_id!);
+  const order = await assertOrderInLaundry(orderId, profile.laundry_id!);
+  // Il modulo sparisce dalla pagina a lavorazione chiusa, ma la form action è
+  // pubblica: chi la richiama dopo "pronto" addebiterebbe il cliente su un
+  // sacco già sigillato e in viaggio. Il controllo vero sta qui.
+  // Whitelist e non `statusIndex(...) >= statusIndex("ready")`: `cancelled` non
+  // sta in ORDER_FLOW, l'indice sarebbe -1 e il confronto lo lascerebbe passare.
+  if (!LAVORAZIONE_APERTA.includes(order.status)) {
+    throw new Error("Lavorazione conclusa: non si aggiungono altri capi");
+  }
 
   const svc = createServiceClient();
   const { data: item, error: itemErr } = await svc

@@ -48,6 +48,12 @@ export function statusIndex(s: OrderStatus): number {
   return ORDER_FLOW.indexOf(s);
 }
 
+/** Stati in cui il sacco è fisicamente aperto sul banco della lavanderia: solo
+ *  qui ha senso aggiungere capi speciali. Da "ready" in poi il sacco è chiuso e
+ *  in attesa del rider. Elenco esplicito e non un confronto su `statusIndex`:
+ *  `cancelled` e `delivery_failed` non stanno in ORDER_FLOW e darebbero -1. */
+export const LAVORAZIONE_APERTA: OrderStatus[] = ["picked_up", "at_laundry", "washing"];
+
 export type ItemStatus = "received" | "washing" | "ready" | "issue";
 
 export const ITEM_STATUS_LABEL: Record<ItemStatus, string> = {

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { AddSpecialForm, type ListItem } from "@/components/app/AddSpecialForm";
 import { createClient } from "@/lib/supabase/server";
 import { advanceStatus, removeSpecial } from "@/lib/actions/partner";
-import { type OrderStatus } from "@/lib/orders";
+import { LAVORAZIONE_APERTA, type OrderStatus } from "@/lib/orders";
 import { fmtFull } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +67,9 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
   if (!order) notFound();
 
   const cta = NEXT_CTA[order.status];
+  // Stessa regola applicata dalla server action `addSpecial`: qui nasconde il
+  // modulo, lì rifiuta la richiesta.
+  const lavorazioneChiusa = !LAVORAZIONE_APERTA.includes(order.status);
   const items = specials ?? [];
   const totComp = items.reduce((s, i) => s + i.comp_lav_cents * i.qty, 0);
 
@@ -103,14 +106,23 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
           </p>
         </Card>
 
-        {/* Capi speciali */}
+        {/* Capi speciali. Quando la lavorazione è chiusa il modulo sparisce:
+            i capi si aggiungono mentre il sacco è aperto sul banco, non dopo.
+            Restano visibili quelli già inseriti, per controllo e compenso. */}
         <Card>
           <h2 className="font-display text-lg font-extrabold text-navy">Capi speciali (sacco separato)</h2>
-          <p className="mt-1 text-sm font-medium text-muted">Aggiungi i capi fuori listino base ricevuti: l'addebito al cliente è automatico.</p>
-
-          <div className="mt-4">
-            <AddSpecialForm orderId={order.order_id} items={listino ?? []} />
-          </div>
+          {lavorazioneChiusa ? (
+            <p className="mt-1 text-sm font-medium text-muted">
+              Lavorazione conclusa: non si aggiungono altri capi. Se manca qualcosa, scrivi a ops.
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-sm font-medium text-muted">Aggiungi i capi fuori listino base ricevuti: l&apos;addebito al cliente è automatico.</p>
+              <div className="mt-4">
+                <AddSpecialForm orderId={order.order_id} items={listino ?? []} />
+              </div>
+            </>
+          )}
 
           <div className="mt-6 space-y-2">
             {items.length > 0 ? (
