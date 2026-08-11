@@ -32,10 +32,27 @@ async function subscribe(): Promise<boolean> {
   }
 }
 
+/** Su iPhone le notifiche web funzionano SOLO se l'app è stata aggiunta alla
+ *  schermata Home. Chiederle da Safari non installato non fa comparire nulla di
+ *  utile e, peggio, brucia il permesso in modo permanente: dopo l'installazione
+ *  non si può più richiedere. Stesso controllo che fa già InstallGuide. */
+function iosNonInstallato(): boolean {
+  if (typeof window === "undefined") return false;
+  const ua = navigator.userAgent;
+  // iPadOS moderno si dichiara Macintosh: si riconosce dal touch.
+  const isIOS = /iphone|ipad|ipod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  if (!isIOS) return false;
+  const standalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return !standalone;
+}
+
 /** Popup basso (solo /app) che chiede di abilitare le notifiche push.
  *  Non ricompare se il permesso è già stato concesso/negato o se chiuso. */
 export function NotificationPrompt({ subtitle = "Ti avvisiamo a ogni passaggio del tuo bucato." }: { subtitle?: string }) {
   const [show, setShow] = useState(false);
+  const [errore, setErrore] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
@@ -46,6 +63,7 @@ export function NotificationPrompt({ subtitle = "Ti avvisiamo a ogni passaggio d
       return;
     }
     if (perm === "denied") return; // non richiedere più
+    if (iosNonInstallato()) return; // su iPhone prima va installata, altrimenti si brucia il permesso
     if (localStorage.getItem(DISMISS_KEY)) return; // già chiuso
     const t = setTimeout(() => setShow(true), 1500);
     return () => clearTimeout(t);
@@ -55,16 +73,36 @@ export function NotificationPrompt({ subtitle = "Ti avvisiamo a ogni passaggio d
     setShow(false);
     try {
       const perm = await Notification.requestPermission();
-      if (perm === "granted") await subscribe();
-      else localStorage.setItem(DISMISS_KEY, "1");
+      if (perm !== "granted") {
+        localStorage.setItem(DISMISS_KEY, "1");
+        return;
+      }
+      // Il valore di ritorno va guardato: senza chiave VAPID o con la POST in
+      // errore la registrazione fallisce e prima l'utente vedeva comunque
+      // "notifiche attive". Meglio dirlo che promettere avvisi che non arrivano.
+      const ok = await subscribe();
+      if (!ok) setErrore("Non siamo riusciti ad attivare le notifiche. Riprova più tardi.");
     } catch {
-      /* no-op */
+      setErrore("Non siamo riusciti ad attivare le notifiche. Riprova più tardi.");
     }
   }
 
   function dismiss() {
     localStorage.setItem(DISMISS_KEY, "1");
     setShow(false);
+  }
+
+  if (errore) {
+    return (
+      <div className="fixed inset-x-0 bottom-0 z-50 px-4 pb-4">
+        <div className="mx-auto max-w-md rounded-[18px] border border-line bg-white p-4 shadow-[var(--shadow-md)]">
+          <p className="text-sm font-semibold text-[#C9881F]">{errore}</p>
+          <button onClick={() => setErrore("")} className="mt-2 font-display text-xs font-bold text-navy underline">
+            Chiudi
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (!show) return null;

@@ -1,9 +1,31 @@
 // WashLoop service worker — shell cache + network-first + Web Push.
-const CACHE = "washloop-v2";
-const SHELL = ["/", "/app", "/login", "/icon.svg", "/manifest.webmanifest"];
+//
+// v3. Tre cose cambiate rispetto alla v2, tutte per lo stesso motivo: l'app
+// installata si comportava male proprio quando serviva, cioè offline.
+//
+// 1. `/app` NON sta più nel precache. Richiede il login: se l'utente installava
+//    da sloggato, finiva in cache l'HTML della pagina di login con chiave
+//    `/app`, e da lì in poi l'app installata mostrava il login anche a sessione
+//    valida. L'errore era dentro un catch vuoto, quindi invisibile.
+// 2. Il fallback offline è una pagina dedicata, non la home: prima l'app
+//    installata offline mostrava la landing marketing.
+// 3. Le pagine autenticate non si mettono più in cache: su un dispositivo
+//    condiviso restavano leggibili dopo il logout.
+const CACHE = "washloop-v3";
+const OFFLINE = "/offline";
+const SHELL = ["/", "/login", OFFLINE, "/icon-192.png", "/manifest.webmanifest"];
+
+// Aree con dati personali: mai in cache.
+const PRIVATE = ["/app", "/admin", "/courier", "/laundry", "/sales"];
+const isPrivate = (url) => PRIVATE.some((p) => url.pathname === p || url.pathname.startsWith(p + "/"));
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}));
+  event.waitUntil(
+    caches.open(CACHE).then((c) =>
+      // addAll fallisce tutto se una sola risorsa manca: qui ognuna va per conto suo.
+      Promise.all(SHELL.map((u) => c.add(u).catch((e) => console.warn("[sw] precache fallito:", u, e)))),
+    ),
+  );
   self.skipWaiting();
 });
 
@@ -18,41 +40,51 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
 
-  // Navigazioni: network-first, fallback alla cache, poi alla home
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
+          if (!isPrivate(url) && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
+          }
           return res;
         })
-        .catch(() => caches.match(request).then((r) => r || caches.match("/"))),
+        .catch(async () => (await caches.match(request)) || (await caches.match(OFFLINE)) || Response.error()),
     );
     return;
   }
 
-  // Asset statici: cache-first
-  if (request.url.includes("/_next/static") || request.destination === "image") {
+  if (url.pathname.startsWith("/_next/static") || request.destination === "image") {
     event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
-        return res;
-      })),
+      caches.match(request).then((cached) =>
+        cached ||
+        fetch(request).then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
+          }
+          return res;
+        }),
+      ),
     );
   }
 });
 
-// Web Push: mostra la notifica
+// Web Push: mostra la notifica.
+// icon e badge sono PNG: Chrome su Android non renderizza SVG nelle notifiche,
+// quindi con l'SVG la notifica arrivava senza icona.
 self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data && event.data.text() }; }
   const title = data.title || "WashLoop";
   const options = {
     body: data.body || "",
-    icon: "/icon.svg",
-    badge: "/icon.svg",
+    icon: "/icon-192.png",
+    badge: "/badge-96.png",
     data: { url: data.url || "/app" },
   };
   event.waitUntil(self.registration.showNotification(title, options));
@@ -69,5 +101,31 @@ self.addEventListener("notificationclick", (event) => {
       }
       return self.clients.openWindow(url);
     }),
+  );
+});
+
+// Il browser può ruotare l'endpoint push quando vuole. Senza questo la
+// sottoscrizione moriva in silenzio e l'utente smetteva di ricevere notifiche
+// senza accorgersene.
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const vecchia = event.oldSubscription || (await self.registration.pushManager.getSubscription());
+        const chiave = vecchia && vecchia.options && vecchia.options.applicationServerKey;
+        if (!chiave) return;
+        const nuova = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: chiave,
+        });
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(nuova),
+        });
+      } catch (e) {
+        console.warn("[sw] rinnovo sottoscrizione push fallito:", e);
+      }
+    })(),
   );
 });
