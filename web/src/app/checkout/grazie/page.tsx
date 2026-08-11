@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { ConversionTracker } from "@/components/ConversionTracker";
+import { syncFromCheckoutSession } from "@/lib/subscription-sync";
 
 export const metadata = {
   title: "Ordine confermato",
@@ -10,8 +11,23 @@ export const metadata = {
 
 /** Pagina di conferma ordine/abbonamento. È l'URL di ritorno di Stripe Checkout
  *  e la "pagina di conversione" da usare in Google Ads: al caricamento spara
- *  l'evento di conversione (ConversionTracker). */
-export default function GraziePage() {
+ *  l'evento di conversione (ConversionTracker).
+ *
+ *  Qui c'è anche la rete di sicurezza del pagamento: prima questa pagina
+ *  dichiarava "abbonamento attivo" senza verificare nulla, mentre la riga in
+ *  `subscriptions` la scriveva solo il webhook. Webhook perso = cliente che ha
+ *  pagato e che l'app rimanda a comprare un piano. Ora leggiamo la sessione da
+ *  Stripe e, se serve, allineiamo noi. */
+export default async function GraziePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ session_id?: string }>;
+}) {
+  const { session_id } = await searchParams;
+  // Se manca il session_id (link aperto a mano) non possiamo verificare nulla:
+  // meglio un messaggio prudente che una bugia.
+  const esito = session_id ? await syncFromCheckoutSession(session_id) : { attivo: false };
+
   return (
     <main
       className="flex min-h-screen items-center justify-center px-5 py-10"
@@ -28,9 +44,13 @@ export default function GraziePage() {
             <path d="M20 6 9 17l-5-5" />
           </svg>
         </div>
-        <h1 className="mt-6 font-display text-[28px] font-black leading-tight">Tutto confermato! 🎉</h1>
+        <h1 className="mt-6 font-display text-[28px] font-black leading-tight">
+          {esito.attivo ? "Tutto confermato! 🎉" : "Pagamento ricevuto"}
+        </h1>
         <p className="mt-3 text-sm font-medium text-white/70">
-          Il tuo abbonamento WashLoop è attivo. Ti abbiamo inviato un&apos;email di conferma: ora puoi prenotare il primo ritiro dall&apos;app.
+          {esito.attivo
+            ? "Il tuo abbonamento WashLoop è attivo. Ti abbiamo inviato un'email di conferma: ora puoi prenotare il primo ritiro dall'app."
+            : "Stiamo completando l'attivazione: di solito è questione di secondi. Se prenotando non ti risulta ancora attivo, ricarica tra un minuto o scrivici a info@washloop.it — ci pensiamo noi."}
         </p>
 
         <div className="mt-7 space-y-3">

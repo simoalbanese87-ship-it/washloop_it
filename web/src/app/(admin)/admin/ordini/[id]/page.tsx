@@ -7,6 +7,7 @@ import { advanceStatus, assignOrder, setEta } from "@/lib/actions/orders";
 import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
 import { chargeOrderSpecials, refundOrderSpecial, addSpecialAdmin } from "@/lib/actions/charge";
 import { AdminItems, type Item } from "@/components/app/AdminItems";
+import { signedProofUrl } from "@/lib/orders";
 import { AddSpecialForm, type ListItem } from "@/components/app/AddSpecialForm";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtFull, toRomeInputValue } from "@/lib/format";
@@ -49,6 +50,11 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
     supabase.from("laundries").select("id, name").eq("active", true).returns<Laundry[]>(),
     supabase.from("order_items").select("id, kind, status, photo_url").eq("order_id", id).order("created_at").returns<Item[]>(),
   ]);
+
+  // Bucket privato: le foto prova si servono con link firmato a scadenza.
+  const itemsFirmati = await Promise.all(
+    (items ?? []).map(async (it) => ({ ...it, photo_url: await signedProofUrl(supabase, it.photo_url) })),
+  );
 
   const { data: specials } = await supabase
     .from("order_specials")
@@ -155,7 +161,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
           </Card>
 
           <Card>
-            <AdminItems orderId={order.id} items={items ?? []} />
+            <AdminItems orderId={order.id} items={itemsFirmati} />
           </Card>
 
           <Card>

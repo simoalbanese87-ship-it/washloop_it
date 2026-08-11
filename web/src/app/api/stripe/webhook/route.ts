@@ -1,14 +1,23 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { createServiceClient } from "@/lib/supabase/server";
-import { sendMail } from "@/lib/email";
+import { eventoGiaVisto, syncSubscription } from "@/lib/subscription-sync";
+import { renderEmail, sendMail } from "@/lib/email";
 import { chargeEmailHtml } from "@/lib/email-templates";
 import { LEGAL } from "@/lib/legal";
 import { fmtDate } from "@/lib/format";
 
 /** Webhook Stripe → aggiorna `subscriptions` con service-role (bypassa RLS).
- *  Eventi gestiti: checkout completato, subscription creata/aggiornata/cancellata. */
+ *  Eventi: checkout completato, subscription creata/aggiornata/cancellata,
+ *  fattura pagata, pagamento fallito.
+ *
+ *  Due regole che prima mancavano:
+ *  - ogni evento viene processato UNA volta sola (Stripe ritenta per 3 giorni);
+ *  - se il salvataggio fallisce rispondiamo 500, così Stripe ritenta. Prima si
+ *    rispondeva 200 comunque e il dato spariva per sempre. */
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   const body = await request.text();
   const sig = request.headers.get("stripe-signature");
@@ -22,45 +31,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `signature: ${(err as Error).message}` }, { status: 400 });
   }
 
-  const db = createServiceClient();
-
-  async function upsertFromSubscription(sub: Stripe.Subscription) {
-    const userId = sub.metadata?.supabase_user_id;
-    const planId = sub.metadata?.plan_id ?? null;
-    // Stripe: current_period_end è top-level nelle vecchie API, sugli items nelle nuove.
-    const periodEnd =
-      (sub as unknown as { current_period_end?: number }).current_period_end ??
-      (sub.items?.data?.[0] as unknown as { current_period_end?: number } | undefined)?.current_period_end;
-    const row: Record<string, unknown> = {
-      user_id: userId,
-      plan_id: planId,
-      stripe_customer_id: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
-      stripe_subscription_id: sub.id,
-      status: sub.status,
-      current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
-    };
-    // Abbonamento personalizzato: prezzo custom dal metadata (solo se presente,
-    // per non azzerare il custom sui rinnovi/aggiornamenti dei piani standard).
-    const customCents = sub.metadata?.custom_price_cents ? parseInt(sub.metadata.custom_price_cents, 10) : NaN;
-    if (Number.isFinite(customCents)) row.custom_price_cents = customCents;
-    await db.from("subscriptions").upsert(row, { onConflict: "stripe_subscription_id" });
-    // Data attivazione: alla prima transizione a stato pagato (non sovrascrive).
-    if (["active", "trialing"].includes(sub.status)) {
-      await db.from("subscriptions")
-        .update({ activated_at: new Date().toISOString(), canceled_at: null })
-        .eq("stripe_subscription_id", sub.id)
-        .is("activated_at", null);
-      // Riattivazione: azzera comunque la data di disdetta.
-      await db.from("subscriptions").update({ canceled_at: null }).eq("stripe_subscription_id", sub.id);
-    } else if (sub.status === "canceled") {
-      // Disdetta: valorizza canceled_at solo la prima volta.
-      await db.from("subscriptions")
-        .update({ canceled_at: new Date().toISOString() })
-        .eq("stripe_subscription_id", sub.id)
-        .is("canceled_at", null);
-    }
+  if (await eventoGiaVisto(event.id, event.type)) {
+    return NextResponse.json({ received: true, duplicate: true });
   }
 
+  const db = createServiceClient();
+
+  /** Wrapper: propaga l'errore in modo che la route risponda 500 e Stripe ritenti. */
+  async function upsertFromSubscription(sub: Stripe.Subscription) {
+    const res = await syncSubscription(sub);
+    if (!res.ok) throw new Error(res.error ?? "sync fallita");
+  }
+
+  try {
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
@@ -148,6 +131,55 @@ export async function POST(request: NextRequest) {
       }
       break;
     }
+
+    // Carta rifiutata. Prima non lo sapeva nessuno: l'abbonamento andava in
+    // `past_due` su Stripe e il cliente lo scopriva aprendo l'app.
+    case "invoice.payment_failed": {
+      const inv = event.data.object as unknown as {
+        customer: string; customer_email?: string | null; customer_name?: string | null; amount_due?: number;
+      };
+      after(async () => {
+        try {
+          let to = inv.customer_email ?? null;
+          if (!to) {
+            const cust = (await stripe().customers.retrieve(inv.customer)) as Stripe.Customer;
+            to = cust.email ?? null;
+          }
+          if (!to) return;
+          const { data: prof } = await db
+            .from("subscriptions")
+            .select("profiles(full_name)")
+            .eq("stripe_customer_id", inv.customer)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle<{ profiles: { full_name: string | null } | null }>();
+          const nome = prof?.profiles?.full_name?.split(" ")[0] ?? "";
+          await sendMail({
+            to,
+            subject: "Pagamento non riuscito — il servizio resta in pausa",
+            html: renderEmail({
+              title: `Pagamento non riuscito${nome ? `, ${nome}` : ""}`,
+              emoji: "💳",
+              preheader: "Aggiorna il metodo di pagamento per riattivare i ritiri.",
+              body: `Non siamo riusciti ad addebitare il canone WashLoop. Nessun problema: aggiorna il metodo di pagamento dall'area personale e i ritiri riprendono subito. Se pensi sia un errore, rispondi a questa email.`,
+              cta: { label: "Aggiorna pagamento", href: `${process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it"}/app/abbonamento` },
+            }),
+          });
+        } catch (err) {
+          console.error("[webhook] invoice.payment_failed notify fallita:", err);
+        }
+      });
+      break;
+    }
+  }
+
+  } catch (err) {
+    // La prenotazione dell'evento va rilasciata, altrimenti il tentativo
+    // successivo di Stripe verrebbe scartato come duplicato e il dato andrebbe
+    // perso comunque — esattamente il problema che stiamo chiudendo.
+    await db.from("stripe_events").delete().eq("id", event.id);
+    console.error(`[webhook] ${event.type} fallito:`, err);
+    return NextResponse.json({ error: "processing failed" }, { status: 500 });
   }
 
   return NextResponse.json({ received: true });

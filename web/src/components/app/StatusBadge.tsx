@@ -10,6 +10,8 @@ const tone: Record<OrderStatus, string> = {
   delivery_scheduled: "bg-blue/15 text-blue",
   out_for_delivery: "bg-blue/15 text-blue",
   delivered: "bg-[#1F8A5B]/15 text-[#1F8A5B]",
+  // Ambra e non rosso: non è un errore, è un giro da rifare.
+  delivery_failed: "bg-[#C9881F]/15 text-[#C9881F]",
   completed: "bg-[#1F8A5B]/15 text-[#1F8A5B]",
   cancelled: "bg-[#C0392B]/12 text-[#C0392B]",
 };

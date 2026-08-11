@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { courierAdvance } from "@/lib/actions/orders";
 import { Button } from "@/components/ui/Button";
@@ -20,7 +20,7 @@ export type Job = {
   accessNote: string | null;
 };
 
-type Action = { label: string; to: OrderStatus };
+type Action = { label: string; to: OrderStatus; variant?: "primary" | "ghost-navy" };
 
 function nextActions(status: OrderStatus): Action[] {
   switch (status) {
@@ -29,15 +29,32 @@ function nextActions(status: OrderStatus): Action[] {
     case "delivery_scheduled":
       return [{ label: "Parti per la consegna", to: "out_for_delivery" }];
     case "out_for_delivery":
-      return [{ label: "Segna consegnato", to: "delivered" }];
+      // "Cliente assente" è la via d'uscita che prima non esisteva: senza,
+      // l'ordine restava in consegna per sempre e nessuno se ne accorgeva.
+      return [
+        { label: "Segna consegnato", to: "delivered" },
+        { label: "Cliente assente", to: "delivery_failed", variant: "ghost-navy" },
+      ];
+    case "delivery_failed":
+      return [{ label: "Riprova la consegna", to: "out_for_delivery" }];
     default:
       return [];
   }
 }
 
+/** L'azione ritorna un messaggio invece di lanciare: dentro una form action un
+ *  throw diventa la schermata di errore di Next, e il rider perde la foto. */
+type AdvanceState = { error: string } | null;
+async function advance(_prev: AdvanceState, formData: FormData): Promise<AdvanceState> {
+  const res = await courierAdvance(formData);
+  return res ?? null;
+}
+
 export function CourierJobCard({ job }: { job: Job }) {
   const [proofUrl, setProofUrl] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [state, formAction] = useActionState<AdvanceState, FormData>(advance, null);
   const actions = nextActions(job.status);
 
   async function onPhoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -47,10 +64,10 @@ export function CourierJobCard({ job }: { job: Job }) {
     const supabase = createClient();
     const path = `${job.id}/${Date.now()}-${file.name}`;
     const { error } = await supabase.storage.from("proofs").upload(path, file, { upsert: true });
-    if (!error) {
-      const { data } = supabase.storage.from("proofs").getPublicUrl(path);
-      setProofUrl(data.publicUrl);
-    }
+    // Il bucket ora è privato: salviamo il path, non un URL pubblico. Chi ha
+    // diritto di vedere la foto ottiene un link firmato a scadenza.
+    if (error) setUploadError("Foto non caricata. Riprova o procedi senza.");
+    else { setUploadError(""); setProofUrl(path); }
     setUploading(false);
   }
 
@@ -96,13 +113,21 @@ export function CourierJobCard({ job }: { job: Job }) {
               {uploading ? "Carico…" : proofUrl ? "✓ Foto allegata" : "📷 Allega foto prova"}
             </span>
           </label>
+          {uploadError && (
+            <p className="rounded-[10px] bg-[#C9881F]/12 px-3 py-2 text-xs font-semibold text-[#C9881F]">{uploadError}</p>
+          )}
+          {state?.error && (
+            <p role="alert" className="rounded-[10px] bg-[#C0392B]/10 px-3 py-2 text-xs font-semibold text-[#C0392B]">
+              {state.error}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             {actions.map((a) => (
-              <form key={a.to} action={courierAdvance}>
+              <form key={a.to} action={formAction}>
                 <input type="hidden" name="order_id" value={job.id} />
                 <input type="hidden" name="status" value={a.to} />
                 <input type="hidden" name="proof_url" value={proofUrl} />
-                <Button type="submit" size="md">
+                <Button type="submit" size="md" variant={a.variant ?? "primary"}>
                   {a.label} →
                 </Button>
               </form>

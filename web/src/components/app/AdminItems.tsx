@@ -28,7 +28,8 @@ export function AdminItems({ orderId, items }: { orderId: string; items: Item[] 
     const supabase = createClient();
     const path = `${orderId}/${Date.now()}-${file.name}`;
     const { error } = await supabase.storage.from("proofs").upload(path, file, { upsert: true });
-    if (!error) setPhotoUrl(supabase.storage.from("proofs").getPublicUrl(path).data.publicUrl);
+    // Bucket privato: si salva il path, il link firmato lo genera il server.
+    if (!error) setPhotoUrl(path);
     setUploading(false);
   }
 

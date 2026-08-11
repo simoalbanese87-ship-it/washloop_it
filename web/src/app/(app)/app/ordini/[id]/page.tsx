@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { createClient } from "@/lib/supabase/server";
 import { bookDelivery } from "@/lib/actions/orders";
 import { deliveryCounts } from "@/lib/slots";
-import { statusIndex, ORDER_STATUS_LABEL, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
+import { signedProofUrl, statusIndex, ORDER_STATUS_LABEL, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
 import { fmtDate, fmtDateTime, fmtFull } from "@/lib/format";
 
 type Item = { id: string; kind: string | null; status: ItemStatus; photo_url: string | null };
@@ -59,6 +59,11 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
     .eq("order_id", id)
     .order("created_at")
     .returns<Item[]>();
+
+  // Il bucket è privato: ogni foto diventa un link firmato a scadenza breve.
+  const itemsFirmati = await Promise.all(
+    (items ?? []).map(async (it) => ({ ...it, photo_url: await signedProofUrl(supabase, it.photo_url) })),
+  );
 
   // Consegna prenotabile da "ready" in poi, se non già fissata
   const canBookDelivery = statusIndex(order.status) >= statusIndex("ready") && !order.delivery_slot_id;
@@ -160,12 +165,12 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
       )}
 
       {/* Capi */}
-      {items && items.length > 0 && (
+      {itemsFirmati.length > 0 && (
         <section className="rounded-[18px] border border-line bg-white p-5">
-          <div className="font-display text-sm font-extrabold text-navy">I tuoi capi ({items.length})</div>
+          <div className="font-display text-sm font-extrabold text-navy">I tuoi capi ({itemsFirmati.length})</div>
           <p className="mt-1 text-xs font-medium text-muted">Ogni capo è tracciato singolarmente.</p>
           <div className="mt-4 space-y-2">
-            {items.map((it) => (
+            {itemsFirmati.map((it) => (
               <div key={it.id} className="flex items-center gap-3 rounded-[14px] border border-line bg-ice px-3 py-2.5">
                 {it.photo_url ? (
                   // eslint-disable-next-line @next/next/no-img-element

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { haversineKm } from "@/lib/route";
+import { canTransition, transitionError } from "@/lib/orders";
 import type { OrderStatus, ScanResult, RiderLivePos } from "@/lib/orders";
 import { romeLocalToISO, romeWeekday, romeHHMM } from "@/lib/format";
 import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
@@ -212,8 +213,14 @@ export async function bookDelivery(formData: FormData) {
   revalidatePath(`/app/ordini/${id}`);
 }
 
-/** Staff/admin: avanza lo stato dell'ordine. Il trigger DB logga l'evento. */
+/** Solo admin: avanza lo stato dell'ordine. Il trigger DB logga l'evento.
+ *  Il controllo di ruolo è qui e non solo nella RLS: questa action era
+ *  invocabile da chiunque avesse una sessione, e la policy del cliente gli
+ *  permetteva di scrivere su tutte le colonne del proprio ordine. */
 export async function advanceStatus(formData: FormData) {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
   const supabase = await createClient();
   const id = String(formData.get("order_id") ?? "");
   const status = String(formData.get("status") ?? "") as OrderStatus;
@@ -227,16 +234,38 @@ export async function advanceStatus(formData: FormData) {
   revalidatePath("/courier");
 }
 
-/** Corriere: avanza stato + opzionale nota foto prova (URL già caricato su Storage). */
-export async function courierAdvance(formData: FormData) {
+/** Corriere: avanza stato + opzionale foto prova (già caricata su Storage).
+ *  Verifica che l'ordine sia davvero suo e che il passo sia uno dei tre del
+ *  mestiere del rider: prima non c'era alcun controllo. */
+export async function courierAdvance(formData: FormData): Promise<{ error: string } | void> {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "courier") return { error: "Solo i rider possono aggiornare il giro." };
+
   const supabase = await createClient();
   const id = String(formData.get("order_id") ?? "");
   const status = String(formData.get("status") ?? "") as OrderStatus;
   const proofUrl = String(formData.get("proof_url") ?? "") || null;
-  if (!id || !status) throw new Error("Parametri mancanti");
+  const note = String(formData.get("note") ?? "").trim();
+  if (!id || !status) return { error: "Parametri mancanti." };
 
-  const { error } = await supabase.from("orders").update({ status }).eq("id", id);
-  if (error) throw new Error(error.message);
+  const { data: order } = await supabase
+    .from("orders")
+    .select("id, status, courier_id")
+    .eq("id", id)
+    .maybeSingle<{ id: string; status: OrderStatus; courier_id: string | null }>();
+  if (!order) return { error: "Ordine non trovato: potrebbe essere stato annullato." };
+  if (order.courier_id !== me.id) return { error: "Questo ordine non è assegnato a te." };
+  if (!canTransition(order.status, status, "courier")) return { error: transitionError(order.status, status) };
+
+  const patch: Record<string, unknown> = { status };
+  // La nota serve a spiegare perché la consegna non è riuscita: senza, la
+  // riprogrammazione parte alla cieca.
+  if (status === "delivery_failed") patch.staff_notes = note || "Consegna non riuscita";
+
+  const { error } = await supabase.from("orders").update(patch).eq("id", id);
+  // Niente throw: dentro una form action diventerebbe la schermata di errore di
+  // Next, e il rider perderebbe la foto appena caricata.
+  if (error) return { error: "Non siamo riusciti a salvare. Controlla la rete e riprova." };
 
   if (proofUrl) {
     await supabase.from("order_items").insert({ order_id: id, kind: "prova", photo_url: proofUrl });

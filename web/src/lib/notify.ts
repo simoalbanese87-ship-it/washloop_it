@@ -31,6 +31,23 @@ const CUSTOMER: Partial<
     body: () => `Il corriere ha ritirato il tuo bucato. Ora va in lavanderia per il trattamento: ti avvisiamo appena è pronto.`,
     push: "Abbiamo ritirato il tuo bucato 🧺",
   },
+  delivery_failed: {
+    subject: "Non ti abbiamo trovato in casa",
+    title: "Consegna non riuscita",
+    emoji: "🔔",
+    preheader: "Riproviamo: dicci quando ti troviamo.",
+    body: () =>
+      `Il corriere è passato ma non è riuscito a consegnare. Nessun problema: il tuo bucato è al sicuro da noi. Rispondi a questa email o scrivici dall'area personale per concordare un nuovo passaggio.`,
+    push: "Consegna non riuscita: scrivici per riprovare.",
+  },
+  cancelled: {
+    subject: "Ordine annullato",
+    title: "Ordine annullato",
+    emoji: "✖️",
+    preheader: "L'ordine è stato annullato.",
+    body: () => `Il tuo ordine è stato annullato. Se non sei stato tu, scrivici: ci pensiamo subito.`,
+    push: "Il tuo ordine è stato annullato.",
+  },
   ready: {
     subject: "Il tuo bucato è pronto ✨",
     title: "Bucato pronto",
