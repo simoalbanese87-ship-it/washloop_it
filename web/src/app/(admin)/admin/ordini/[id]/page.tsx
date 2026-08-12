@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { Button } from "@/components/ui/Button";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { advanceStatus, assignOrder, setEta } from "@/lib/actions/orders";
 import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
 import { DeleteOrderButton } from "@/components/admin/DeleteOrderButton";
@@ -64,8 +64,11 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
     .order("created_at")
     .returns<Special[]>();
 
-  // Listino capi per il form "aggiungi capo" (vista admin → prezzo cliente)
-  const { data: catItems } = await supabase
+  // Listino capi per il form "aggiungi capo" (vista admin → prezzo cliente).
+  // Service role: `special_items` non è più leggibile con la sessione utente,
+  // perché conteneva anche il compenso lavanderia ed era esposta a chiunque.
+  // La pagina sta sotto il layout (admin), che rimanda al login chi non è admin.
+  const { data: catItems } = await createServiceClient()
     .from("special_items")
     .select("id, name, price_cli_cents, comp_lav_cents, special_categories(id, name, emoji)")
     .eq("active", true)

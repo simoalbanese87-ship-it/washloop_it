@@ -16,7 +16,9 @@ export default async function PrenotaPage() {
     supabase.from("addresses").select("id, label, street, zone_id, access_mode, access_note").order("created_at", { ascending: false }).returns<Address[]>(),
     supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity").eq("kind", "pickup").gte("starts_at", nowIso).order("starts_at").limit(80).returns<RawSlot[]>(),
     supabase.from("special_categories").select("id, name, emoji, sort").order("sort").returns<Cat[]>(),
-    supabase.from("special_items").select("category_id, name, price_cli_cents, sort").eq("active", true).order("sort").returns<Item[]>(),
+    // Vista e non tabella: `special_items` contiene anche il compenso pagato
+    // alla lavanderia, che al cliente non deve arrivare nemmeno via API.
+    supabase.from("special_items_public").select("category_id, name, price_cli_cents, sort").order("sort").returns<Item[]>(),
   ]);
 
   // Posti residui per slot (capacità − ordini non annullati già agganciati).
