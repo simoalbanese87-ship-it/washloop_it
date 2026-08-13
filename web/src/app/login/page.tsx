@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { requestPasswordReset } from "@/lib/actions/auth";
+import { sendWelcomeIfNeeded } from "@/lib/actions/welcome";
+import { PasswordField } from "@/components/ui/PasswordField";
 import { Logo } from "@/components/Logo";
 
 type Mode = "signin" | "signup";
@@ -54,6 +56,8 @@ function LoginForm() {
       // Se la conferma email è disattivata, la sessione c'è subito → vai al checkout/app.
       if (data.session && data.user) {
         await supabase.from("profiles").update({ terms_accepted_at: acceptedAt }).eq("id", data.user.id);
+        // Benvenuto: parte una volta sola, la riga in DB fa da guardia.
+        void sendWelcomeIfNeeded();
         setLoading(false);
         router.push(dest);
         router.refresh();
@@ -142,15 +146,14 @@ function LoginForm() {
             placeholder="tu@email.it"
             className={input}
           />
-          <input
-            type="password"
+          <PasswordField
             required
-            minLength={8}
             autoComplete={isSignup ? "new-password" : "current-password"}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password (min 8 caratteri)"
+            onChange={setPassword}
             className={input}
+            email={isSignup ? email : undefined}
+            nome={isSignup ? fullName : undefined}
           />
           {error && <p className="text-sm font-semibold text-[#ff9b8f]">{error}</p>}
           {info && <p className="text-sm font-semibold text-[#5ce6a8]">{info}</p>}

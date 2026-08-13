@@ -15,6 +15,7 @@ import {
   createSlot,
   deleteSlot,
   generateSlots,
+  deleteFutureSlots,
 } from "@/lib/actions/admin";
 import { DeleteLaundryButton } from "@/components/admin/DeleteLaundryButton";
 import { fmtDateTime } from "@/lib/format";
@@ -33,7 +34,8 @@ const DAYS = [
   { v: "5", l: "Ven" }, { v: "6", l: "Sab" }, { v: "0", l: "Dom" },
 ];
 
-export default async function CatalogoPage() {
+export default async function CatalogoPage({ searchParams }: { searchParams: Promise<{ ok?: string; warn?: string }> }) {
+  const { ok, warn } = await searchParams;
   const supabase = await createClient();
   const nowIso = new Date().toISOString();
   const [{ data: zones }, { data: laundries }, { data: slots }, { data: plans }, { data: couriers }] = await Promise.all([
@@ -54,6 +56,9 @@ export default async function CatalogoPage() {
   return (
     <>
       <PageTitle kicker="Catalogo" title="Configurazione servizio" sub="Piani, lavanderie, zone e disponibilità slot." />
+
+      {ok && <div className="mb-4 rounded-[14px] bg-[#1F8A5B]/10 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
+      {warn && <div className="mb-4 rounded-[14px] bg-[#C9881F]/12 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>}
 
       <div className="space-y-6">
         {/* ---------- PIANI ---------- */}
@@ -206,6 +211,22 @@ export default async function CatalogoPage() {
         <Card>
           <h2 className="font-display text-base font-extrabold text-navy">Genera slot ricorrenti</h2>
           <p className="mt-1 text-sm font-medium text-muted">Crea automaticamente le fasce per più giorni in un colpo solo.</p>
+
+          {/* Pulizia prima della rigenerazione: le fasce già prenotate restano,
+              cancellarle lascerebbe un ordine senza orario. */}
+          <form action={deleteFutureSlots} className="mt-4 grid gap-3 rounded-[14px] border border-line bg-ice p-3 sm:grid-cols-[1fr_auto_auto]">
+            <select name="laundry_id" required className={input} defaultValue="">
+              <option value="" disabled>Svuota le fasce future di…</option>
+              {(laundries ?? []).map((l) => (<option key={l.id} value={l.id}>{l.name}</option>))}
+            </select>
+            <select name="kind" className={input} defaultValue="pickup">
+              <option value="pickup">Ritiri</option>
+              <option value="delivery">Consegne</option>
+            </select>
+            <button type="submit" className="rounded-[12px] border border-[#C0392B]/30 px-3 py-2 font-display text-xs font-bold text-[#C0392B]">
+              Svuota future
+            </button>
+          </form>
           <form action={generateSlots} className="mt-4 space-y-3">
             <div className="grid gap-3 sm:grid-cols-4">
               <label className="text-xs font-bold text-muted">Lavanderia

@@ -3,7 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { advanceStatus, assignOrder, setEta } from "@/lib/actions/orders";
+import { advanceStatus, assignOrder, setEta, scheduleDelivery } from "@/lib/actions/orders";
 import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
 import { DeleteOrderButton } from "@/components/admin/DeleteOrderButton";
 import { chargeOrderSpecials, refundOrderSpecial, addSpecialAdmin } from "@/lib/actions/charge";
@@ -11,7 +11,8 @@ import { AdminItems, type Item } from "@/components/app/AdminItems";
 import { signedProofUrl } from "@/lib/orders";
 import { AddSpecialForm, type ListItem } from "@/components/app/AddSpecialForm";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
-import { fmtFull, toRomeInputValue } from "@/lib/format";
+import { fmtFull, fmtSlot, toRomeInputValue } from "@/lib/format";
+import { deliveryCounts } from "@/lib/slots";
 
 type Order = {
   id: string;
@@ -23,6 +24,8 @@ type Order = {
   courier_id: string | null;
   laundry_id: string | null;
   eta_ready_at: string | null;
+  delivery_slot_id: string | null;
+  delivery_slot: { starts_at: string; ends_at: string } | null;
   customer: { full_name: string | null; phone: string | null } | null;
   addresses: { street: string; intercom: string | null; floor: string | null; zones: { name: string } | null } | null;
 };
@@ -30,20 +33,22 @@ type Order = {
 type Event = { id: string; status: OrderStatus; created_at: string; note: string | null };
 type Person = { id: string; full_name: string | null };
 type Laundry = { id: string; name: string };
+type DeliverySlot = { id: string; starts_at: string; ends_at: string; capacity: number | null; presi?: number };
 type Special = { id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null };
 
 const input = "h-11 w-full rounded-[14px] border border-line bg-ice px-3.5 text-sm font-medium text-navy outline-none focus:border-blue";
 const STATUSES: OrderStatus[] = [...ORDER_FLOW, "cancelled"];
 const eur = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 
-export default async function AdminOrderPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function AdminOrderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ err?: string }> }) {
   const { id } = await params;
+  const { err } = await searchParams;
   const supabase = await createClient();
 
   const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }, { data: items }] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, status, bags, notes, staff_notes, created_at, courier_id, laundry_id, eta_ready_at, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name))")
+      .select("id, status, bags, notes, staff_notes, created_at, courier_id, laundry_id, eta_ready_at, delivery_slot_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)")
       .eq("id", id)
       .maybeSingle<Order>(),
     supabase.from("order_events").select("id, status, created_at, note").eq("order_id", id).order("created_at", { ascending: false }).returns<Event[]>(),
@@ -51,6 +56,21 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
     supabase.from("laundries").select("id, name").eq("active", true).returns<Laundry[]>(),
     supabase.from("order_items").select("id, kind, status, photo_url").eq("order_id", id).order("created_at").returns<Item[]>(),
   ]);
+
+  // Fasce di riconsegna selezionabili: future e, se l'ordine ha gia' una
+  // lavanderia, solo le sue. La riconsegna la programmiamo noi da qui.
+  let fasceConsegna: DeliverySlot[] = [];
+  if (order) {
+    let q = supabase
+      .from("slots")
+      .select("id, starts_at, ends_at, capacity")
+      .eq("kind", "delivery")
+      .gte("starts_at", new Date().toISOString());
+    if (order.laundry_id) q = q.eq("laundry_id", order.laundry_id);
+    const { data: raw } = await q.order("starts_at").limit(20).returns<DeliverySlot[]>();
+    const usati = await deliveryCounts(supabase, (raw ?? []).map((s) => s.id));
+    fasceConsegna = (raw ?? []).map((s) => ({ ...s, presi: usati.get(s.id) ?? 0 }));
+  }
 
   // Bucket privato: le foto prova si servono con link firmato a scadenza.
   const itemsFirmati = await Promise.all(
@@ -92,6 +112,10 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   return (
     <>
       <PageTitle kicker={`Ordine #${order.id.slice(0, 8)}`} title={order.customer?.full_name ?? "Cliente"} />
+
+      {err && (
+        <div className="mb-4 rounded-[16px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{err}</div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
         {/* Colonna gestione */}
@@ -147,6 +171,43 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                 Salva ETA
               </Button>
             </form>
+          </Card>
+
+          <Card>
+            <span className="font-display text-sm font-extrabold text-navy">Riconsegna</span>
+            <p className="mt-1 text-xs font-medium text-muted">
+              La fascia la scegliamo noi: il cliente non prenota. Al salvataggio l&apos;ordine passa a
+              &laquo;in consegna programmata&raquo; e il cliente riceve giorno e ora.
+            </p>
+            {order.delivery_slot && (
+              <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-sm font-bold text-navy">
+                Fissata: {fmtSlot(order.delivery_slot.starts_at, order.delivery_slot.ends_at)}
+              </p>
+            )}
+            {fasceConsegna.length > 0 ? (
+              <form action={scheduleDelivery} className="mt-3 flex gap-3">
+                <input type="hidden" name="order_id" value={order.id} />
+                <select name="delivery_slot_id" required className={input} defaultValue={order.delivery_slot_id ?? ""}>
+                  <option value="" disabled>Fascia di consegna…</option>
+                  {fasceConsegna.map((s) => {
+                    const pieno = s.capacity != null && (s.presi ?? 0) >= s.capacity;
+                    return (
+                      <option key={s.id} value={s.id} disabled={pieno}>
+                        {fmtSlot(s.starts_at, s.ends_at)}
+                        {s.capacity != null ? ` — ${Math.max(0, s.capacity - (s.presi ?? 0))} posti` : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+                <Button type="submit" size="md" variant="ghost-navy">
+                  {order.delivery_slot_id ? "Sposta" : "Programma"}
+                </Button>
+              </form>
+            ) : (
+              <p className="mt-3 rounded-[12px] bg-ice px-3 py-2 text-sm font-medium text-muted">
+                Nessuna fascia di consegna futura per questa lavanderia: generane in Catalogo.
+              </p>
+            )}
           </Card>
 
           <Card>

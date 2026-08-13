@@ -1,5 +1,5 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -75,7 +75,75 @@ export default async function SicurezzaPage() {
     });
   }
 
-  const all = [...env, ...db];
+  // --- Pronti a operare? Controlli che nessuna pagina faceva, e che sono la
+  //     differenza tra "il sito è su" e "il servizio funziona davvero". ---
+  const svc = createServiceClient();
+  const oraIso = new Date().toISOString();
+  const fraUnaSettimana = new Date(Date.now() + 7 * 86_400_000).toISOString();
+
+  const [ritiri, consegne, zoneAttive, lavanderie, deposito, indirizziSenzaGeo] = await Promise.all([
+    svc.from("slots").select("id", { count: "exact", head: true }).eq("kind", "pickup").gte("starts_at", oraIso).lte("starts_at", fraUnaSettimana),
+    svc.from("slots").select("id", { count: "exact", head: true }).eq("kind", "delivery").gte("starts_at", oraIso).lte("starts_at", fraUnaSettimana),
+    svc.from("zones").select("name, courier_id").eq("active", true).returns<{ name: string; courier_id: string | null }[]>(),
+    svc.from("laundries").select("name, address, email, active").eq("active", true).returns<{ name: string; address: string | null; email: string | null; active: boolean }[]>(),
+    svc.from("depots").select("name, lat").eq("active", true).maybeSingle<{ name: string; lat: number | null }>(),
+    svc.from("addresses").select("id", { count: "exact", head: true }).is("lat", null),
+  ]);
+
+  const senzaRider = (zoneAttive.data ?? []).filter((z) => !z.courier_id).map((z) => z.name);
+  const lavIncomplete = (lavanderie.data ?? []).filter((l) => !l.address || !l.email);
+  const nRitiri = ritiri.count ?? 0;
+  const nConsegne = consegne.count ?? 0;
+  const nSenzaGeo = indirizziSenzaGeo.count ?? 0;
+
+  const ops: Check[] = [
+    {
+      label: "Fasce di ritiro nei prossimi 7 giorni",
+      status: nRitiri === 0 ? "fail" : nRitiri < 7 ? "warn" : "ok",
+      detail: nRitiri === 0 ? "Nessuna: il cliente non può prenotare nulla" : `${nRitiri} fasce disponibili`,
+    },
+    {
+      label: "Fasce di riconsegna nei prossimi 7 giorni",
+      status: nConsegne === 0 ? "fail" : nConsegne < 7 ? "warn" : "ok",
+      detail: nConsegne === 0 ? "Nessuna: non possiamo programmare le riconsegne" : `${nConsegne} fasce disponibili`,
+    },
+    {
+      label: "Rider assegnato alle zone attive",
+      status: (zoneAttive.data ?? []).length === 0 ? "fail" : senzaRider.length === 0 ? "ok" : "warn",
+      detail:
+        (zoneAttive.data ?? []).length === 0
+          ? "Nessuna zona attiva: la landing dirà a tutti che non copriamo"
+          : senzaRider.length === 0
+            ? `${zoneAttive.data?.length} zone attive, tutte con rider`
+            : `Senza rider: ${senzaRider.join(", ")} (usano il ripiego bilanciato)`,
+    },
+    {
+      label: "Lavanderia con indirizzo ed email",
+      status: (lavanderie.data ?? []).length === 0 ? "fail" : lavIncomplete.length === 0 ? "ok" : "warn",
+      detail:
+        (lavanderie.data ?? []).length === 0
+          ? "Nessuna lavanderia attiva"
+          : lavIncomplete.length === 0
+            ? `${lavanderie.data?.length} attiva/e, dati completi`
+            : `Dati mancanti su: ${lavIncomplete.map((l) => l.name).join(", ")}`,
+    },
+    {
+      label: "Deposito geocodificato",
+      status: !deposito.data ? "fail" : deposito.data.lat == null ? "warn" : "ok",
+      detail: !deposito.data
+        ? "Nessun deposito attivo: il giro del rider non ha punto di partenza"
+        : deposito.data.lat == null
+          ? "Indirizzo senza coordinate: il percorso non si ottimizza"
+          : deposito.data.name,
+    },
+    {
+      label: "Indirizzi cliente con coordinate",
+      status: nSenzaGeo === 0 ? "ok" : "warn",
+      detail: nSenzaGeo === 0 ? "Tutti geocodificati" : `${nSenzaGeo} senza coordinate: non compaiono sulla mappa del rider`,
+    },
+  ];
+
+  const all = [...env, ...db, ...ops];
   const fails = all.filter((c) => c.status === "fail").length;
   const warns = all.filter((c) => c.status === "warn").length;
   const overall: Status = fails > 0 ? "fail" : warns > 0 ? "warn" : "ok";
@@ -97,6 +165,12 @@ export default async function SicurezzaPage() {
         <Card>
           <h2 className="mb-2 font-display text-base font-extrabold text-navy">Configurazione & segreti</h2>
           {env.map((c) => <CheckRow key={c.label} c={c} />)}
+        </Card>
+
+        <Card>
+          <h2 className="mb-2 font-display text-base font-extrabold text-navy">Pronti a operare</h2>
+          <p className="mb-2 text-xs font-medium text-muted">Non è sicurezza: è se il servizio può girare davvero domani mattina.</p>
+          {ops.map((c) => <CheckRow key={c.label} c={c} />)}
         </Card>
 
         <Card>

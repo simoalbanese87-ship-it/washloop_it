@@ -12,7 +12,7 @@ const site = () => (process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it").r
 /** Email + push al CLIENTE per gli stati rilevanti. Gli stati non elencati non
  *  notificano (evita spam). */
 const CUSTOMER: Partial<
-  Record<OrderStatus, { subject: string; title: string; emoji: string; preheader: string; body: (bags: number) => string; push: string }>
+  Record<OrderStatus, { subject: string; title: string; emoji: string; preheader: string; body: (bags: number, fascia: string) => string; push: string }>
 > = {
   pickup_scheduled: {
     subject: "Ritiro prenotato ✅",
@@ -55,6 +55,15 @@ const CUSTOMER: Partial<
     preheader: "Lavato e pronto: a breve programmiamo la riconsegna.",
     body: () => `Il tuo bucato è lavato, piegato e pronto. A breve programmiamo la riconsegna: trovi i dettagli nella tua area personale.`,
     push: "Il tuo bucato è pronto ✨",
+  },
+  delivery_scheduled: {
+    subject: "Riconsegna programmata 🚚",
+    title: "Riconsegna programmata",
+    emoji: "🚚",
+    preheader: "Abbiamo fissato quando ti riportiamo il bucato.",
+    body: (_b, fascia) =>
+      `Abbiamo organizzato la riconsegna del tuo bucato${fascia ? `: <strong>${fascia}</strong>` : "."} Non devi fare nulla, ci pensiamo noi. Se a quell'ora non ci sei, rispondi a questa email e spostiamo il passaggio.`,
+    push: "Riconsegna programmata 🚚",
   },
   out_for_delivery: {
     subject: "In consegna oggi 🚚",
@@ -108,10 +117,18 @@ export async function notifyOrderStatus(orderId: string, status: OrderStatus) {
     const svc = createServiceClient();
     const { data: order } = await svc
       .from("orders")
-      .select("id, bags, customer_id, laundry_id, service, fragrance, eta_ready_at")
+      .select("id, bags, customer_id, laundry_id, service, fragrance, eta_ready_at, delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)")
       .eq("id", orderId)
       .single();
     if (!order) return;
+
+    // Fascia di riconsegna in chiaro: la usa il testo di `delivery_scheduled`,
+    // per gli altri stati resta vuota e i testi la ignorano.
+    // L'embed PostgREST è tipizzato come array anche quando la relazione è
+    // uno-a-uno: normalizziamo prima di usarlo.
+    const rel = order.delivery_slot as unknown as { starts_at: string; ends_at: string }[] | { starts_at: string; ends_at: string } | null;
+    const ds = Array.isArray(rel) ? rel[0] : rel;
+    const fascia = ds ? fmtSlot(ds.starts_at, ds.ends_at) : "";
 
     // ---- Cliente: email + push ----
     if (cust && order.customer_id) {
@@ -119,14 +136,14 @@ export async function notifyOrderStatus(orderId: string, status: OrderStatus) {
       if (email) {
         const html = renderEmail({
           title: cust.title,
-          body: cust.body(order.bags ?? 1),
+          body: cust.body(order.bags ?? 1, fascia),
           emoji: cust.emoji,
           preheader: cust.preheader,
           cta: { label: "Vedi l'ordine", href: `${site()}/app/ordini/${orderId}` },
         });
         await sendMail({ to: email, subject: cust.subject, html });
       }
-      await sendPush(order.customer_id, { title: cust.title, body: cust.push, url: `/app/ordini/${orderId}` });
+      await sendPush(order.customer_id, { title: cust.title, body: fascia && status === "delivery_scheduled" ? `Ti riportiamo il bucato ${fascia}` : cust.push, url: `/app/ordini/${orderId}` });
     }
 
     // ---- Lavanderia: push (webapp installata) + email (solo info lavorazione, no PII) ----
@@ -248,6 +265,74 @@ export async function notifyStaffAccount(input: { to: string; fullName: string; 
 
 /** Notifica immediata al cliente che un capo speciale è stato aggiunto e verrà
  *  addebitato sulla prossima fattura mensile. Best-effort (email + push). */
+/** Benvenuto a chi si è registrato da solo dal sito.
+ *
+ *  Diverso da `notifyNewCustomer`, che serve agli account creati a mano
+ *  dall'admin e contiene la password generata: qui la password l'ha scelta
+ *  l'utente due secondi fa, ristamparla in un'email sarebbe solo un rischio.
+ *  Prima di questa funzione chi si iscriveva dal sito non riceveva nulla: il
+ *  primo contatto con WashLoop era il silenzio. */
+export async function notifyWelcome(userId: string, email: string, fullName: string | null) {
+  try {
+    const nome = (fullName ?? "").trim().split(/\s+/)[0];
+    await sendMail({
+      to: email,
+      subject: "Benvenuto in WashLoop 👋",
+      html: renderEmail({
+        title: nome ? `Ciao ${nome}, ci siamo!` : "Ci siamo!",
+        body:
+          `Il tuo account è attivo. Da qui in poi funziona così:<br/><br/>` +
+          `<strong>1.</strong> Prenoti il ritiro scegliendo giorno e fascia oraria.<br/>` +
+          `<strong>2.</strong> Passiamo noi a casa tua, tu lasci il sacco pronto.<br/>` +
+          `<strong>3.</strong> Laviamo, stiriamo e ti riportiamo tutto: alla riconsegna pensiamo noi, ti avvisiamo con giorno e ora.<br/><br/>` +
+          `Per ogni passaggio ricevi un avviso, così sai sempre dov'è il tuo bucato.`,
+        emoji: "👋",
+        preheader: "Il tuo account è attivo: ecco come funziona.",
+        cta: { label: "Prenota il primo ritiro", href: `${site()}/app/prenota` },
+      }),
+    });
+    await sendPush(userId, { title: "Benvenuto in WashLoop 👋", body: "Prenota il tuo primo ritiro.", url: "/app/prenota" });
+  } catch (err) {
+    console.error(`[notify] notifyWelcome(${userId}) fallita:`, err);
+  }
+}
+
+/** Promemoria della sera prima: "domani passiamo". Non è un cambio di stato, per
+ *  questo sta fuori dalla tabella CUSTOMER e non passa da notifyOrderStatus.
+ *  Serve a ridurre i passaggi a vuoto, che sono il costo peggiore del servizio:
+ *  il rider fa il giro, il sacco non c'è, e la tappa è persa comunque. */
+export async function notifyPromemoria(
+  customerId: string,
+  input: { tipo: "ritiro" | "consegna"; fascia: string; orderId: string; bags: number },
+) {
+  try {
+    const svc = createServiceClient();
+    const email = await userEmail(svc, customerId);
+    const ritiro = input.tipo === "ritiro";
+    const title = ritiro ? "Domani passiamo a ritirare" : "Domani ti riportiamo il bucato";
+    const body = ritiro
+      ? `Domani passiamo da te <strong>${input.fascia}</strong> per il ritiro di ${input.bags} ${input.bags === 1 ? "sacco" : "sacchi"}. Lascia il bucato pronto all'orario concordato.`
+      : `Domani ti riconsegniamo il bucato pulito <strong>${input.fascia}</strong>. Se a quell'ora non ci sei, rispondi a questa email: spostiamo il passaggio.`;
+
+    if (email) {
+      await sendMail({
+        to: email,
+        subject: ritiro ? "Domani ritiriamo il tuo bucato 🧺" : "Domani ti riportiamo il bucato 🚚",
+        html: renderEmail({
+          title,
+          body,
+          emoji: ritiro ? "🧺" : "🚚",
+          preheader: `${ritiro ? "Ritiro" : "Consegna"} ${input.fascia}`,
+          cta: { label: "Vedi l'ordine", href: `${site()}/app/ordini/${input.orderId}` },
+        }),
+      });
+    }
+    await sendPush(customerId, { title, body: input.fascia, url: `/app/ordini/${input.orderId}` });
+  } catch (err) {
+    console.error(`[notify] notifyPromemoria(${input.orderId}) fallita:`, err);
+  }
+}
+
 export async function notifySpecialAdded(customerId: string, input: { itemName: string; priceCents: number; orderId: string }) {
   try {
     const svc = createServiceClient();

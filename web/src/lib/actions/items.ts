@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
+import { notifyOrderStatus } from "@/lib/notify";
 import type { ItemStatus, OrderStatus } from "@/lib/orders";
 
 /** Aggiunge un capo all'ordine (tipo + stato + foto opzionale). */
@@ -60,8 +61,16 @@ export async function cancelOrder(formData: FormData) {
   const id = String(formData.get("order_id") ?? "");
   const { error } = await supabase.from("orders").update({ status: "cancelled" as OrderStatus }).eq("id", id);
   if (error) throw new Error(error.message);
+
+  // Il testo dell'annullamento esisteva già in notify.ts ma non lo chiamava
+  // nessuno: chi si vedeva annullare l'ordine non riceveva niente, e per lui
+  // era indistinguibile da un ordine dimenticato.
+  await notifyOrderStatus(id, "cancelled");
+
   revalidatePath(`/admin/ordini/${id}`);
   revalidatePath("/admin");
+  revalidatePath(`/app/ordini/${id}`);
+  revalidatePath("/courier");
 }
 
 /** Elimina l'ordine per sempre, con tutto il suo storico (capi, eventi, borse:

@@ -4,10 +4,8 @@ import { OrderTimeline } from "@/components/app/OrderTimeline";
 import { LiveRider } from "@/components/app/LiveRider";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { createClient } from "@/lib/supabase/server";
-import { bookDelivery } from "@/lib/actions/orders";
-import { deliveryCounts } from "@/lib/slots";
 import { signedProofUrl, statusIndex, ORDER_STATUS_LABEL, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
-import { fmtDate, fmtDateTime, fmtFull } from "@/lib/format";
+import { fmtDate, fmtFull } from "@/lib/format";
 
 type Item = { id: string; kind: string | null; status: ItemStatus; photo_url: string | null };
 
@@ -28,12 +26,8 @@ type Order = {
   laundry_id: string | null;
   eta_ready_at: string | null;
   addresses: { street: string; label: string | null } | null;
+  delivery_slot: { starts_at: string; ends_at: string } | null;
 };
-type Slot = { id: string; starts_at: string; ends_at: string; remaining: number | null };
-type RawDeliverySlot = { id: string; starts_at: string; ends_at: string; capacity: number | null };
-
-const input = "h-12 w-full rounded-[16px] border-2 border-line bg-white px-4 text-sm font-semibold text-navy outline-none focus:border-cyan";
-
 const ChevLeft = () => (
   <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
     <path d="m15 6-6 6 6 6" />
@@ -47,7 +41,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
 
   const { data: order } = await supabase
     .from("orders")
-    .select("id, status, bags, notes, created_at, delivery_slot_id, laundry_id, eta_ready_at, addresses(street, label)")
+    .select("id, status, bags, notes, created_at, delivery_slot_id, laundry_id, eta_ready_at, addresses(street, label), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)")
     .eq("id", id)
     .maybeSingle<Order>();
 
@@ -65,20 +59,10 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
     (items ?? []).map(async (it) => ({ ...it, photo_url: await signedProofUrl(supabase, it.photo_url) })),
   );
 
-  // Consegna prenotabile da "ready" in poi, se non già fissata
-  const canBookDelivery = statusIndex(order.status) >= statusIndex("ready") && !order.delivery_slot_id;
-  let deliverySlots: Slot[] = [];
-  if (canBookDelivery) {
-    const nowIso = new Date().toISOString();
-    let q = supabase.from("slots").select("id, starts_at, ends_at, capacity").eq("kind", "delivery").gte("starts_at", nowIso);
-    if (order.laundry_id) q = q.eq("laundry_id", order.laundry_id);
-    const { data } = await q.order("starts_at").limit(12).returns<RawDeliverySlot[]>();
-    const counts = await deliveryCounts(supabase, (data ?? []).map((s) => s.id));
-    deliverySlots = (data ?? []).map((s) => ({
-      id: s.id, starts_at: s.starts_at, ends_at: s.ends_at,
-      remaining: s.capacity == null ? null : Math.max(0, s.capacity - (counts.get(s.id) ?? 0)),
-    }));
-  }
+  // La riconsegna la programmiamo noi quando la lavanderia ha finito: il cliente
+  // non sceglie la fascia, la riceve. Qui mostriamo solo a che punto siamo.
+  const prontoDaConsegnare = statusIndex(order.status) >= statusIndex("ready");
+  const consegnaFissata = order.delivery_slot;
 
   const inProgress = statusIndex(order.status) < statusIndex("delivered");
 
@@ -134,32 +118,29 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         </div>
       </section>
 
-      {/* Prenota consegna */}
-      {canBookDelivery && (
+      {/* Riconsegna: la fissiamo noi, il cliente la riceve. Prima c'era qui un
+          form per scegliere la fascia, ma non è così che lavoriamo: dopo la
+          lavorazione siamo noi a programmare il giro. */}
+      {prontoDaConsegnare && (
         <section className="rounded-[18px] border border-line bg-white p-5">
-          <div className="font-display text-sm font-extrabold text-navy">I tuoi capi sono pronti 🎉</div>
-          <p className="mt-1 text-sm font-medium text-muted">Scegli quando riceverli a casa.</p>
-          {deliverySlots.length > 0 ? (
-            <form action={bookDelivery} className="mt-3 space-y-3">
-              <input type="hidden" name="order_id" value={order.id} />
-              <select name="delivery_slot_id" required className={input} defaultValue="">
-                <option value="" disabled>Fascia di consegna…</option>
-                {deliverySlots.map((s) => {
-                  const full = s.remaining != null && s.remaining <= 0;
-                  const low = !full && s.remaining != null && s.remaining <= 3;
-                  return (
-                    <option key={s.id} value={s.id} disabled={full}>
-                      {fmtDateTime(s.starts_at)}{full ? " — esaurito" : low ? ` — ${s.remaining} posti` : ""}
-                    </option>
-                  );
-                })}
-              </select>
-              <button type="submit" className="w-full rounded-full bg-gradient-to-br from-blue to-cyan py-3.5 font-display text-sm font-extrabold text-white shadow-[0_10px_24px_-10px_rgba(0,200,240,0.7)]">
-                Prenota consegna →
-              </button>
-            </form>
+          {consegnaFissata ? (
+            <>
+              <div className="font-display text-sm font-extrabold text-navy">Riconsegna programmata 🚚</div>
+              <p className="mt-1 text-sm font-medium text-muted">Ti riportiamo il bucato:</p>
+              <div className="mt-3 rounded-[14px] bg-ice p-3 font-display text-sm font-extrabold text-navy">
+                {fmtFull(consegnaFissata.starts_at)}
+              </div>
+              <p className="mt-2 text-xs font-medium text-muted">
+                Se a quell&apos;ora non ci sei, scrivici: spostiamo il passaggio.
+              </p>
+            </>
           ) : (
-            <p className="mt-3 rounded-[14px] bg-ice p-3 text-sm font-medium text-muted">Nessuno slot di consegna disponibile al momento.</p>
+            <>
+              <div className="font-display text-sm font-extrabold text-navy">I tuoi capi sono pronti 🎉</div>
+              <p className="mt-1 text-sm font-medium text-muted">
+                Alla riconsegna pensiamo noi: stiamo organizzando il giro e ti avvisiamo appena abbiamo giorno e ora.
+              </p>
+            </>
           )}
         </section>
       )}

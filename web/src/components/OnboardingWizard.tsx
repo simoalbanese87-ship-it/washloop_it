@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
 import { createOnboardingAddress } from "@/lib/actions/onboarding";
 import { startCheckout } from "@/lib/actions/billing";
+import { sendWelcomeIfNeeded } from "@/lib/actions/welcome";
+import { PasswordField } from "@/components/ui/PasswordField";
 import { ACCESS_MODE_LABEL } from "@/lib/orders";
 import { planRecap } from "@/lib/plan-copy";
 
@@ -58,6 +60,8 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
     if (data.session && data.user) {
       // Prova del consenso anche sul profilo (GDPR)
       await supabase.from("profiles").update({ terms_accepted_at: acceptedAt }).eq("id", data.user.id);
+      // Benvenuto: parte una volta sola, la riga in DB fa da guardia.
+      void sendWelcomeIfNeeded();
       setLoading(false); setStep(2); return;
     }
     setLoading(false);
@@ -143,7 +147,7 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
                 <input className={input} placeholder="Nome e cognome" value={fullName} onChange={(e) => setFullName(e.target.value)} />
                 <input className={input} type="email" autoComplete="email" placeholder="tu@email.it" value={email} onChange={(e) => setEmail(e.target.value)} />
                 <input className={input} placeholder="Telefono" value={phone} onChange={(e) => setPhone(e.target.value)} />
-                <input className={input} type="password" minLength={8} autoComplete="new-password" placeholder="Password (min 8 caratteri)" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <PasswordField className={input} value={password} onChange={setPassword} email={email} nome={fullName} />
               </div>
               <label className="mt-4 flex cursor-pointer items-start gap-3 text-[13px] font-medium leading-relaxed text-white">
                 <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} className="mt-0.5 h-5 w-5 flex-none accent-[#00c8f0]" />

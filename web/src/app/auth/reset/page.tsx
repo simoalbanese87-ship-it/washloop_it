@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
+import { PasswordField } from "@/components/ui/PasswordField";
 
 const input =
   "h-[54px] w-full rounded-[18px] border-2 border-white/15 bg-white/[0.08] px-4 text-base font-semibold text-white placeholder:font-medium placeholder:text-white/45 outline-none transition-colors focus:border-cyan focus:bg-white/[0.12]";
@@ -46,14 +47,11 @@ export default function ResetPage() {
           </div>
         ) : (
           <form onSubmit={onSubmit} className="mt-6 space-y-3">
-            <input
-              type="password"
+            <PasswordField
               required
-              minLength={8}
-              autoComplete="new-password"
               placeholder="Nuova password (min 8 caratteri)"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={setPassword}
               className={input}
             />
             {error && <p className="text-sm font-semibold text-[#ff9b8f]">{error}</p>}

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { romeLocalToISO } from "@/lib/format";
@@ -217,6 +218,56 @@ export async function deleteSlot(formData: FormData) {
   const { error } = await supabase.from("slots").delete().eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath(REV);
+}
+
+/** Cancella in blocco le fasce future di una lavanderia, saltando quelle che
+ *  hanno già un ordine agganciato.
+ *
+ *  Serve quando si rigenera il calendario: prima si cancellavano una per una, e
+ *  a trentasette fasce di prova diventa un lavoro da non fare. Il salto degli
+ *  slot occupati è la parte importante: cancellarne uno prenotato lascerebbe
+ *  l'ordine senza orario e il cliente senza ritiro. */
+export async function deleteFutureSlots(formData: FormData) {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+  const laundry_id = String(formData.get("laundry_id") ?? "");
+  const kind = String(formData.get("kind") ?? "");
+  if (!laundry_id || !["pickup", "delivery"].includes(kind)) {
+    redirect(`${REV}?warn=${encodeURIComponent("Scegli la lavanderia e il tipo di fascia.")}`);
+  }
+
+  const svc = createServiceClient();
+  const { data: futuri } = await svc
+    .from("slots")
+    .select("id")
+    .eq("laundry_id", laundry_id)
+    .eq("kind", kind)
+    .gte("starts_at", new Date().toISOString())
+    .returns<{ id: string }[]>();
+
+  const ids = (futuri ?? []).map((s) => s.id);
+  if (ids.length === 0) redirect(`${REV}?ok=${encodeURIComponent("Nessuna fascia futura da rimuovere.")}`);
+
+  const col = kind === "pickup" ? "pickup_slot_id" : "delivery_slot_id";
+  const { data: occupati } = await svc
+    .from("orders")
+    .select(col)
+    .in(col, ids)
+    .neq("status", "cancelled")
+    .returns<Record<string, string | null>[]>();
+
+  const daTenere = new Set((occupati ?? []).map((o) => o[col]).filter(Boolean) as string[]);
+  const daCancellare = ids.filter((id) => !daTenere.has(id));
+  if (daCancellare.length === 0) {
+    redirect(`${REV}?warn=${encodeURIComponent(`Tutte le ${ids.length} fasce future hanno ordini agganciati: nessuna rimossa.`)}`);
+  }
+
+  const { error } = await svc.from("slots").delete().in("id", daCancellare);
+  if (error) redirect(`${REV}?warn=${encodeURIComponent(error.message)}`);
+
+  revalidatePath(REV);
+  const tenute = daTenere.size ? ` ${daTenere.size} conservate perché già prenotate.` : "";
+  redirect(`${REV}?ok=${encodeURIComponent(`Rimosse ${daCancellare.length} fasce future.${tenute}`)}`);
 }
 
 /** Genera slot ricorrenti per una lavanderia su un intervallo, giorni e fasce. */

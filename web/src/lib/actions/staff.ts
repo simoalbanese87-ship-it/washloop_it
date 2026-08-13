@@ -78,6 +78,39 @@ export async function resetStaffPassword(formData: FormData) {
   redirect(`${REV}?ok=${encodeURIComponent(`Nuove credenziali inviate a ${email}.`)}`);
 }
 
+/** Cambia l'indirizzo con cui un membro staff accede, lasciando intatta la password.
+ *
+ *  Serve al passaggio dai dati di prova a quelli veri: gli account rider e
+ *  lavanderia nascono come `*.test@washloop.it` e vanno intestati alle persone
+ *  reali senza costringerle a rifare l'accesso da zero.
+ *
+ *  `email_confirm: true` è la parte che conta: senza, Supabase manda un link di
+ *  conferma al nuovo indirizzo e finché non viene cliccato l'accesso resta a
+ *  metà. Qui l'indirizzo lo stiamo cambiando noi da pannello, su nostra
+ *  decisione, quindi lo diamo per verificato.
+ *
+ *  Nessun disallineamento da sistemare: `profiles` non contiene l'email,
+ *  l'unica copia sta in `auth.users`. */
+export async function updateStaffEmail(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  if (!id) throw new Error("Membro mancante");
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    redirect(`${REV}?warn=${encodeURIComponent("Indirizzo email non valido.")}`);
+  }
+
+  const svc = createServiceClient();
+  const { data: prima } = await svc.auth.admin.getUserById(id);
+  const vecchia = prima?.user?.email ?? "—";
+
+  const { error } = await svc.auth.admin.updateUserById(id, { email, email_confirm: true });
+  if (error) redirect(`${REV}?warn=${encodeURIComponent(error.message)}`);
+
+  revalidatePath(REV);
+  redirect(`${REV}?ok=${encodeURIComponent(`Accesso spostato da ${vecchia} a ${email}. La password non è cambiata.`)}`);
+}
+
 /** Elimina definitivamente un membro staff (auth user → cascade). */
 export async function deleteStaff(formData: FormData) {
   await requireAdmin();

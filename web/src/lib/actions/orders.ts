@@ -195,8 +195,47 @@ export async function rejectRecurring(formData: FormData) {
   revalidatePath("/app");
 }
 
-/** Cliente: prenota lo slot di consegna (disponibile da status=ready). */
+/** Programma la riconsegna: sceglie lo slot e porta l'ordine a
+ *  `delivery_scheduled`, avvisando il cliente con giorno e fascia.
+ *
+ *  È un'azione nostra, non del cliente: dopo la lavorazione siamo noi a
+ *  organizzare il giro. Prima questo campo lo scriveva soltanto il cliente da
+ *  `/app/ordini/[id]`, e quindi un ordine arrivato a "pronto" restava fermo lì
+ *  finché non lo prenotava lui — cosa che nel nostro servizio non deve fare. */
+export async function scheduleDelivery(formData: FormData) {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
+  const id = String(formData.get("order_id") ?? "");
+  const delivery_slot_id = String(formData.get("delivery_slot_id") ?? "");
+  if (!id || !delivery_slot_id) throw new Error("Ordine e fascia di consegna obbligatori");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("orders")
+    .update({ delivery_slot_id, status: "delivery_scheduled" as OrderStatus })
+    .eq("id", id);
+  if (error) {
+    // Slot pieno (lo blocca un trigger in DB): messaggio in pagina, non schermata d'errore.
+    redirect(`/admin/ordini/${id}?err=${encodeURIComponent(slotFullMessage(error) ?? "Impossibile fissare questa fascia. Riprova.")}`);
+  }
+
+  await notifyOrderStatus(id, "delivery_scheduled");
+  revalidatePath(`/admin/ordini/${id}`);
+  revalidatePath("/admin/ordini");
+  revalidatePath(`/app/ordini/${id}`);
+  revalidatePath("/courier");
+}
+
+/** Prenotazione della consegna da parte del cliente. Non è più raggiungibile
+ *  dall'app — la riconsegna la programmiamo noi con `scheduleDelivery` — ma
+ *  l'action resta come scorciatoia admin, con la stessa guardia di ruolo:
+ *  lasciarla aperta significherebbe che un cliente può ancora auto-assegnarsi
+ *  una fascia chiamandola a mano. */
 export async function bookDelivery(formData: FormData) {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
   const supabase = await createClient();
   const id = String(formData.get("order_id") ?? "");
   const delivery_slot_id = String(formData.get("delivery_slot_id") ?? "");
@@ -526,6 +565,11 @@ export async function bulkAssignCourier(formData: FormData) {
 
 /** Lavanderia/admin: imposta o affina la data "pronto" (ETA). */
 export async function setEta(formData: FormData) {
+  // Guardia di ruolo come su advanceStatus: la form vive in area admin, ma la
+  // server action è raggiungibile da chiunque abbia una sessione.
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
   const supabase = await createClient();
   const id = String(formData.get("order_id") ?? "");
   const raw = String(formData.get("eta_ready_at") ?? "");

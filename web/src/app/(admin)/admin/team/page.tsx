@@ -78,7 +78,7 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
                   {s.phone && <span>{s.phone}</span>}
                 </div>
               </div>
-              <StaffRowActions id={s.id} name={s.full_name ?? "questo accesso"} />
+              <StaffRowActions id={s.id} name={s.full_name ?? "questo accesso"} email={emails.get(s.id)} />
             </div>
           ))}
           {(!staff || staff.length === 0) && <p className="text-sm font-medium text-muted">Nessun accesso staff.</p>}
