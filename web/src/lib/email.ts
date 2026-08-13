@@ -31,14 +31,92 @@ function transporter(): Transporter | null {
   return cached;
 }
 
-export async function sendMail({ to, subject, html, text }: { to: string; subject: string; html: string; text?: string }) {
+/** I due flussi di posta, che non vanno confusi.
+ *
+ *  `servizio` — legata a un ordine o all'account: ritiro prenotato, bucato
+ *  pronto, riconsegna programmata, promemoria del giorno prima, ricevuta,
+ *  pagamento fallito, reset password, benvenuto, credenziali staff. **Non** ha
+ *  il link di disiscrizione: chi si è abbonato deve sapere quando passiamo, e
+ *  toglierglielo significherebbe lasciarlo senza il servizio che paga.
+ *
+ *  `marketing` — tutto il resto, a partire dalla conferma al lead della landing.
+ *  Qui la disiscrizione è obbligatoria, e con essa gli header List-Unsubscribe
+ *  che Gmail e Outlook si aspettano: senza, finiamo nello spam a prescindere da
+ *  cosa scriviamo. */
+export type EmailKind = "servizio" | "marketing";
+
+/** Indirizzo che ha chiesto di non ricevere più email non di servizio. */
+async function disiscritto(email: string): Promise<boolean> {
+  try {
+    const { createServiceClient } = await import("@/lib/supabase/server");
+    const { data } = await createServiceClient()
+      .from("email_optouts")
+      .select("email")
+      .eq("email", email.trim().toLowerCase())
+      .maybeSingle();
+    return !!data;
+  } catch (err) {
+    // Se il controllo non riesce non mandiamo: meglio un'email in meno che una
+    // a chi ha chiesto di non riceverne più.
+    console.error("[email] controllo disiscrizione fallito, invio annullato:", err);
+    return true;
+  }
+}
+
+export async function sendMail({
+  to,
+  subject,
+  html,
+  text,
+  kind = "servizio",
+  unsubUrl,
+}: {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+  kind?: EmailKind;
+  /** Obbligatorio per `kind: "marketing"`: la stessa URL che sta nel footer. */
+  unsubUrl?: string;
+}) {
+  if (kind === "marketing") {
+    if (!unsubUrl) {
+      // Errore di programmazione, non condizione da gestire a runtime: meglio
+      // accorgersene qui che scoprire di aver mandato una comunicazione
+      // commerciale senza via d'uscita.
+      console.error(`[email] "${subject}" è marketing ma non ha unsubUrl: invio annullato`);
+      return { skipped: true, error: true };
+    }
+    if (await disiscritto(to)) {
+      console.warn(`[email] ${to} è disiscritto — "${subject}" non inviata`);
+      return { skipped: true };
+    }
+  }
+
   const tx = transporter();
   if (!tx) {
     console.warn(`[email] SMTP non configurato — email "${subject}" → ${to} non inviata`);
     return { skipped: true };
   }
   try {
-    await tx.sendMail({ from: SMTP_FROM, replyTo: SMTP_REPLY_TO, to, subject, html, text: text ?? stripHtml(html) });
+    await tx.sendMail({
+      from: SMTP_FROM,
+      replyTo: SMTP_REPLY_TO,
+      to,
+      subject,
+      html,
+      text: text ?? stripHtml(html),
+      // RFC 8058: con List-Unsubscribe-Post il client mostra "Annulla
+      // iscrizione" accanto al mittente e la disiscrizione avviene con un solo
+      // clic, senza aprire nulla. Vale solo per il marketing.
+      headers:
+        kind === "marketing" && unsubUrl
+          ? {
+              "List-Unsubscribe": `<${unsubUrl}>, <mailto:${SMTP_REPLY_TO}?subject=Disiscrizione>`,
+              "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            }
+          : undefined,
+    });
     return { skipped: false };
   } catch (err) {
     console.error(`[email] invio fallito ("${subject}" → ${to}):`, err);
@@ -64,6 +142,7 @@ export function renderEmail({
   preheader,
   emoji,
   footerNote,
+  unsubUrl,
 }: {
   title: string;
   body: string;
@@ -71,6 +150,10 @@ export function renderEmail({
   preheader?: string;
   emoji?: string;
   footerNote?: string;
+  /** Solo per le email di marketing: aggiunge la riga di disiscrizione in fondo.
+   *  Le email di servizio non devono passarlo — non ci si disiscrive dagli
+   *  avvisi sul proprio ordine. */
+  unsubUrl?: string;
 }) {
   const site = clean(process.env.NEXT_PUBLIC_SITE_URL) || "https://washloop.it";
   const host = site.replace(/^https?:\/\//, "");
@@ -117,6 +200,9 @@ export function renderEmail({
           <p style="margin:0;font-size:11px;line-height:1.6;color:#A6B4C5">
             ${footerNote ?? `Ricevi questa email perché hai un account WashLoop. Gestisci tutto nella tua <a href="${site}/app" style="color:#8597AB">area personale</a>.`}
           </p>
+          ${unsubUrl ? `<p style="margin:8px 0 0;font-size:11px;line-height:1.6;color:#A6B4C5">
+            Non vuoi più ricevere queste email? <a href="${unsubUrl}" style="color:#8597AB;text-decoration:underline">Disiscriviti</a>.
+          </p>` : ""}
         </td></tr>
       </table>
     </td></tr>
