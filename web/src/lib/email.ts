@@ -45,21 +45,29 @@ function transporter(): Transporter | null {
  *  cosa scriviamo. */
 export type EmailKind = "servizio" | "marketing";
 
-/** Indirizzo che ha chiesto di non ricevere più email non di servizio. */
+/** Indirizzo che ha chiesto di non ricevere più email non di servizio.
+ *
+ *  Se il controllo non riesce (database irraggiungibile) si manda lo stesso.
+ *  È una scelta esplicita: il database che non risponde è un guasto raro e
+ *  rumoroso, mentre bloccare gli invii lo trasformerebbe in una comunicazione
+ *  che non parte senza che nessuno se ne accorga. Il caso resta a log, così se
+ *  succede si vede. */
 async function disiscritto(email: string): Promise<boolean> {
   try {
     const { createServiceClient } = await import("@/lib/supabase/server");
-    const { data } = await createServiceClient()
+    const { data, error } = await createServiceClient()
       .from("email_optouts")
       .select("email")
       .eq("email", email.trim().toLowerCase())
       .maybeSingle();
+    if (error) {
+      console.error("[email] controllo disiscrizione non riuscito, mando comunque:", error.message);
+      return false;
+    }
     return !!data;
   } catch (err) {
-    // Se il controllo non riesce non mandiamo: meglio un'email in meno che una
-    // a chi ha chiesto di non riceverne più.
-    console.error("[email] controllo disiscrizione fallito, invio annullato:", err);
-    return true;
+    console.error("[email] controllo disiscrizione non riuscito, mando comunque:", err);
+    return false;
   }
 }
 
