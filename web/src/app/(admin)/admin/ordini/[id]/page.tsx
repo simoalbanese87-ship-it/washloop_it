@@ -23,6 +23,7 @@ type Order = {
   created_at: string;
   courier_id: string | null;
   laundry_id: string | null;
+  customer_id: string | null;
   eta_ready_at: string | null;
   delivery_slot_id: string | null;
   delivery_slot: { starts_at: string; ends_at: string } | null;
@@ -48,7 +49,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }, { data: items }] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, status, bags, notes, staff_notes, created_at, courier_id, laundry_id, eta_ready_at, delivery_slot_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)")
+      .select("id, status, bags, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)")
       .eq("id", id)
       .maybeSingle<Order>(),
     supabase.from("order_events").select("id, status, created_at, note").eq("order_id", id).order("created_at", { ascending: false }).returns<Event[]>(),
@@ -134,8 +135,8 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
               <div>{order.bags} {order.bags === 1 ? "busta" : "buste"} · {fmtFull(order.created_at)}</div>
               {order.notes && <div>Note: {order.notes}</div>}
             </div>
-            <a href={`/admin/ordini/${order.id}/etichetta`} className="mt-3 inline-block font-display text-sm font-bold text-blue hover:underline">
-              🖨 Etichetta pacco
+            <a href={`/admin/etichette?c=${order.customer_id ?? ""}&n=2`} className="mt-3 inline-block font-display text-sm font-bold text-blue hover:underline">
+              🖨 Tag del cliente (QR)
             </a>
           </Card>
 

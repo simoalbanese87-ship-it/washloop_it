@@ -1,4 +1,5 @@
 import Link from "next/link";
+import QRCode from "qrcode";
 import { ChangePassword } from "@/components/app/ChangePassword";
 import { getCurrentProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -46,6 +47,12 @@ export default async function ProfiloPage() {
   const name = profile?.full_name ?? "Il mio account";
   const initials = name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("") || "W";
 
+  // Il codice cliente è quello stampato sul tag del sacco: se il tag si stacca o
+  // si rovina, da qui il cliente può rileggerlo e ristamparlo da sé, senza
+  // doverci chiamare. È un dato suo, non c'è nulla da nascondergli.
+  const clientCode = profile?.client_code ?? null;
+  const qrCliente = clientCode ? await QRCode.toDataURL(clientCode, { margin: 1, width: 220 }) : null;
+
   return (
     <div className="space-y-4">
       <h1 className="font-display text-[23px] font-black tracking-[-0.03em] text-navy">Profilo</h1>
@@ -60,6 +67,28 @@ export default async function ProfiloPage() {
           {email && <div className="truncate text-sm font-medium text-muted">{email}</div>}
         </div>
       </section>
+
+      {/* Codice cliente + QR del sacco */}
+      {clientCode && (
+        <section className="rounded-[18px] border border-line bg-white p-5">
+          <h2 className="font-display text-base font-extrabold text-navy">Il tuo codice</h2>
+          <p className="mt-1 text-sm font-medium text-muted">
+            È il codice sul tag del sacco: il rider lo scansiona al ritiro e alla riconsegna.
+          </p>
+          <div className="mt-4 flex items-center gap-4">
+            {qrCliente && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={qrCliente} alt={`QR ${clientCode}`} className="h-28 w-28 rounded-[12px] border border-line" />
+            )}
+            <div>
+              <div className="font-mono text-2xl font-black text-navy">{clientCode}</div>
+              <p className="mt-1.5 text-xs font-medium text-muted">
+                Tag rovinato o staccato? Stampa questa pagina e riattaccalo, oppure scrivici.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Dati personali */}
       <section className="rounded-[18px] border border-line bg-white p-5">

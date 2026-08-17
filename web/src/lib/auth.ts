@@ -7,6 +7,8 @@ export type Profile = {
   full_name: string | null;
   phone: string | null;
   laundry_id: string | null;
+  /** Codice anonimo WL-####: è quello stampato sul tag del sacco. */
+  client_code: string | null;
 };
 
 /** Ritorna utente + profilo correnti, o null se non loggato. */
@@ -19,7 +21,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 
   const { data } = await supabase
     .from("profiles")
-    .select("id, role, full_name, phone, laundry_id")
+    .select("id, role, full_name, phone, laundry_id, client_code")
     .eq("id", user.id)
     .single();
 
