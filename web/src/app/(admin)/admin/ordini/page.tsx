@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { PageTitle } from "@/components/app/AppShell";
 import { OrdersBoard, type BoardOrder } from "@/components/app/OrdersBoard";
+import { ArchiveList, type ArchiveRow } from "@/components/app/ArchiveList";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderStatus } from "@/lib/orders";
 
@@ -20,9 +22,47 @@ type Row = {
 };
 type Opt = { id: string; name: string };
 
-export default async function AdminBoard({ searchParams }: { searchParams: Promise<{ ok?: string; warn?: string }> }) {
-  const { ok, warn } = await searchParams;
+export default async function AdminBoard({
+  searchParams,
+}: {
+  searchParams: Promise<{ ok?: string; warn?: string; filtro?: string; stato?: string }>;
+}) {
+  const { ok, warn, filtro, stato } = await searchParams;
   const supabase = await createClient();
+
+  // Gli ordini chiusi erano una pagina a sé ("Archivio"), e "consegnati"
+  // compariva in due posti. Ora sono un filtro di questa: stessa lista, stesso
+  // indirizzo, nessun dubbio su dove cercare un ordine.
+  if (stato === "conclusi") {
+    const { data: chiusi } = await supabase
+      .from("orders")
+      .select("id, status, created_at, bags, customer:profiles!orders_customer_id_fkey(full_name), addresses(zones(name)), laundries(name), courier:profiles!orders_courier_id_fkey(full_name)")
+      .in("status", ["delivered", "completed", "cancelled"])
+      .order("created_at", { ascending: false })
+      .limit(200)
+      .returns<{ id: string; status: OrderStatus; created_at: string; bags: number; customer: { full_name: string | null } | null; addresses: { zones: { name: string } | null } | null; laundries: { name: string } | null; courier: { full_name: string | null } | null }[]>();
+
+    const lista: ArchiveRow[] = (chiusi ?? []).map((r) => ({
+      id: r.id,
+      status: r.status,
+      created_at: r.created_at,
+      bags: r.bags,
+      customer_name: r.customer?.full_name ?? null,
+      zone_name: r.addresses?.zones?.name ?? null,
+      laundry_name: r.laundries?.name ?? null,
+      courier_name: r.courier?.full_name ?? null,
+    }));
+
+    return (
+      <>
+        <PageTitle kicker="Ordini" title="Conclusi" sub={`${lista.length} consegnati, completati o annullati`} />
+        <div className="mb-4">
+          <Link href="/admin/ordini" className="font-display text-sm font-bold text-blue hover:underline">← Torna agli ordini aperti</Link>
+        </div>
+        <ArchiveList rows={lista} />
+      </>
+    );
+  }
 
   const [{ data: rows }, { data: couriers }, { data: laundries }, { data: zones }] = await Promise.all([
     supabase
@@ -64,10 +104,13 @@ export default async function AdminBoard({ searchParams }: { searchParams: Promi
 
   return (
     <>
-      <PageTitle kicker="Operations" title="Board ordini" sub={`${orders.length} ordini · aggiornamento in tempo reale`} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PageTitle kicker="Operations" title="Board ordini" sub={`${orders.length} ordini aperti · aggiornamento in tempo reale`} />
+        <Link href="/admin/ordini?stato=conclusi" className="mt-1 font-display text-sm font-bold text-blue hover:underline">Ordini conclusi →</Link>
+      </div>
       {ok && <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
       {warn && <div className="mb-4 rounded-[14px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>}
-      <OrdersBoard orders={orders} couriers={courierOpts} laundries={laundries ?? []} zones={zones ?? []} />
+      <OrdersBoard orders={orders} couriers={courierOpts} laundries={laundries ?? []} zones={zones ?? []} filtroIniziale={filtro === "ritardo" || filtro === "da_assegnare" ? filtro : undefined} />
     </>
   );
 }

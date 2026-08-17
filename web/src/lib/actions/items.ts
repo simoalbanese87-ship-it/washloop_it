@@ -107,7 +107,7 @@ export async function deleteOrder(formData: FormData) {
   if (error) redirect(`/admin/ordini/${id}?warn=` + encodeURIComponent(`Eliminazione fallita: ${error.message}`));
 
   revalidatePath("/admin/ordini");
-  revalidatePath("/admin/archivio");
+  revalidatePath("/admin/ordini");
   revalidatePath("/admin");
-  redirect("/admin/archivio?ok=" + encodeURIComponent("Ordine eliminato definitivamente."));
+  redirect("/admin/ordini?stato=conclusi&ok=" + encodeURIComponent("Ordine eliminato definitivamente."));
 }

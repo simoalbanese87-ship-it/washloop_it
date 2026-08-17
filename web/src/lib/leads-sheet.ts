@@ -28,7 +28,7 @@ export async function appendLeadToSheet(row: LeadSheetRow): Promise<SheetResult>
   const url = process.env.LEADS_SHEET_URL;
   const token = process.env.LEADS_SHEET_TOKEN;
   // Env assenti = mirror disattivato di proposito (i lead si consultano in
-  // /admin/disponibilita e si esportano in CSV). Niente log: non è un errore.
+  // /admin/contatti e si esportano in CSV). Niente log: non è un errore.
   if (!url || !token) return { ok: false, error: "non configurato" };
 
   try {

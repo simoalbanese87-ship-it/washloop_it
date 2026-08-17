@@ -167,7 +167,7 @@ async function requireAdmin() {
  *  non lanciano per errori "di business": mostrerebbero la pagina di errore di
  *  Next invece del banner. Stessa convenzione del resto dell'area admin. */
 function backWith(formData: FormData, params: Record<string, string>): string {
-  const back = String(formData.get("back") ?? "/admin/disponibilita") || "/admin/disponibilita";
+  const back = String(formData.get("back") ?? "/admin/contatti") || "/admin/contatti";
   const qs = new URLSearchParams(params).toString();
   return `${back}${back.includes("?") ? "&" : "?"}${qs}`;
 }
@@ -183,7 +183,7 @@ export async function setLeadContactStatus(formData: FormData) {
   const { error } = await createServiceClient().from("leads").update({ contact_status: status }).eq("id", id);
   if (error) redirect(backWith(formData, { warn: `Stato non salvato: ${error.message}` }));
 
-  revalidatePath("/admin/disponibilita");
+  revalidatePath("/admin/contatti");
   revalidatePath("/admin");
   redirect(backWith(formData, { ok: `Stato aggiornato: ${CONTACT_STATUS_LABEL[status as ContactStatus]}.` }));
 }
@@ -198,7 +198,7 @@ export async function deleteLead(formData: FormData) {
   const { error } = await createServiceClient().from("leads").delete().eq("id", id);
   if (error) redirect(backWith(formData, { warn: `Eliminazione fallita: ${error.message}` }));
 
-  revalidatePath("/admin/disponibilita");
+  revalidatePath("/admin/contatti");
   revalidatePath("/admin");
   redirect(backWith(formData, { ok: "Richiesta eliminata." }));
 }
@@ -265,7 +265,7 @@ export async function convertLeadToCustomer(formData: FormData) {
   // Benvenuto con le credenziali temporanee (best-effort, non blocca).
   await notifyNewCustomer({ to: email, fullName: lead.full_name, password, planName, priceLabel });
 
-  revalidatePath("/admin/disponibilita");
+  revalidatePath("/admin/contatti");
   revalidatePath("/admin/abbonati");
   revalidatePath("/admin");
   redirect(`/admin/abbonati/${uid}?ok=${encodeURIComponent("Lead convertito in cliente. Attiva l'abbonamento quando ha pagato.")}`);

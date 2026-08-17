@@ -24,7 +24,7 @@ import { pickupCounts, deliveryCounts } from "@/lib/slots";
 type Zone = { id: string; name: string; active: boolean; courier_id: string | null };
 type Courier = { id: string; full_name: string | null };
 type DepotRow = { id: string; name: string; address: string | null; lat: number | null; lng: number | null };
-type Laundry = { id: string; name: string; zone_id: string | null; address: string | null; phone: string | null; email: string | null; active: boolean };
+type Laundry = { id: string; name: string; zone_id: string | null; address: string | null; phone: string | null; email: string | null; active: boolean; bag_comp_cents: number | null };
 type Slot = { id: string; kind: string; starts_at: string; ends_at: string; capacity: number | null; laundries: { name: string } | null };
 type Plan = { id: string; name: string; price_month_cents: number; turnaround_hours: number; pickups_per_week: number; active: boolean; stripe_price_id: string | null };
 
@@ -40,7 +40,7 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
   const nowIso = new Date().toISOString();
   const [{ data: zones }, { data: laundries }, { data: slots }, { data: plans }, { data: couriers }] = await Promise.all([
     supabase.from("zones").select("id, name, active, courier_id").order("sort").order("name").returns<Zone[]>(),
-    supabase.from("laundries").select("id, name, zone_id, address, phone, email, active").order("name").returns<Laundry[]>(),
+    supabase.from("laundries").select("id, name, zone_id, address, phone, email, active, bag_comp_cents").order("name").returns<Laundry[]>(),
     supabase.from("slots").select("id, kind, starts_at, ends_at, capacity, laundries(name)").gte("starts_at", nowIso).order("starts_at").limit(60).returns<Slot[]>(),
     supabase.from("plans").select("id, name, price_month_cents, turnaround_hours, pickups_per_week, active, stripe_price_id").order("sort").returns<Plan[]>(),
     supabase.from("profiles").select("id, full_name").eq("role", "courier").order("full_name").returns<Courier[]>(),
@@ -107,7 +107,7 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
           <div className="mt-4 space-y-3">
             {(laundries ?? []).map((l) => (
               <div key={l.id} className="rounded-[14px] border border-line p-3">
-                <form action={updateLaundry} className="grid gap-2 sm:grid-cols-[1.3fr_1fr_1.3fr_1fr_auto_auto] sm:items-center">
+                <form action={updateLaundry} className="grid gap-2 sm:grid-cols-[1.3fr_1fr_1.3fr_1fr_1fr_auto_auto] sm:items-center">
                   <input type="hidden" name="id" value={l.id} />
                   <input name="name" defaultValue={l.name} placeholder="Nome" className={input} />
                   <select name="zone_id" defaultValue={l.zone_id ?? ""} className={input}>
@@ -117,6 +117,19 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
                   <input name="address" defaultValue={l.address ?? ""} placeholder="Indirizzo" className={input} />
                   <input name="phone" defaultValue={l.phone ?? ""} placeholder="Telefono" className={input} />
                   <input name="email" type="email" defaultValue={l.email ?? ""} placeholder="Email (notifiche)" className={input} />
+                  {/* Compenso per sacco: guida tutto il "da dare" ma finora non
+                      era modificabile da nessuna schermata, e il codice usava
+                      8,00 € di ripiego. */}
+                  <input
+                    name="bag_comp_eur"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    defaultValue={((l.bag_comp_cents ?? 800) / 100).toFixed(2)}
+                    placeholder="€/sacco"
+                    title="Quanto paghi alla lavanderia per ogni sacco (IVA escl.)"
+                    className={input}
+                  />
                   <label className="flex h-10 items-center gap-1.5 text-xs font-bold text-navy"><input type="checkbox" name="active" defaultChecked={l.active} className="accent-[#2b7fd4]" />Attiva</label>
                   <Button type="submit" size="md" variant="ghost-navy">Salva</Button>
                 </form>

@@ -7,7 +7,7 @@ import { createServiceClient } from "@/lib/supabase/server";
  *  l'indirizzo email: un link inoltrato o finito in un log non rivela chi è.
  *
  *  Scrive in due posti di proposito: `leads.unsubscribed_at` per avere lo stato
- *  sotto gli occhi in `/admin/disponibilita`, e `email_optouts` come lista
+ *  sotto gli occhi in `/admin/contatti`, e `email_optouts` come lista
  *  globale che l'invio consulta sempre. La seconda sopravvive alla
  *  cancellazione del lead — se cancelliamo la riga e la persona si riscrive
  *  domani, la sua volontà di non ricevere email resta registrata. */

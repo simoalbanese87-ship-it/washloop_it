@@ -36,6 +36,22 @@ const COLUMNS: { key: string; label: string; statuses: OrderStatus[] }[] = [
 
 const NEEDS_RIDER: OrderStatus[] = ["requested", "pickup_scheduled", "ready", "delivery_scheduled"];
 
+type Periodo = "oggi" | "settimana" | "tutti";
+
+/** La data che conta per un ordine è quella del passaggio previsto: il ritiro
+ *  finché non è stato ritirato, poi la riconsegna. Se non c'è nessuno slot
+ *  (ordine appena creato) vale la data di creazione, altrimenti sparirebbe da
+ *  tutte le viste. */
+function dataRilevante(o: BoardOrder): string {
+  if (o.status === "requested" || o.status === "pickup_scheduled") return o.pickup_at ?? o.created_at;
+  return o.delivery_at ?? o.pickup_at ?? o.created_at;
+}
+
+/** Giorno civile italiano di una data ISO, formato YYYY-MM-DD. */
+function giornoRoma(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+}
+
 function isLate(o: BoardOrder, now: number): boolean {
   return !!o.eta_ready_at && new Date(o.eta_ready_at).getTime() < now && statusIndex(o.status) < statusIndex("delivered");
 }
@@ -53,14 +69,30 @@ function Kpi({ label, value, tone }: { label: string; value: number; tone?: stri
   );
 }
 
-export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: BoardOrder[]; couriers: Opt[]; laundries: Opt[]; zones: Opt[] }) {
+export function OrdersBoard({
+  orders,
+  couriers,
+  laundries,
+  zones,
+  filtroIniziale,
+}: {
+  orders: BoardOrder[];
+  couriers: Opt[];
+  laundries: Opt[];
+  zones: Opt[];
+  /** Arriva dai riquadri della Home: apre il board già filtrato. */
+  filtroIniziale?: "ritardo" | "da_assegnare";
+}) {
   const router = useRouter();
   const [now, setNow] = useState(0);
   const [q, setQ] = useState("");
   const [zone, setZone] = useState("");
   const [laundry, setLaundry] = useState("");
-  const [onlyUnassigned, setOnlyUnassigned] = useState(false);
-  const [onlyLate, setOnlyLate] = useState(false);
+  const [onlyUnassigned, setOnlyUnassigned] = useState(filtroIniziale === "da_assegnare");
+  const [onlyLate, setOnlyLate] = useState(filtroIniziale === "ritardo");
+  // Oggi di default: il board caricava TUTTI gli ordini di sempre, e per capire
+  // cosa fare adesso bisognava leggerli tutti.
+  const [periodo, setPeriodo] = useState<Periodo>("oggi");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -82,6 +114,32 @@ export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: Bo
 
   const lateOf = (o: BoardOrder) => now > 0 && isLate(o, now);
 
+  // `now` parte a 0 e si popola dopo l'idratazione: finché è 0 il filtro per
+  // periodo resta inattivo, altrimenti il server renderebbe un board vuoto.
+  const oggi = now ? giornoRoma(new Date(now).toISOString()) : "";
+  const fineSettimana = now ? giornoRoma(new Date(now + 6 * 86_400_000).toISOString()) : "";
+
+  // Conteggio per giorno dei prossimi sette: ritiri, consegne e quanti non
+  // hanno ancora un rider. È la vista che permette di spostare un ordine PRIMA
+  // che il giorno diventi impossibile.
+  const settimana = useMemo(() => {
+    if (!now) return [];
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(now + i * 86_400_000);
+      const giorno = giornoRoma(d.toISOString());
+      const delGiorno = orders.filter((o) => giornoRoma(dataRilevante(o)) === giorno);
+      const ritiri = delGiorno.filter((o) => o.status === "requested" || o.status === "pickup_scheduled").length;
+      return {
+        giorno,
+        etichetta: new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", weekday: "short", day: "numeric" }).format(d),
+        totale: delGiorno.length,
+        ritiri,
+        consegne: delGiorno.length - ritiri,
+        senzaRider: delGiorno.filter((o) => !o.courier_id && NEEDS_RIDER.includes(o.status)).length,
+      };
+    });
+  }, [orders, now]);
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return orders.filter((o) => {
@@ -89,6 +147,11 @@ export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: Bo
       if (laundry && o.laundry_id !== laundry) return false;
       if (onlyUnassigned && o.courier_id) return false;
       if (onlyLate && !lateOf(o)) return false;
+      if (periodo !== "tutti" && oggi) {
+        const g = giornoRoma(dataRilevante(o));
+        if (periodo === "oggi" && g !== oggi) return false;
+        if (periodo === "settimana" && (g < oggi || g > fineSettimana)) return false;
+      }
       if (needle) {
         const hay = `${o.customer_name ?? ""} ${o.id} ${o.customer_phone ?? ""}`.toLowerCase();
         if (!hay.includes(needle)) return false;
@@ -96,7 +159,7 @@ export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: Bo
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders, q, zone, laundry, onlyUnassigned, onlyLate, now]);
+  }, [orders, q, zone, laundry, onlyUnassigned, onlyLate, periodo, oggi, fineSettimana, now]);
 
   const kpis = useMemo(() => {
     const active = orders.filter((o) => o.status !== "completed" && o.status !== "delivered");
@@ -185,6 +248,39 @@ export function OrdersBoard({ orders, couriers, laundries, zones }: { orders: Bo
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Periodo */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {(["oggi", "settimana", "tutti"] as Periodo[]).map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => setPeriodo(p)}
+            className={`rounded-full px-4 py-2 font-display text-sm font-bold ${periodo === p ? "bg-navy text-white" : "border border-line bg-white text-navy"}`}
+          >
+            {p === "oggi" ? "Oggi" : p === "settimana" ? "Prossimi 7 giorni" : "Tutti"}
+          </button>
+        ))}
+        <span className="text-xs font-medium text-muted">
+          {periodo === "oggi" ? "Solo i passaggi di oggi" : periodo === "settimana" ? "Da oggi a fra sei giorni" : "Tutti gli ordini aperti"}
+        </span>
+      </div>
+
+      {/* Carico dei prossimi giorni: serve a vedere i buchi prima che arrivino */}
+      {periodo === "settimana" && oggi && (
+        <div className="mb-5 grid grid-cols-7 gap-2">
+          {settimana.map((g) => (
+            <div key={g.giorno} className={`rounded-[14px] border p-2.5 text-center ${g.giorno === oggi ? "border-navy/30 bg-white" : "border-line bg-white/60"}`}>
+              <div className="font-display text-[11px] font-extrabold uppercase text-muted">{g.etichetta}</div>
+              <div className="font-display text-xl font-black text-navy">{g.totale}</div>
+              <div className="text-[10px] font-semibold text-muted">{g.ritiri}R · {g.consegne}C</div>
+              {g.senzaRider > 0 && (
+                <div className="mt-1 rounded-full bg-[#C0392B]/12 px-1.5 py-0.5 text-[10px] font-bold text-[#C0392B]">{g.senzaRider} senza rider</div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

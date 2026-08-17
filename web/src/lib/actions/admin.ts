@@ -130,6 +130,14 @@ export async function updateLaundry(formData: FormData) {
     email: String(formData.get("email") ?? "") || null,
     active: formData.has("active"),
   };
+
+  // Compenso per sacco: arriva in euro dal form, in DB sta in centesimi. È il
+  // numero da cui dipende tutto il "da dare", e finora non era modificabile.
+  const compEuro = String(formData.get("bag_comp_eur") ?? "").trim().replace(",", ".");
+  if (compEuro !== "") {
+    const cents = Math.round(parseFloat(compEuro) * 100);
+    if (Number.isFinite(cents) && cents >= 0) patch.bag_comp_cents = cents;
+  }
   if (geo) { patch.lat = geo.lat; patch.lng = geo.lng; }
   else if (!address) { patch.lat = null; patch.lng = null; }
   const { error } = await supabase.from("laundries").update(patch).eq("id", id);

@@ -5,7 +5,7 @@ import { waitlistLeads } from "@/lib/waitlist";
 
 /** Digest "novità": nuovi clienti registrati + nuovi lead dal funnel, in una
  *  finestra temporale. Usato dal cron giornaliero (email agli admin) e dalla
- *  dashboard admin /admin/novita. */
+ *  dashboard admin (/admin). */
 
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it").replace(/\s+/g, "");
 
@@ -149,7 +149,7 @@ function digestEmailHtml(d: DigestData): string {
     body,
     emoji: "📈",
     preheader: `${d.newCustomers.length} clienti · ${d.newLeads.length + d.newLandingLeads.length} lead nelle ultime ${d.hours}h`,
-    cta: { label: "Apri la dashboard", href: `${site()}/admin/novita` },
+    cta: { label: "Apri la dashboard", href: `${site()}/admin` },
   });
 }
 

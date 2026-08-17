@@ -10,6 +10,7 @@ import { canTransition, transitionError } from "@/lib/orders";
 import type { OrderStatus, ScanResult, RiderLivePos } from "@/lib/orders";
 import { romeLocalToISO, romeWeekday, romeHHMM } from "@/lib/format";
 import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
+import { registraSacchiLavanderia } from "@/lib/laundry-payout";
 import { slotFullMessage } from "@/lib/slots";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
@@ -267,6 +268,9 @@ export async function advanceStatus(formData: FormData) {
 
   const { error } = await supabase.from("orders").update({ status }).eq("id", id);
   if (error) throw new Error(error.message);
+  // Alla consegna matura il compenso della lavanderia per i sacchi: prima di
+  // adesso quella riga non veniva scritta da nessuna parte.
+  if (status === "delivered") await registraSacchiLavanderia(id);
   await notifyOrderStatus(id, status);
   revalidatePath(`/admin/ordini/${id}`);
   revalidatePath("/admin/ordini");
@@ -309,6 +313,7 @@ export async function courierAdvance(formData: FormData): Promise<{ error: strin
   if (proofUrl) {
     await supabase.from("order_items").insert({ order_id: id, kind: "prova", photo_url: proofUrl });
   }
+  if (status === "delivered") await registraSacchiLavanderia(id);
   await notifyOrderStatus(id, status);
   revalidatePath("/courier");
 }
@@ -446,6 +451,9 @@ export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<
   const done = delivered >= total;
   if (done) {
     await svc.from("orders").update({ status: "delivered" }).eq("id", order.id);
+    // Terza via che porta a "consegnato" (le altre due sono il bottone del
+    // rider e quello dell'admin): il compenso sacchi va registrato anche qui.
+    await registraSacchiLavanderia(order.id);
     await notifyOrderStatus(order.id, "delivered");
   }
   revalidatePath("/courier");
