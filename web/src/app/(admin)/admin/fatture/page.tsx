@@ -44,9 +44,9 @@ const ETICHETTA: Record<string, string> = {
 export default async function FatturePage({
   searchParams,
 }: {
-  searchParams: Promise<{ ok?: string; warn?: string }>;
+  searchParams: Promise<{ ok?: string; warn?: string; mese?: string }>;
 }) {
-  const { ok, warn } = await searchParams;
+  const { ok, warn, mese } = await searchParams;
   const svc = createServiceClient();
   const { data } = await svc
     .from("invoices")
@@ -55,7 +55,12 @@ export default async function FatturePage({
     .limit(100)
     .returns<Riga[]>();
 
-  const righe = data ?? [];
+  const tutte = data ?? [];
+  // Filtro per mese: è l'unità con cui si consegna la contabilità.
+  const righe = mese && /^\d{4}-\d{2}$/.test(mese) ? tutte.filter((r) => r.created_at.slice(0, 7) === mese) : tutte;
+  // Mesi presenti, per il menù a tendina: niente mesi vuoti da scegliere.
+  const mesi = [...new Set(tutte.map((r) => r.created_at.slice(0, 7)))].sort().reverse();
+  const incassatoPeriodo = righe.reduce((t, r) => t + r.amount_cents, 0);
   const daEmettere = righe.filter((r) => r.stato === "da_emettere").length;
   const soloRicevuta = righe.filter((r) => r.stato === "saltata").length;
   const inErrore = righe.filter((r) => r.stato === "errore").length;
@@ -104,8 +109,44 @@ export default async function FatturePage({
         </div>
       </Card>
 
+      {/* Registro incassi: il file da passare al commercialista */}
+      <Card className="mb-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="font-display text-base font-extrabold text-navy">Registro incassi</h2>
+            <p className="mt-1 text-sm font-medium text-muted">
+              Una riga per pagamento, con IVA scorporata e totale in fondo: è il file da mandare in contabilità.
+            </p>
+          </div>
+          <form className="flex flex-wrap items-center gap-2">
+            <select
+              name="mese"
+              defaultValue={mese ?? ""}
+              className="h-10 rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue"
+            >
+              <option value="">Tutti i mesi</option>
+              {mesi.map((m) => (
+                <option key={m} value={m}>
+                  {new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1, 1).toLocaleDateString("it-IT", { month: "long", year: "numeric" })}
+                </option>
+              ))}
+            </select>
+            <button type="submit" className="rounded-full border border-line px-4 py-2 font-display text-sm font-bold text-navy">Filtra</button>
+            <a
+              href={`/admin/fatture/export${mese ? `?mese=${mese}` : ""}`}
+              className="rounded-full border-2 border-navy/25 px-5 py-2 font-display text-sm font-extrabold text-navy hover:bg-navy/5"
+            >
+              ⬇ Scarica CSV ({righe.length})
+            </a>
+          </form>
+        </div>
+        <p className="mt-3 text-sm font-medium text-muted">
+          Periodo selezionato: <strong className="text-navy">{eur(incassatoPeriodo)}</strong> incassati, IVA inclusa.
+        </p>
+      </Card>
+
       <Card>
-        <h2 className="font-display text-base font-extrabold text-navy">Ultimi 100 incassi</h2>
+        <h2 className="font-display text-base font-extrabold text-navy">{mese ? "Incassi del mese" : "Ultimi 100 incassi"}</h2>
         <p className="mt-1 text-sm font-medium text-muted">
           {soloRicevuta} con la sola ricevuta (il caso normale) · {daEmettere} con fattura richiesta.
           I dati fiscali li lascia il cliente dalla sua area, alla voce «Ricevuta e fattura».
