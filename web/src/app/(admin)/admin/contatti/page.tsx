@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { LeadStatusSelect } from "@/components/admin/LeadStatusSelect";
 import { LeadActions } from "@/components/admin/LeadActions";
 import { CONTACT_STATUS, CONTACT_STATUS_LABEL, isContactStatus, type ContactStatus } from "@/lib/lead-status";
+import { importaFunnelOra } from "@/lib/actions/funnel";
 
 /** Admin → Contatti: TUTTI i potenziali clienti in un elenco solo.
  *
@@ -203,9 +204,17 @@ export default async function ContattiPage({
         </div>
       )}
 
-      <p className="mt-3 text-xs font-medium text-muted">
-        I contatti del funnel arrivano qui ogni notte dal foglio Google. Il CSV si apre in Google Sheets con File → Importa → Carica.
-      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <form action={importaFunnelOra}>
+          <button type="submit" className="rounded-full border-2 border-navy/20 px-4 py-2 font-display text-xs font-bold text-navy hover:bg-navy/5">
+            Importa ora dal funnel
+          </button>
+        </form>
+        <p className="text-xs font-medium text-muted">
+          L&apos;import gira da solo ogni notte alle 5:15. Rilanciarlo non crea doppioni e non cambia gli stati già impostati.
+          Il CSV si apre in Google Sheets con File → Importa → Carica.
+        </p>
+      </div>
     </>
   );
 }
