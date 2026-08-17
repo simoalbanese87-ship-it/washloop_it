@@ -98,7 +98,12 @@ export type ChargeEmailData = {
   legal: { company: string; vat: string; address: string; email: string; phone?: string };
 };
 
-/** Email "addebito effettuato": dettaglio importi + prelievo dalla carta salvata
+/** Ricevuta di pagamento: dettaglio importi + prelievo dalla carta salvata.
+ *
+ *  Nel regime scelto (ricevuta a tutti, fattura solo su richiesta) questa è la
+ *  prova d'acquisto che riceve la maggior parte dei clienti: il testo dice
+ *  "ricevuta" e non "addebito", perché è quello che la persona cerca quando
+ *  fruga nella posta.
  *  su Stripe. Stessa struttura/brand della welcome. */
 export function chargeEmailHtml(d: ChargeEmailData): string {
   const site = (d.siteUrl ?? "https://washloop.it").replace(/\/+$/, "");
@@ -119,9 +124,9 @@ export function chargeEmailHtml(d: ChargeEmailData): string {
 
   return `<!doctype html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="x-apple-disable-message-reformatting"><title>Addebito WashLoop</title></head>
+<meta name="x-apple-disable-message-reformatting"><title>Ricevuta WashLoop</title></head>
 <body style="margin:0;padding:0;background:#EEF3F9;-webkit-font-smoothing:antialiased;font-family:'Nunito',Arial,Helvetica,sans-serif">
-  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#EEF3F9;font-size:1px">Abbiamo registrato un addebito sul tuo account WashLoop.</div>
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#EEF3F9;font-size:1px">La tua ricevuta di pagamento WashLoop.</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF3F9;padding:32px 16px">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px">
@@ -131,7 +136,7 @@ export function chargeEmailHtml(d: ChargeEmailData): string {
             <tr><td style="height:5px;background:#7FE3D6;line-height:5px;font-size:5px">&nbsp;</td></tr>
             <tr><td style="padding:32px 36px 6px">
               <div style="font-size:34px;line-height:1;margin-bottom:12px">💳</div>
-              <h1 style="margin:0;font-size:24px;line-height:1.25;font-weight:900;color:#0B1F3A;letter-spacing:-0.3px">Abbiamo registrato un addebito${firstName ? `, ${firstName}` : ""}</h1>
+              <h1 style="margin:0;font-size:24px;line-height:1.25;font-weight:900;color:#0B1F3A;letter-spacing:-0.3px">Ricevuta di pagamento${firstName ? `, ${firstName}` : ""}</h1>
             </td></tr>
             <tr><td style="padding:10px 36px 4px">
               <p style="margin:0 0 18px;font-size:15px;line-height:1.65;color:#46586E;font-family:Arial,sans-serif">

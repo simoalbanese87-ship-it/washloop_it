@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
           siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it",
           legal: { company: LEGAL.company, vat: LEGAL.vat, address: LEGAL.address, email: LEGAL.email, phone: LEGAL.phone },
         });
-        await sendMail({ to, subject: `Addebito WashLoop · €${(inv.amount_paid / 100).toLocaleString("it-IT", { minimumFractionDigits: 2 })} 💳`, html });
+        await sendMail({ to, subject: `Ricevuta WashLoop · €${(inv.amount_paid / 100).toLocaleString("it-IT", { minimumFractionDigits: 2 })} 🧾`, html });
       } catch (err) {
         console.error("[webhook] invoice.payment_succeeded notify fallita:", err);
       }

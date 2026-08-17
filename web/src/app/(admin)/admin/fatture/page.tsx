@@ -32,7 +32,7 @@ const ETICHETTA: Record<string, string> = {
   emessa: "Emessa",
   da_emettere: "Da emettere",
   errore: "Errore",
-  saltata: "Saltata",
+  saltata: "Solo ricevuta",
 };
 
 /** Registro degli incassi e delle fatture su Fatture in Cloud.
@@ -57,6 +57,7 @@ export default async function FatturePage({
 
   const righe = data ?? [];
   const daEmettere = righe.filter((r) => r.stato === "da_emettere").length;
+  const soloRicevuta = righe.filter((r) => r.stato === "saltata").length;
   const inErrore = righe.filter((r) => r.stato === "errore").length;
   const mode = ficMode();
   const { data: token } = await svc.from("fic_tokens").select("company_id, updated_at").eq("id", 1).maybeSingle<{ company_id: number | null; updated_at: string }>();
@@ -67,7 +68,7 @@ export default async function FatturePage({
       <PageTitle
         kicker="Fatture"
         title="Incassi e fatturazione"
-        sub="Ogni incasso Stripe finisce qui. La fattura la crea Fatture in Cloud: noi mandiamo i dati e conserviamo il riferimento."
+        sub="Ricevuta a tutti, fattura solo a chi la chiede. Ogni incasso è tracciato qui; la fattura la crea Fatture in Cloud."
       />
 
       {ok && <div className="mb-4 rounded-[14px] bg-[#1F8A5B]/10 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
@@ -85,7 +86,7 @@ export default async function FatturePage({
             </h2>
             <p className="mt-1 text-sm font-medium text-muted">
               {mode === "off"
-                ? "Gli incassi vengono registrati ma non fatturati. Si accende con FIC_MODE quando il regime fiscale è deciso: nessun deploy."
+                ? `Le richieste di fattura vengono registrate ma non emesse: si accende con FIC_MODE, nessun deploy. ${daEmettere} in attesa.`
                 : `${daEmettere} da emettere · ${inErrore} in errore`}
             </p>
             <p className="mt-1 text-sm font-medium text-muted">
@@ -105,6 +106,10 @@ export default async function FatturePage({
 
       <Card>
         <h2 className="font-display text-base font-extrabold text-navy">Ultimi 100 incassi</h2>
+        <p className="mt-1 text-sm font-medium text-muted">
+          {soloRicevuta} con la sola ricevuta (il caso normale) · {daEmettere} con fattura richiesta.
+          I dati fiscali li lascia il cliente dalla sua area, alla voce «Ricevuta e fattura».
+        </p>
         <div className="mt-3 divide-y divide-line">
           {righe.map((r) => (
             <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">

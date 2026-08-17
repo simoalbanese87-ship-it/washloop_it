@@ -4,6 +4,7 @@ import { startCheckout, openPortal } from "@/lib/actions/billing";
 import { fmtDate } from "@/lib/format";
 import { planRecap } from "@/lib/plan-copy";
 import { CostsExplainer } from "@/components/app/CostsExplainer";
+import { DatiFatturaForm } from "@/components/app/DatiFatturaForm";
 
 type Plan = { id: string; code: string; name: string; price_month_cents: number; pickups_per_week: number; turnaround_hours: number };
 type Sub = { status: string; current_period_end: string | null; plan_id: string | null; plans: { name: string } | null };
@@ -33,6 +34,21 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
   ]);
 
   const active = sub?.status === "active" || sub?.status === "trialing";
+
+  // Dati di fatturazione: li chiediamo solo a chi vuole la fattura. Di norma
+  // basta la ricevuta, che parte già via email a ogni addebito.
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: fatt } = user
+    ? await supabase
+        .from("profiles")
+        .select("billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec")
+        .eq("id", user.id)
+        .maybeSingle<{
+          billing_wants_invoice: boolean; billing_name: string | null; billing_address: string | null;
+          billing_cap: string | null; billing_city: string | null; billing_tax_code: string | null;
+          billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null;
+        }>()
+    : { data: null };
 
   // Uso del mese (dati reali)
   const ordersCount = monthOrders?.length ?? 0;
@@ -139,6 +155,29 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
           </p>
         </div>
       )}
+
+      {/* Ricevuta o fattura */}
+      <section className="rounded-[18px] border border-line bg-white p-5">
+        <h2 className="font-display text-base font-extrabold text-navy">Ricevuta e fattura</h2>
+        <p className="mt-1 text-sm font-medium text-muted">
+          A ogni pagamento ti mandiamo la ricevuta via email. Se ti serve la fattura, dicci come intestarla.
+        </p>
+        <div className="mt-4">
+          <DatiFatturaForm
+            iniziale={{
+              vuole: fatt?.billing_wants_invoice ?? false,
+              nome: fatt?.billing_name ?? null,
+              indirizzo: fatt?.billing_address ?? null,
+              cap: fatt?.billing_cap ?? null,
+              citta: fatt?.billing_city ?? null,
+              codiceFiscale: fatt?.billing_tax_code ?? null,
+              partitaIva: fatt?.billing_vat ?? null,
+              sdi: fatt?.billing_sdi ?? null,
+              pec: fatt?.billing_pec ?? null,
+            }}
+          />
+        </div>
+      </section>
     </div>
   );
 }
