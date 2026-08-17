@@ -7,7 +7,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { registraIncasso } from "@/lib/fatturazione";
 import { ficMode } from "@/lib/fic";
 
-const REV = "/admin/fatture";
+const REV = "/admin/incassi";
 
 /** Riprova a emettere una fattura rimasta indietro o finita in errore.
  *

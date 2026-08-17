@@ -16,12 +16,12 @@ const SCOPES = ["entity.clients:a", "issued_documents.invoices:a", "settings:r"]
 
 export async function GET(req: Request) {
   const me = await getCurrentProfile();
-  if (!me || me.role !== "admin") return NextResponse.redirect(new URL("/login?next=/admin/fatture", req.url));
+  if (!me || me.role !== "admin") return NextResponse.redirect(new URL("/login?next=/admin/incassi", req.url));
 
   const clientId = process.env.FIC_CLIENT_ID?.trim();
   if (!clientId) {
     return NextResponse.redirect(
-      new URL(`/admin/fatture?warn=${encodeURIComponent("Manca FIC_CLIENT_ID: crea l'app su Fatture in Cloud e aggiungi le credenziali su Vercel.")}`, req.url),
+      new URL(`/admin/incassi?warn=${encodeURIComponent("Manca FIC_CLIENT_ID: crea l'app su Fatture in Cloud e aggiungi le credenziali su Vercel.")}`, req.url),
     );
   }
 

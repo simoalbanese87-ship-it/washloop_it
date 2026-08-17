@@ -55,7 +55,7 @@ export async function registraIncasso(input: {
   if (!dati?.vuole) return;
   if (ficMode() === "off") {
     // Richiesta registrata ma ponte spento: la riga resta in attesa e si vede
-    // in /admin/fatture, invece di sparire.
+    // in /admin/incassi, invece di sparire.
     await svc.from("invoices").update({ stato: "da_emettere", requested_at: new Date().toISOString() }).eq("id", riga.id);
     return;
   }

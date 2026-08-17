@@ -16,7 +16,7 @@ const adminNav: NavItem[] = [
   { href: "/admin/contatti", label: "Contatti" },
   { href: "/admin/ordini", label: "Ordini" },
   { href: "/admin/abbonati", label: "Clienti" },
-  { href: "/admin/fatture", label: "Finanza" },
+  { href: "/admin/incassi", label: "Incassi" },
   { href: "/admin/impostazioni", label: "Impostazioni" },
 ];
 

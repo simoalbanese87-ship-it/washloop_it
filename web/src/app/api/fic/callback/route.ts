@@ -11,11 +11,11 @@ import { createServiceClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const vaiA = (req: Request, q: string) => NextResponse.redirect(new URL(`/admin/fatture?${q}`, req.url));
+const vaiA = (req: Request, q: string) => NextResponse.redirect(new URL(`/admin/incassi?${q}`, req.url));
 
 export async function GET(req: Request) {
   const me = await getCurrentProfile();
-  if (!me || me.role !== "admin") return NextResponse.redirect(new URL("/login?next=/admin/fatture", req.url));
+  if (!me || me.role !== "admin") return NextResponse.redirect(new URL("/login?next=/admin/incassi", req.url));
 
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
