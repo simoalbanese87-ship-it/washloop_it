@@ -12,6 +12,7 @@ const adminNav: NavItem[] = [
   { href: "/admin/lista-attesa", label: "Lista d'attesa" },
   { href: "/admin/disponibilita", label: "Disponibilità" },
   { href: "/admin/catalogo", label: "Catalogo" },
+  { href: "/admin/fatture", label: "Fatture" },
   { href: "/admin/etichette", label: "Etichette" },
   { href: "/admin/team", label: "Team" },
   { href: "/admin/email", label: "Email" },

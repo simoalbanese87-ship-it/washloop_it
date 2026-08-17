@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { stripe, siteUrl } from "@/lib/stripe";
+import { creaClienteStripe } from "@/lib/stripe-customer";
 import { notifyNewCustomer, notifyRecurringChanged } from "@/lib/notify";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -96,7 +97,7 @@ export async function createCustomSubscriptionLink(
       .maybeSingle<{ stripe_customer_id: string | null }>();
     let stripeCustomerId = existing?.stripe_customer_id ?? undefined;
     if (!stripeCustomerId) {
-      const c = await stripe().customers.create({ email, metadata: { supabase_user_id: customerId } });
+      const c = await creaClienteStripe(svc, customerId, email);
       stripeCustomerId = c.id;
     }
 

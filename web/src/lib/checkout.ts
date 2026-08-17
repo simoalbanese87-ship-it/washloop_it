@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { stripe, siteUrl } from "@/lib/stripe";
+import { creaClienteStripe, allineaClienteStripe } from "@/lib/stripe-customer";
 
 /**
  * Crea/recupera il customer Stripe per l'utente loggato e apre una sessione
@@ -32,11 +33,14 @@ export async function checkoutUrlForPlan(planId: string): Promise<string> {
 
   let customerId = existing?.stripe_customer_id as string | undefined;
   if (!customerId) {
-    const customer = await stripe().customers.create({
-      email: user.email ?? undefined,
-      metadata: { supabase_user_id: user.id },
-    });
+    // Anagrafica completa fin dalla creazione: nome, telefono e indirizzo li
+    // abbiamo già, e su Stripe servono per ricevute e riconciliazione.
+    const customer = await creaClienteStripe(supabase, user.id, user.email ?? undefined);
     customerId = customer.id;
+  } else {
+    // I clienti creati prima hanno su Stripe la sola email: li riallineiamo al
+    // passaggio successivo, senza far pesare un errore sul pagamento.
+    await allineaClienteStripe(supabase, user.id, customerId);
   }
 
   const session = await stripe().checkout.sessions.create({

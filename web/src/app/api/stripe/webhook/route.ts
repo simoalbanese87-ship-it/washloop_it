@@ -4,6 +4,7 @@ import { stripe } from "@/lib/stripe";
 import { createServiceClient } from "@/lib/supabase/server";
 import { eventoGiaVisto, syncSubscription } from "@/lib/subscription-sync";
 import { renderEmail, sendMail } from "@/lib/email";
+import { registraIncasso } from "@/lib/fatturazione";
 import { chargeEmailHtml } from "@/lib/email-templates";
 import { LEGAL } from "@/lib/legal";
 import { fmtDate } from "@/lib/format";
@@ -76,6 +77,29 @@ export async function POST(request: NextRequest) {
           lines?: { data?: { description?: string | null; amount?: number }[] };
         };
         if (!inv.amount_paid || inv.amount_paid <= 0) break; // niente da notificare (es. €0)
+
+        // Registro fatturazione: la riga si scrive sempre, anche a ponte FIC
+        // spento, così il giorno in cui si decide il regime fiscale gli incassi
+        // già avvenuti sono tutti tracciati e non vanno ricostruiti da Stripe.
+        // Fuori dal percorso sincrono: un problema con FIC non deve far fallire
+        // il webhook e innescare i retry di Stripe sul pagamento.
+        after(async () => {
+          const { data: sub } = await db
+            .from("subscriptions")
+            .select("user_id")
+            .eq("stripe_customer_id", inv.customer)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle<{ user_id: string | null }>();
+          await registraIncasso({
+            stripeInvoiceId: inv.id,
+            stripeCustomerId: inv.customer,
+            amountCents: inv.amount_paid,
+            userId: sub?.user_id ?? null,
+            descrizione: inv.lines?.data?.[0]?.description || "Abbonamento WashLoop",
+            dataIso: new Date((inv.status_transitions?.paid_at ?? inv.created) * 1000).toISOString().slice(0, 10),
+          });
+        });
 
         // Destinatario: email da fattura, fallback al customer Stripe.
         let to = inv.customer_email ?? null;
