@@ -14,7 +14,7 @@ type Row = {
   id: string;
   status: OrderStatus;
   bags: number;
-  customer: { full_name: string | null; phone: string | null } | null;
+  customer: { full_name: string | null; phone: string | null; client_code: string | null; tags_delivered_at: string | null } | null;
   addresses: { street: string; lat: number | null; lng: number | null; zones: { name: string } | null; access_mode: string | null; access_note: string | null } | null;
   pickup_slot: { starts_at: string; ends_at: string } | null;
   delivery_slot: { starts_at: string; ends_at: string } | null;
@@ -35,6 +35,8 @@ function toJob(r: Row, kind: "pickup" | "delivery"): Job {
     address: r.addresses?.street ?? "—",
     zone: r.addresses?.zones?.name ?? "—",
     phone: r.customer?.phone ?? null,
+    clientCode: r.customer?.client_code ?? null,
+    tagConsegnati: !!r.customer?.tags_delivered_at,
     bags: r.bags,
     when: fmt(kind === "pickup" ? r.pickup_slot : r.delivery_slot),
     accessMode: (r.addresses?.access_mode ?? "door") as AccessMode,
@@ -50,7 +52,7 @@ export default async function CourierToday() {
     supabase
       .from("orders")
       .select(
-        "id, status, bags, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, lat, lng, zones(name), access_mode, access_note), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
+        "id, status, bags, customer:profiles!orders_customer_id_fkey(full_name, phone, client_code, tags_delivered_at), addresses(street, lat, lng, zones(name), access_mode, access_note), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
       )
       .eq("courier_id", profile?.id ?? "")
       .in("status", ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"])
