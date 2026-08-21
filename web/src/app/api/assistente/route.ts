@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import crypto from "crypto";
 import { contestoAssistente } from "@/lib/faq";
+import { createServiceClient } from "@/lib/supabase/server";
 
 /** Assistente per le domande dei clienti, basato sulle FAQ.
  *
@@ -71,6 +72,25 @@ export async function POST(req: Request) {
   }
   if (domanda.length < 3) return NextResponse.json({ errore: "Scrivi una domanda un po' più lunga." }, { status: 400 });
 
+  // Zone coperte lette dal database, le stesse che usa la landing per dire
+  // "sei in zona". Con il testo scritto a mano nelle FAQ l'assistente aveva
+  // appena risposto che Rozzano probabilmente non era coperta, mentre lo è.
+  let copertura = "";
+  try {
+    const { data } = await createServiceClient()
+      .from("zone_caps")
+      .select("cap, zones!inner(name, active)")
+      .eq("zones.active", true)
+      .returns<{ cap: string; zones: { name: string } | null }[]>();
+    const caps = [...new Set((data ?? []).map((z) => z.cap))].sort();
+    const zone = [...new Set((data ?? []).map((z) => z.zones?.name).filter(Boolean))];
+    if (caps.length) {
+      copertura = `\n\nZONE COPERTE ADESSO (fonte: il nostro sistema, aggiornata): ${zone.join(", ")}. CAP serviti: ${caps.join(", ")}. Se il CAP della persona non è in questo elenco, non siamo ancora attivi da lei: invitala a lasciare il contatto su washloop.it/disponibilita per essere avvisata all'apertura.`;
+    }
+  } catch {
+    /* senza database si risponde comunque, con le sole FAQ */
+  }
+
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -82,7 +102,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         model: MODELLO,
         max_tokens: 400,
-        system: `${ISTRUZIONI}\n\n---\n${contestoAssistente()}`,
+        system: `${ISTRUZIONI}\n\n---\n${contestoAssistente()}${copertura}`,
         messages: [{ role: "user", content: domanda }],
       }),
     });
