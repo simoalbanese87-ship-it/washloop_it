@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { ButtonLink } from "@/components/ui/Button";
 import { PLAN_COPY } from "@/lib/plan-copy";
+import { FAQ } from "@/lib/faq";
+import { ChiediAWashLoop } from "@/components/marketing/ChiediAWashLoop";
 
 /* ============================================================
    Home — Sito vetrina WashLoop
@@ -82,15 +84,7 @@ const plans = [
   },
 ];
 
-const faqs = [
-  { q: "Quanti sacchi e ritiri sono inclusi?", a: "Dipende dal piano: Small 1 sacco a settimana, Medium 2, Large 3. Il ritiro è sempre una volta a settimana. Ogni sacchetto contiene fino a 3 camicie." },
-  { q: "Posso consegnare più sacchi insieme?", a: "Sì. Puoi cumulare i sacchi del tuo abbonamento nell'arco del mese: se una settimana non consegni, la successiva porti due sacchi insieme. Basta avvisare il driver il giorno prima." },
-  { q: "Mi serve un sacco extra. Quanto costa?", a: "Puoi aggiungere sacchi oltre quelli del piano a €45 l'uno. Li gestisci direttamente dall'app." },
-  { q: "E i capi da lavanderia o delicati?", a: "Mettili in un sacco separato apposito: li lavoriamo a prezzo di listino, fuori dal volume dell'abbonamento." },
-  { q: "Posso mettere in pausa l'abbonamento?", a: "Sì. Vai in vacanza? Metti in pausa per un mese intero dall'app, e lo riprendi quando vuoi. Paghi solo quando usi davvero il servizio." },
-  { q: "Cosa succede se un capo si rovina?", a: "Abbiamo una policy danni trasparente: ogni capo è tracciato e fotografato. In caso di problema ti rimborsiamo secondo termini chiari, scritti nero su bianco." },
-  { q: "Quali zone coprite a Milano?", a: "Stiamo partendo dal centro e dai quartieri semicentrali di Milano. Inserisci il tuo indirizzo: ti diciamo subito se sei in zona o ti avvisiamo all'apertura." },
-];
+
 
 export default function Home() {
   return (
@@ -270,7 +264,7 @@ export default function Home() {
             </h2>
           </div>
           <div className="mt-10 space-y-3">
-            {faqs.map((f) => (
+            {FAQ.map((f) => (
               <details key={f.q} className="group rounded-[18px] border border-line bg-ice p-5">
                 <summary className="flex cursor-pointer list-none items-center justify-between font-display text-base font-extrabold text-navy">
                   {f.q}
@@ -279,6 +273,8 @@ export default function Home() {
                 <p className="mt-3 text-sm font-medium leading-relaxed text-muted">{f.a}</p>
               </details>
             ))}
+
+            <ChiediAWashLoop />
           </div>
         </div>
       </section>
