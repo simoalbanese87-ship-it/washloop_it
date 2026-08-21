@@ -29,7 +29,7 @@ export default async function OrdiniPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="font-display text-[23px] font-black tracking-[-0.03em] text-navy">I tuoi lavaggi</h1>
+      <h1 className="font-display text-[23px] font-black tracking-[-0.03em] text-navy">I tuoi ritiri</h1>
       <CustomerOrders rows={list} />
     </div>
   );
