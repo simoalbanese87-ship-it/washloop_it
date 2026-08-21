@@ -1,6 +1,7 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { createServiceClient } from "@/lib/supabase/server";
 import { segnaMesePagato } from "@/lib/actions/payout";
+import { BottoneInvio } from "@/components/ui/BottoneInvio";
 
 export const dynamic = "force-dynamic";
 
@@ -125,9 +126,9 @@ export default async function LavanderiaPage({
                       <form action={segnaMesePagato}>
                         <input type="hidden" name="laundry_id" value={g.laundryId} />
                         <input type="hidden" name="mese" value={g.mese} />
-                        <button type="submit" className="rounded-full border-2 border-navy/20 px-4 py-2 font-display text-xs font-bold text-navy">
+                        <BottoneInvio className="rounded-full border-2 border-navy/20 px-4 py-2 font-display text-xs font-bold text-navy">
                           Segna pagato
-                        </button>
+                        </BottoneInvio>
                       </form>
                     )}
                   </div>

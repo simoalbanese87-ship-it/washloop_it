@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { ficMode } from "@/lib/fic";
 import { riemettiFattura } from "@/lib/actions/fatture";
 import { fmtFull } from "@/lib/format";
+import { BottoneInvio } from "@/components/ui/BottoneInvio";
 
 export const dynamic = "force-dynamic";
 
@@ -152,9 +153,9 @@ export default async function IncassiPage({
             Al
             <input type="date" name="al" defaultValue={al ?? ""} className={`${input} mt-1 block`} />
           </label>
-          <button type="submit" className="rounded-full bg-gradient-to-br from-blue to-cyan px-5 py-2 font-display text-sm font-extrabold text-white">
+          <BottoneInvio className="rounded-full bg-gradient-to-br from-blue to-cyan px-5 py-2 font-display text-sm font-extrabold text-white">
             Filtra
-          </button>
+          </BottoneInvio>
           <a
             href={`/admin/incassi/export${qs({})}`}
             className="rounded-full border-2 border-navy/25 px-5 py-2 font-display text-sm font-extrabold text-navy hover:bg-navy/5"
@@ -254,9 +255,9 @@ export default async function IncassiPage({
                 {(r.stato === "da_emettere" || r.stato === "errore") && mode !== "off" && (
                   <form action={riemettiFattura}>
                     <input type="hidden" name="id" value={r.id} />
-                    <button type="submit" className="rounded-full border-2 border-navy/20 px-3 py-1.5 font-display text-[11px] font-bold text-navy">
+                    <BottoneInvio className="rounded-full border-2 border-navy/20 px-3 py-1.5 font-display text-[11px] font-bold text-navy">
                       {r.stato === "errore" ? "Riprova" : "Emetti"}
-                    </button>
+                    </BottoneInvio>
                   </form>
                 )}
               </div>

@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useFormStatus } from "react-dom";
 import { cn } from "@/lib/cn";
 
 /* Bottoni WashLoop — primary (gradiente), light (su navy), ghost, ghost-navy.
@@ -29,15 +32,44 @@ type CommonProps = {
   children: React.ReactNode;
 };
 
+/** Rotellina: dice che il comando è stato preso.
+ *
+ *  Fra il clic e la risposta del server passa quasi sempre qualche decimo di
+ *  secondo, e senza nulla che si muova non si capisce se il clic è arrivato —
+ *  così si clicca due volte, e a volte si salva due volte. */
+function Rotellina() {
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-4 w-4 flex-none animate-spin rounded-full border-2 border-current border-t-transparent opacity-80"
+    />
+  );
+}
+
 export function Button({
   variant = "primary",
   size = "lg",
   className,
   children,
+  type,
+  disabled,
   ...rest
 }: CommonProps & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  // `useFormStatus` guarda la form che contiene questo bottone: vale zero se il
+  // bottone sta fuori da una form, quindi si può usare sempre senza pensarci.
+  const { pending } = useFormStatus();
+  const inCorso = pending && type === "submit";
+
   return (
-    <button className={cn(base, sizes[size], variants[variant], className)} {...rest}>
+    <button
+      type={type}
+      // Bloccato mentre lavora: è ciò che impedisce il doppio invio.
+      disabled={disabled || inCorso}
+      aria-busy={inCorso || undefined}
+      className={cn(base, sizes[size], variants[variant], className)}
+      {...rest}
+    >
+      {inCorso && <Rotellina />}
       {children}
     </button>
   );

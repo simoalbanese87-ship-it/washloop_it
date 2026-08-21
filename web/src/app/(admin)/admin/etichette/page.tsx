@@ -6,6 +6,7 @@ import { PrintButton } from "@/components/app/PrintButton";
 import { createServiceClient } from "@/lib/supabase/server";
 import { segnaTagConsegnati, annullaTagConsegnati } from "@/lib/actions/tags";
 import { fmtDate } from "@/lib/format";
+import { BottoneInvio } from "@/components/ui/BottoneInvio";
 
 export const dynamic = "force-dynamic";
 
@@ -181,9 +182,9 @@ export default async function EtichettePage({
                 {cl.tags_delivered_at ? (
                   <form action={annullaTagConsegnati}>
                     <input type="hidden" name="cliente_id" value={cl.id} />
-                    <button type="submit" className="font-display text-[11px] font-bold text-[#C0392B]/70 hover:underline">
+                    <BottoneInvio className="font-display text-[11px] font-bold text-[#C0392B]/70 hover:underline">
                       Annulla consegna
-                    </button>
+                    </BottoneInvio>
                   </form>
                 ) : (
                   <form action={segnaTagConsegnati} className="flex items-center gap-1.5">
@@ -197,9 +198,9 @@ export default async function EtichettePage({
                       aria-label="Quanti tag"
                       className="h-8 w-14 rounded-[10px] border border-line bg-ice px-2 text-xs font-semibold text-navy outline-none focus:border-blue"
                     />
-                    <button type="submit" className="rounded-full bg-navy/90 px-3 py-1.5 font-display text-[11px] font-bold text-white">
+                    <BottoneInvio className="rounded-full bg-navy/90 px-3 py-1.5 font-display text-[11px] font-bold text-white">
                       Segna consegnati
-                    </button>
+                    </BottoneInvio>
                   </form>
                 )}
               </div>
