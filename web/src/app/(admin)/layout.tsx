@@ -13,9 +13,8 @@ import { roleHome } from "@/lib/orders";
  *  Archivio) reindirizzano alla lista giusta. */
 const adminNav: NavItem[] = [
   { href: "/admin", label: "Home" },
-  { href: "/admin/contatti", label: "Contatti" },
+  { href: "/admin/persone", label: "Persone" },
   { href: "/admin/ordini", label: "Ordini" },
-  { href: "/admin/abbonati", label: "Clienti" },
   { href: "/admin/incassi", label: "Incassi" },
   { href: "/admin/impostazioni", label: "Impostazioni" },
 ];

@@ -12,11 +12,6 @@ import type { OrderStatus } from "@/lib/orders";
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
-const SUB_STATUS_LABEL: Record<string, string> = {
-  active: "Attivo", trialing: "In prova", past_due: "Pagamento sospeso",
-  unpaid: "Non pagato", canceled: "Disdetto", paused: "In pausa",
-  incomplete: "Da attivare (non pagato)",
-};
 
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string };
 type Sub = { id: string; status: string; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number } | null };
