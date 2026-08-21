@@ -19,7 +19,9 @@ export const dynamic = "force-dynamic";
 
 type Blocco = { label: string; n: number; sub: string; href: string; tono: string };
 
-export default async function AdminHome() {
+export default async function AdminHome({ searchParams }: { searchParams: Promise<{ prova?: string }> }) {
+  const { prova } = await searchParams;
+  const includiProva = prova === "1";
   const svc = createServiceClient();
   const oraIso = new Date().toISOString();
 
@@ -27,17 +29,29 @@ export default async function AdminHome() {
   // niente da sbloccare.
   const ATTIVI = ["requested", "pickup_scheduled", "picked_up", "at_laundry", "washing", "ready", "delivery_scheduled", "out_for_delivery", "delivery_failed"];
 
+  // Ordini che riguardano clienti veri. `!inner` sull'embed è indispensabile:
+  // senza, il filtro varrebbe solo sull'embed e gli ordini di prova di Mario
+  // Test resterebbero nei riquadri "in ritardo" e "senza rider" per sempre.
+  const ordiniVeri = () => {
+    const q = svc.from("orders").select("id, profiles!orders_customer_id_fkey!inner(is_test)", { count: "exact", head: true }).in("status", ATTIVI);
+    return includiProva ? q : q.eq("profiles.is_test", false);
+  };
+  const abbonamentiVeri = () => {
+    const q = svc.from("subscriptions").select("id, profiles!inner(is_test)", { count: "exact", head: true }).in("status", ["past_due", "unpaid"]);
+    return includiProva ? q : q.eq("profiles.is_test", false);
+  };
+
   const [daContattare, inRitardo, senzaRider, pagamentiKo, rev, laundry, subs, customers] = await Promise.all([
     svc.from("leads").select("id", { count: "exact", head: true }).eq("contact_status", "da_contattare"),
     // Ritardo = doveva essere pronto e non lo è ancora. Stessa regola del board
     // ordini (`isLate`), qui applicata dal database invece che nel browser.
-    svc.from("orders").select("id", { count: "exact", head: true }).lt("eta_ready_at", oraIso).in("status", ATTIVI),
-    svc.from("orders").select("id", { count: "exact", head: true }).is("courier_id", null).in("status", ATTIVI),
-    svc.from("subscriptions").select("id", { count: "exact", head: true }).in("status", ["past_due", "unpaid"]),
-    revenueMetrics(),
-    laundryMetrics(),
-    subscriberMetrics(),
-    customersList(),
+    ordiniVeri().lt("eta_ready_at", oraIso),
+    ordiniVeri().is("courier_id", null),
+    abbonamentiVeri(),
+    revenueMetrics(includiProva),
+    laundryMetrics(includiProva),
+    subscriberMetrics(includiProva),
+    customersList(includiProva),
   ]);
 
   const blocchi: Blocco[] = [
@@ -95,16 +109,34 @@ export default async function AdminHome() {
         ))}
       </div>
 
-      {/* Ricavi */}
+      {/* Soldi. Il numero grande è quello incassato davvero: il ricorrente è
+          una previsione e sta accanto, più piccolo. */}
       <Card className="mb-6">
-        <h2 className="mb-3 font-display text-base font-extrabold text-navy">Ricavi</h2>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatTile label="Core · mese (MRR)" value={eurCents(rev.coreMrrCents)} sub="Abbonamenti attivi × prezzo" tone="text-[#1F8A5B]" />
-          <StatTile label="Extra · mese" value={eurCents(rev.extraMonthCents)} sub="Capi extra + addebiti" tone="text-blue" />
-          <StatTile label="Core · anno (proiez.)" value={eurCents(rev.coreYearProjCents)} sub="MRR × 12" />
-          <StatTile label="Extra · anno" value={eurCents(rev.extraYearCents)} sub="Da inizio anno" />
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-display text-base font-extrabold text-navy">Soldi del mese</h2>
+          <Link
+            href={includiProva ? "/admin" : "/admin?prova=1"}
+            className="font-display text-xs font-bold text-navy/55 hover:text-navy"
+          >
+            {includiProva ? "Nascondi dati di prova" : "Mostra dati di prova"}
+          </Link>
         </div>
-        <p className="mt-2 text-[11px] font-medium text-muted">Core = ricavo ricorrente atteso da DB (include gli abbonamenti manuali). Extra esatti da data di creazione. IVA: Core/Extra IVA inclusa; il costo lavanderia sotto è IVA esclusa.</p>
+
+        <Link href={`/admin/numeri/incassato-mese${includiProva ? "?prova=1" : ""}`} className="block rounded-[18px] border border-line bg-ice/50 p-5 transition-colors hover:border-navy/25">
+          <div className="font-display text-[38px] font-black leading-none text-[#1F8A5B]">{eurCents(rev.incassatoMeseCents)}</div>
+          <div className="mt-1.5 font-display text-sm font-extrabold text-navy">Incassato questo mese →</div>
+          <div className="text-xs font-medium text-muted">Soldi realmente arrivati su Stripe · {eurCents(rev.incassatoAnnoCents)} da inizio anno</div>
+        </Link>
+
+        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-3">
+          <NumeroCliccabile href={`/admin/numeri/ricorrente${includiProva ? "?prova=1" : ""}`} label="Ricorrente atteso" value={eurCents(rev.coreMrrCents)} sub="Abbonamenti attivi oggi" />
+          <NumeroCliccabile href={`/admin/numeri/extra-mese${includiProva ? "?prova=1" : ""}`} label="Extra del mese" value={eurCents(rev.extraMonthCents)} sub="Capi fuori abbonamento e addebiti" />
+          <NumeroCliccabile href={`/admin/numeri/ricorrente${includiProva ? "?prova=1" : ""}`} label="Proiezione anno" value={eurCents(rev.coreYearProjCents)} sub="Ricorrente × 12" />
+        </div>
+
+        <p className="mt-2 text-[11px] font-medium text-muted">
+          Ogni numero si apre e mostra le righe che lo compongono. Incassato e Extra sono IVA inclusa; il costo lavanderia qui sotto è IVA esclusa.
+        </p>
       </Card>
 
       {/* Lavanderia */}
@@ -114,9 +146,9 @@ export default async function AdminHome() {
           <Link href="/admin/lavanderia" className="font-display text-xs font-bold text-blue hover:underline">Vedi il dettaglio →</Link>
         </div>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatTile label="Sacchi · mese" value={String(laundry.bagsMonth)} sub="Ritirati questo mese" />
+          <NumeroCliccabile href={`/admin/numeri/sacchi-mese${includiProva ? "?prova=1" : ""}`} label="Sacchi · mese" value={String(laundry.bagsMonth)} sub="Ritirati questo mese" />
           <StatTile label="Sacchi · anno" value={String(laundry.bagsYear)} sub="Da inizio anno" />
-          <StatTile label="Da dare · mese" value={eurCents(laundry.laundryOwedMonthCents)} sub="Sacchi + extra (IVA escl.)" tone="text-[#C9881F]" />
+          <NumeroCliccabile href={`/admin/numeri/da-dare${includiProva ? "?prova=1" : ""}`} label="Da dare · mese" value={eurCents(laundry.laundryOwedMonthCents)} sub="Dal registro compensi (IVA escl.)" />
           <StatTile label="Da dare · anno" value={eurCents(laundry.laundryOwedYearCents)} sub="Totale maturato" tone="text-[#C9881F]" />
         </div>
       </Card>
@@ -125,8 +157,8 @@ export default async function AdminHome() {
       <Card className="mb-6">
         <h2 className="mb-3 font-display text-base font-extrabold text-navy">Abbonati</h2>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <StatTile label="Nuovi · mese" value={String(subs.newSubsMonth)} sub={`${subs.newSubsYear} nell'anno`} tone="text-[#1F8A5B]" />
-          <StatTile label="Interrotti · mese" value={String(subs.canceledMonth)} sub={`${subs.canceledYear} nell'anno`} tone="text-[#C0392B]" />
+          <NumeroCliccabile href={`/admin/numeri/nuovi-abbonati${includiProva ? "?prova=1" : ""}`} label="Nuovi · mese" value={String(subs.newSubsMonth)} sub={`${subs.newSubsYear} nell'anno`} />
+          <NumeroCliccabile href={`/admin/numeri/interrotti${includiProva ? "?prova=1" : ""}`} label="Interrotti · mese" value={String(subs.canceledMonth)} sub={`${subs.canceledYear} nell'anno`} />
           <StatTile label="Attivi ora" value={String(subs.currentActive)} />
           <StatTile label="Disdetti ora" value={String(subs.currentCanceled)} />
           <StatTile label="In pausa ora" value={String(subs.currentPaused)} />
@@ -156,5 +188,16 @@ export default async function AdminHome() {
         </form>
       </Card>
     </>
+  );
+}
+
+/** Riquadro con un numero che si può aprire per vedere da cosa è composto. */
+function NumeroCliccabile({ href, label, value, sub }: { href: string; label: string; value: string; sub: string }) {
+  return (
+    <Link href={href} className="rounded-[18px] border border-line bg-white p-4 transition-colors hover:border-navy/30">
+      <div className="font-display text-xl font-black text-navy">{value}</div>
+      <div className="mt-0.5 font-display text-xs font-extrabold text-navy">{label} →</div>
+      <div className="text-[11px] font-medium text-muted">{sub}</div>
+    </Link>
   );
 }
