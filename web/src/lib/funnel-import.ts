@@ -18,6 +18,26 @@ import { zoneIdForCap } from "@/lib/zones";
  *  tocca mai — altrimenti l'import notturno riporterebbe a "da contattare" un
  *  contatto che hai appena chiuso. */
 
+/** Ultimo import in questo processo: evita di rileggere il foglio a ogni
+ *  ricaricamento della pagina. */
+let ultimoImport = 0;
+
+/** Importa se è passato abbastanza tempo. Chiamata all'apertura di Persone:
+ *  i lead della landing entrano nel CRM all'istante (li scrive il modulo), ma
+ *  quelli del funnel vivono in un foglio Google che nessuno ci notifica —
+ *  l'unico modo di averli "subito" è andarli a prendere quando serve, cioè
+ *  quando qualcuno apre la lista. Il cron notturno resta come rete di
+ *  sicurezza per i giorni in cui nessuno la apre. */
+export async function importaFunnelSeServe(minuti = 5): Promise<void> {
+  if (Date.now() - ultimoImport < minuti * 60_000) return;
+  ultimoImport = Date.now();
+  try {
+    await importaLeadFunnel();
+  } catch (err) {
+    console.error("[funnel] import all'apertura fallito:", err);
+  }
+}
+
 export type EsitoImport = { ok: true; letti: number; nuovi: number; aggiornati: number } | { ok: false; errore: string };
 
 /** Il CAP si estrae dall'indirizzo libero del foglio: cinque cifre consecutive. */

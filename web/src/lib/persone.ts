@@ -155,6 +155,11 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
   for (const l of leads ?? []) {
     if (emailViste.has(norm(l.email)) || emailRegistrate.has(norm(l.email))) continue;
     if (l.phone && normTel(l.phone) && telViste.has(normTel(l.phone))) continue;
+    // Anche fra loro: la stessa persona può aver compilato il modulo due volte
+    // con due email diverse ma lo stesso numero, e in lista comparivano due
+    // righe come se fossero due contatti distinti.
+    emailViste.add(norm(l.email));
+    if (l.phone && normTel(l.phone)) telViste.add(normTel(l.phone));
     persone.push({
       id: l.id,
       profileId: null,

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { elencoPersone, STADI, STADIO_LABEL, STADIO_TONO, type Stadio } from "@/lib/persone";
+import { importaFunnelSeServe } from "@/lib/funnel-import";
 import { fmtDate, eurCents } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,9 @@ export default async function PersonePage({
   const includiProva = prova === "1";
   const needle = (q ?? "").trim().toLowerCase();
 
+  // Prima di leggere, tira dentro i lead del funnel: chi lascia il contatto
+  // deve trovarsi qui, non domani mattina.
+  await importaFunnelSeServe();
   const tutte = await elencoPersone(includiProva);
   const lista = tutte.filter((p) => {
     if (stadio && p.stadio !== stadio) return false;
