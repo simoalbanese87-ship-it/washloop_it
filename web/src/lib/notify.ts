@@ -41,12 +41,12 @@ const CUSTOMER: Partial<
     push: "Consegna non riuscita: scrivici per riprovare.",
   },
   cancelled: {
-    subject: "Ordine annullato",
-    title: "Ordine annullato",
+    subject: "Lavaggio annullato",
+    title: "Lavaggio annullato",
     emoji: "✖️",
-    preheader: "L'ordine è stato annullato.",
-    body: () => `Il tuo ordine è stato annullato. Se non sei stato tu, scrivici: ci pensiamo subito.`,
-    push: "Il tuo ordine è stato annullato.",
+    preheader: "Il lavaggio è stato annullato.",
+    body: () => `Il tuo lavaggio è stato annullato. Se non sei stato tu, scrivici: ci pensiamo subito.`,
+    push: "Il tuo lavaggio è stato annullato.",
   },
   ready: {
     subject: "Il tuo bucato è pronto ✨",
@@ -139,7 +139,7 @@ export async function notifyOrderStatus(orderId: string, status: OrderStatus) {
           body: cust.body(order.bags ?? 1, fascia),
           emoji: cust.emoji,
           preheader: cust.preheader,
-          cta: { label: "Vedi l'ordine", href: `${site()}/app/ordini/${orderId}` },
+          cta: { label: "Vedi il lavaggio", href: `${site()}/app/ordini/${orderId}` },
         });
         await sendMail({ to: email, subject: cust.subject, html });
       }
@@ -323,7 +323,7 @@ export async function notifyPromemoria(
           body,
           emoji: ritiro ? "🧺" : "🚚",
           preheader: `${ritiro ? "Ritiro" : "Consegna"} ${input.fascia}`,
-          cta: { label: "Vedi l'ordine", href: `${site()}/app/ordini/${input.orderId}` },
+          cta: { label: "Vedi il lavaggio", href: `${site()}/app/ordini/${input.orderId}` },
         }),
       });
     }
@@ -344,7 +344,7 @@ export async function notifySpecialAdded(customerId: string, input: { itemName: 
         body: `Nel tuo sacco abbiamo riconosciuto un capo speciale: <strong>${input.itemName}</strong> (${price}). Verrà addebitato in automatico sulla tua <strong>prossima fattura mensile</strong>, secondo il listino. Trovi il dettaglio nella tua area personale.`,
         emoji: "✨",
         preheader: `${input.itemName} · ${price} sulla prossima fattura`,
-        cta: { label: "Vedi l'ordine", href: `${site()}/app/ordini/${input.orderId}` },
+        cta: { label: "Vedi il lavaggio", href: `${site()}/app/ordini/${input.orderId}` },
       });
       await sendMail({ to: email, subject: `Capo speciale aggiunto · ${price} ✨`, html });
     }

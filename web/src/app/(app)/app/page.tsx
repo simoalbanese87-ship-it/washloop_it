@@ -57,7 +57,7 @@ export default async function Home() {
               {ongoing.eta_ready_at ? `Pronto entro ${fmtFull(ongoing.eta_ready_at)}` : `${ongoing.bags} ${ongoing.bags === 1 ? "sacco" : "sacchi"} in lavorazione`}
             </p>
             <Link href={`/app/ordini/${ongoing.id}`} className="mt-4 inline-flex rounded-full bg-white/15 px-4 py-2 font-display text-sm font-extrabold text-white backdrop-blur transition-colors hover:bg-white/25">
-              Segui l&apos;ordine →
+              Segui il lavaggio →
             </Link>
           </>
         ) : active ? (
@@ -140,7 +140,7 @@ export default async function Home() {
       {/* Azioni rapide */}
       <section className="grid grid-cols-2 gap-3">
         <QuickAction href="/app/prenota" title="Prenota" sub="Nuovo ritiro" />
-        <QuickAction href="/app/ordini" title="Ordini" sub="Storico e tracking" />
+        <QuickAction href="/app/ordini" title="Lavaggi" sub="Storico e stato" />
         <QuickAction href="/app/indirizzi" title="Indirizzi" sub="Dove ritiriamo" />
         <QuickAction href="/app/abbonamento" title="Abbonamento" sub={active ? "Gestisci piano" : "Attiva"} />
       </section>
@@ -174,10 +174,10 @@ export default async function Home() {
         </section>
       )}
 
-      {/* Ordini recenti */}
+      {/* Lavaggi recenti */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-display text-lg font-extrabold text-navy">Ordini recenti</h2>
+          <h2 className="font-display text-lg font-extrabold text-navy">Lavaggi recenti</h2>
           {orders && orders.length > 0 && (
             <Link href="/app/ordini" className="font-display text-sm font-bold text-blue">Tutti</Link>
           )}
@@ -187,7 +187,7 @@ export default async function Home() {
             {orders.map((o) => (
               <Link key={o.id} href={`/app/ordini/${o.id}`} className="flex items-center justify-between rounded-[18px] border border-line bg-white px-4 py-3.5 transition-colors active:bg-ice">
                 <div>
-                  <div className="font-display text-sm font-bold text-navy">Ordine #{o.id.slice(0, 8)}</div>
+                  <div className="font-display text-sm font-bold text-navy">Lavaggio #{o.id.slice(0, 8)}</div>
                   <div className="text-xs font-medium text-muted">{fmtDate(o.created_at)} · {o.bags} {o.bags === 1 ? "sacco" : "sacchi"}</div>
                 </div>
                 <StatusBadge status={o.status} />
@@ -196,7 +196,7 @@ export default async function Home() {
           </div>
         ) : (
           <div className="rounded-[18px] border border-line bg-white px-4 py-6 text-center text-sm font-medium text-muted">
-            Nessun ordine ancora. Prenota il tuo primo ritiro col tasto ➕.
+            Nessun lavaggio ancora. Prenota il tuo primo ritiro col tasto ➕.
           </div>
         )}
       </section>

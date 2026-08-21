@@ -133,7 +133,11 @@ export function InstallGuide() {
           </>
         ) : (
           <p className="mt-3 rounded-[14px] bg-ice px-4 py-3 text-sm font-medium text-muted">
-            Apri <b>washloop.it</b> dal tuo <b>telefono</b> per installare l&apos;app: così la ritrovi comoda in schermata Home e ricevi le notifiche.
+            {/* Spazi espliciti attorno al grassetto: in produzione «telefono» e
+                «per» comparivano attaccati, e con {" "} il caso non si ripresenta
+                comunque sia stato prodotto. */}
+            Apri <b>washloop.it</b> dal tuo <b>telefono</b>{" "}
+            per installare l&apos;app: così la ritrovi comoda in schermata Home e ricevi le notifiche.
           </p>
         )}
       </section>

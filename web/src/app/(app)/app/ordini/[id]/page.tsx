@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { OrderTimeline } from "@/components/app/OrderTimeline";
 import { LiveRider } from "@/components/app/LiveRider";
+import { ChiediAWashLoop } from "@/components/marketing/ChiediAWashLoop";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { createClient } from "@/lib/supabase/server";
 import { signedProofUrl, statusIndex, ORDER_STATUS_LABEL, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
@@ -73,7 +74,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         <Link href="/app/ordini" aria-label="Indietro" className="grid h-11 w-11 place-items-center rounded-full bg-white text-navy shadow-[0_1px_0_rgba(27,45,94,0.04),0_10px_24px_-18px_rgba(27,45,94,0.5)]">
           <ChevLeft />
         </Link>
-        <h1 className="font-display text-lg font-black tracking-[-0.02em] text-navy">Ordine #{order.id.slice(0, 8)}</h1>
+        <h1 className="font-display text-lg font-black tracking-[-0.02em] text-navy">Lavaggio #{order.id.slice(0, 8)}</h1>
       </div>
 
       {err && (
@@ -84,7 +85,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
       <section className="relative overflow-hidden rounded-[24px] bg-gradient-to-br from-[#26417a] to-[#16264f] p-6 text-white shadow-[0_18px_44px_-26px_rgba(27,45,94,0.7)]">
         <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-cyan/20 blur-2xl" />
         <div className="flex items-center justify-between">
-          <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.14em] text-cyan">Stato ordine</div>
+          <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.14em] text-cyan">Stato del lavaggio</div>
           <StatusBadge status={order.status} />
         </div>
         <div className="mt-2 font-display text-[24px] font-black leading-tight">{ORDER_STATUS_LABEL[order.status]}</div>
@@ -167,12 +168,16 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         </section>
       )}
 
-      {/* Aiuto */}
+      {/* Aiuto: prima la risposta automatica sulle domande ricorrenti, poi
+          l'email per il caso specifico — che l'assistente non può risolvere
+          perché non vede gli ordini. */}
+      <ChiediAWashLoop />
+
       <a
         href="mailto:info@washloop.it"
         className="flex w-full items-center justify-center gap-2 rounded-full bg-ice py-3.5 font-display text-sm font-extrabold text-blue"
       >
-        Serve aiuto con questo ordine?
+        Serve aiuto con questo lavaggio?
       </a>
     </div>
   );
