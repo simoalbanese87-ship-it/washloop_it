@@ -38,7 +38,7 @@ export default async function AbbonatiPage({ searchParams }: { searchParams: Pro
   // profili clienti, anche senza subscription (lead/pending).
   const svc = createServiceClient();
   const [{ data: profiles }, { data: subsAll }, { data: plans }] = await Promise.all([
-    svc.from("profiles").select("id, full_name, phone, created_at").eq("role", "customer").order("created_at", { ascending: false }).returns<Prof[]>(),
+    svc.from("profiles").select("id, full_name, phone, created_at").eq("role", "customer").eq("is_test", false).order("created_at", { ascending: false }).returns<Prof[]>(),
     svc.from("subscriptions").select("user_id, status, current_period_end, created_at, plans(name)").order("created_at", { ascending: false }).returns<Sub[]>(),
     svc.from("plans").select("id, name").eq("active", true).order("sort").returns<Plan[]>(),
   ]);
@@ -54,7 +54,14 @@ export default async function AbbonatiPage({ searchParams }: { searchParams: Pro
       name: p.full_name ?? "—",
       phone: p.phone ?? "",
       planName: s?.plans?.name ?? null,
-      status: s?.status ?? "pending",
+      // Stessa regola di Persone e del ricorrente: attivo vuol dire stato
+      // attivo E periodo non scaduto. Senza, questa pagina diceva "4 attivi"
+      // mentre Persone ne contava 2, e due pannelli in disaccordo non sono
+      // credibili nessuno dei due.
+      status:
+        s && ["active", "trialing"].includes(s.status) && s.current_period_end && new Date(s.current_period_end).getTime() < Date.now()
+          ? "canceled"
+          : s?.status ?? "pending",
       current_period_end: s?.current_period_end ?? null,
       created_at: p.created_at,
     };
