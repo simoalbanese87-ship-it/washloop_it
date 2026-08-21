@@ -36,7 +36,7 @@ const PlusIcon = ({ size = 28 }: IconProps) => (
 
 const tabs = [
   { href: "/app", label: "Home", Icon: HomeIcon, exact: true },
-  { href: "/app/ordini", label: "Ritiri", Icon: BagIcon },
+  { href: "/app/ordini", label: "Passaggi", Icon: BagIcon },
   { href: "/app/profilo", label: "Profilo", Icon: UserIcon },
 ];
 

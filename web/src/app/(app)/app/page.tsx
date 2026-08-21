@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { createClient } from "@/lib/supabase/server";
+import { prossimoPassaggio, type OrdinePerPassaggi } from "@/lib/passaggi";
 import { ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
-import { fmtDate, fmtFull, WEEKDAY_IT } from "@/lib/format";
+import { fmtDate, fmtFull, fmtSlot, WEEKDAY_IT } from "@/lib/format";
 import { cancelRecurring, confirmRecurring, rejectRecurring } from "@/lib/actions/orders";
 
-type OrderRow = { id: string; status: OrderStatus; created_at: string; bags: number; eta_ready_at: string | null };
+type OrderRow = { id: string; status: OrderStatus; created_at: string; bags: number; eta_ready_at: string | null; pickup_slot: { starts_at: string; ends_at: string } | null; delivery_slot: { starts_at: string; ends_at: string } | null };
 type SubRow = { status: string; current_period_end: string | null; plans: { name: string; bags_per_week: number } | null };
 type RecRow = {
   id: string; weekday: number; hhmm: string; bags: number; active: boolean; needs_confirmation: boolean;
@@ -26,7 +27,7 @@ export default async function Home() {
       .maybeSingle<SubRow>(),
     supabase
       .from("orders")
-      .select("id, status, created_at, bags, eta_ready_at")
+      .select("id, status, created_at, bags, eta_ready_at, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)")
       .order("created_at", { ascending: false })
       .limit(6)
       .returns<OrderRow[]>(),
@@ -44,6 +45,21 @@ export default async function Home() {
   const active = sub?.status === "active" || sub?.status === "trialing";
   const ongoing = (orders ?? []).find((o) => ACTIVE_ORDER.includes(o.status));
 
+  // In cima si mette la cosa che la persona è venuta a cercare: quando ci
+  // vediamo. Non lo stato interno dell'ordine, che dice poco a chi aspetta.
+  const prossimo = prossimoPassaggio(
+    (orders ?? []).map((o) => ({
+      id: o.id,
+      status: o.status as OrdinePerPassaggi["status"],
+      created_at: o.created_at,
+      bags: o.bags,
+      pickup_at: o.pickup_slot?.starts_at ?? null,
+      pickup_end: o.pickup_slot?.ends_at ?? null,
+      delivery_at: o.delivery_slot?.starts_at ?? null,
+      delivery_end: o.delivery_slot?.ends_at ?? null,
+    })),
+  );
+
   return (
     <div className="space-y-6">
       {/* Status card */}
@@ -51,13 +67,27 @@ export default async function Home() {
         <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-cyan/20 blur-2xl" />
         {ongoing ? (
           <>
-            <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Il tuo bucato</div>
-            <div className="mt-2 font-display text-[26px] font-black leading-tight">{ORDER_STATUS_LABEL[ongoing.status]}</div>
+            <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">
+              {prossimo ? (prossimo.tipo === "ritiro" ? "Prossimo ritiro" : "Prossima riconsegna") : "Il tuo bucato"}
+            </div>
+            <div className="mt-2 font-display text-[26px] font-black leading-tight">
+              {prossimo && prossimo.quando
+                ? prossimo.tipo === "ritiro"
+                  ? "Passiamo a prendere il bucato"
+                  : "Ti riportiamo il bucato"
+                : ORDER_STATUS_LABEL[ongoing.status]}
+            </div>
             <p className="mt-1.5 text-sm font-medium text-white/70">
-              {ongoing.eta_ready_at ? `Pronto entro ${fmtFull(ongoing.eta_ready_at)}` : `${ongoing.bags} ${ongoing.bags === 1 ? "sacco" : "sacchi"} in lavorazione`}
+              {prossimo && prossimo.quando
+                ? prossimo.fine
+                  ? fmtSlot(prossimo.quando, prossimo.fine)
+                  : fmtFull(prossimo.quando)
+                : ongoing.eta_ready_at
+                  ? `Pronto entro ${fmtFull(ongoing.eta_ready_at)}`
+                  : `${ongoing.bags} ${ongoing.bags === 1 ? "sacco" : "sacchi"} in lavorazione`}
             </p>
             <Link href={`/app/ordini/${ongoing.id}`} className="mt-4 inline-flex rounded-full bg-white/15 px-4 py-2 font-display text-sm font-extrabold text-white backdrop-blur transition-colors hover:bg-white/25">
-              Segui il ritiro →
+              Vedi i dettagli →
             </Link>
           </>
         ) : active ? (
@@ -140,7 +170,7 @@ export default async function Home() {
       {/* Azioni rapide */}
       <section className="grid grid-cols-2 gap-3">
         <QuickAction href="/app/prenota" title="Prenota" sub="Nuovo ritiro" />
-        <QuickAction href="/app/ordini" title="Ritiri" sub="Storico e stato" />
+        <QuickAction href="/app/ordini" title="Ritiri e consegne" sub="Tutti i passaggi" />
         <QuickAction href="/app/indirizzi" title="Indirizzi" sub="Dove ritiriamo" />
         <QuickAction href="/app/abbonamento" title="Abbonamento" sub={active ? "Gestisci piano" : "Attiva"} />
       </section>
@@ -174,10 +204,10 @@ export default async function Home() {
         </section>
       )}
 
-      {/* Ritiri recenti */}
+      {/* Passaggi recenti */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-display text-lg font-extrabold text-navy">Ritiri recenti</h2>
+          <h2 className="font-display text-lg font-extrabold text-navy">Ultimi passaggi</h2>
           {orders && orders.length > 0 && (
             <Link href="/app/ordini" className="font-display text-sm font-bold text-blue">Tutti</Link>
           )}
@@ -196,7 +226,7 @@ export default async function Home() {
           </div>
         ) : (
           <div className="rounded-[18px] border border-line bg-white px-4 py-6 text-center text-sm font-medium text-muted">
-            Nessun ritiro ancora. Prenota il tuo primo ritiro col tasto ➕.
+            Nessun passaggio ancora. Prenota il tuo primo ritiro col tasto ➕.
           </div>
         )}
       </section>
