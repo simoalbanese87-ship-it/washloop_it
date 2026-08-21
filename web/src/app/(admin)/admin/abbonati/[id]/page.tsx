@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
+import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
 import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive } from "@/lib/actions/admin-customer";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
 import { fmtDate, WEEKDAY_IT } from "@/lib/format";
@@ -18,10 +19,19 @@ const SUB_STATUS_LABEL: Record<string, string> = {
 };
 
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string };
-type Sub = { id: string; status: string; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; plans: { name: string; price_month_cents: number } | null };
+type Sub = { id: string; status: string; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number } | null };
 type Addr = { id: string; label: string | null; street: string };
 type Ord = { id: string; status: OrderStatus; created_at: string; bags: number };
 type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; created_at: string };
+
+/** Gli stati degli addebiti erano mostrati grezzi ("pending", "invoiced"):
+ *  parole tecniche in inglese in una schermata che si legge di fretta. */
+const STATO_ADDEBITO: Record<string, string> = {
+  pending: "da addebitare",
+  invoiced: "sulla prossima fattura",
+  settled: "incassato",
+  void: "annullato",
+};
 type Rec = {
   id: string; weekday: number; hhmm: string; bags: number; active: boolean; needs_confirmation: boolean;
   delivery_hhmm: string | null; address_id: string; addresses: { label: string | null } | null;
@@ -41,13 +51,25 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }] = await Promise.all([
     svc.auth.admin.getUserById(id),
-    svc.from("subscriptions").select("id, status, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    svc.from("subscriptions").select("id, status, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
     svc.from("recurring_pickups").select("id, weekday, hhmm, bags, active, needs_confirmation, delivery_hhmm, address_id, addresses(label), pending_weekday, pending_hhmm, pending_bags, pending_delivery_hhmm").eq("customer_id", id).order("created_at", { ascending: false }).returns<Rec[]>(),
   ]);
   const email = userRes?.user?.email ?? "—";
+
+  // Verità da Stripe + tutto quello che la scheda non mostrava: incassi
+  // registrati (ricevute e fatture) e capi fuori abbonamento.
+  const [stripeSub, incassi, capi] = await Promise.all([
+    sub?.stripe_subscription_id ? abbonamentoDaStripe(sub.stripe_subscription_id, sub.stripe_customer_id ?? null) : Promise.resolve(null),
+    incassiCliente(id),
+    capiSpecialiCliente(id),
+  ]);
+
+  const totaleIncassatoCents = incassi.reduce((t, i) => t + i.amount_cents, 0);
+  const addebitatoCents = charges?.filter((c) => c.kind !== "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
+  const stornatoCents = charges?.filter((c) => c.kind === "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
 
   const active = sub?.status === "active" || sub?.status === "trialing";
   const priceLabel = sub?.custom_price_cents != null ? `${eur(sub.custom_price_cents)} (custom)` : sub?.plans ? `${eur(sub.plans.price_month_cents)}` : "—";
@@ -77,10 +99,42 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             <>
               <div className="mt-3 space-y-1 text-sm font-medium text-muted">
                 <div>Piano: <span className="font-bold text-navy">{sub.plans?.name ?? "—"}</span> · {priceLabel}/mese {sub.manual && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">manuale</span>}</div>
-                <div>Stato: <span className={`font-bold ${active ? "text-[#1F8A5B]" : "text-[#C9881F]"}`}>{SUB_STATUS_LABEL[sub.status] ?? sub.status}</span></div>
+                <div>Stato: <span className={`font-bold ${active ? "text-[#1F8A5B]" : "text-[#C9881F]"}`}>{statoAbbonamentoItaliano(sub.status)}</span></div>
                 {sub.activated_at && <div>Attivato il: <span className="font-bold text-navy">{fmtDate(sub.activated_at)}</span></div>}
                 {sub.current_period_end && <div>Rinnovo: {fmtDate(sub.current_period_end)}</div>}
               </div>
+
+              {/* Cosa dice Stripe, che è la fonte del vero sui soldi: la nostra
+                  copia arriva dai webhook e può essere rimasta indietro. */}
+              {stripeSub && (
+                <div className="mt-3 rounded-[14px] border border-line bg-ice/60 p-3">
+                  <div className="font-display text-xs font-extrabold uppercase tracking-wide text-navy/60">Secondo Stripe</div>
+                  {stripeSub.errore ? (
+                    <p className="mt-1 text-xs font-semibold text-[#C9881F]">Non verificabile: {stripeSub.errore}</p>
+                  ) : (
+                    <div className="mt-1 space-y-1 text-sm font-medium text-muted">
+                      <div>
+                        Stato: <span className="font-bold text-navy">{stripeSub.statoItaliano}</span>
+                        {stripeSub.disdettaAFinePeriodo && <span className="ml-2 rounded-full bg-[#C9881F]/12 px-2 py-0.5 text-[11px] font-bold text-[#C9881F]">disdetta a fine periodo</span>}
+                      </div>
+                      <div>
+                        Pagamenti riusciti: <span className="font-bold text-navy">{stripeSub.pagamentiRiusciti}</span>
+                        {stripeSub.pagamentiRiusciti > 0 && <> · totale {eur(stripeSub.totalePagatoCents)} · ultimo {fmtDate(stripeSub.ultimoPagamento!)}</>}
+                      </div>
+                      {stripeSub.prossimoAddebito ? (
+                        <div>Prossimo addebito: <span className="font-bold text-navy">{fmtDate(stripeSub.prossimoAddebito.data)}</span> · {eur(stripeSub.prossimoAddebito.importoCents)}</div>
+                      ) : (
+                        <div>Nessun addebito futuro programmato.</div>
+                      )}
+                      {stripeSub.pagamentiRiusciti === 0 && (
+                        <p className="rounded-[10px] bg-[#C0392B]/8 px-2.5 py-1.5 text-xs font-semibold text-[#C0392B]">
+                          Attenzione: risulta abbonato ma non ha mai pagato nulla.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {!active && (
                 <p className="mt-2 rounded-[10px] bg-[#C9881F]/10 px-3 py-2 text-xs font-semibold text-[#C9881F]">
                   Abbonamento non ancora attivo. Conferma il pagamento per attivarlo.
@@ -195,8 +249,16 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
       {/* Addebiti / rimborsi personalizzati */}
       <Card className="mt-6">
-        <h2 className="font-display text-base font-extrabold text-navy">Addebiti & rimborsi personalizzati</h2>
-        <p className="mt-1 text-xs font-medium text-muted">Extra fuori ordine, modifiche, crediti. Gli addebiti su cliente con carta Stripe finiscono sulla prossima fattura. I rimborsi vanno confermati anche da Stripe.</p>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-display text-base font-extrabold text-navy">Addebiti e storni</h2>
+          {(addebitatoCents > 0 || stornatoCents > 0) && (
+            <span className="text-sm font-medium text-muted">
+              {eur(addebitatoCents)} addebitati · {eur(stornatoCents)} stornati ·{" "}
+              <strong className="text-navy">{eur(addebitatoCents - stornatoCents)} netti</strong>
+            </span>
+          )}
+        </div>
+        <p className="mt-1 text-xs font-medium text-muted">Extra fuori ordine, modifiche, crediti. Gli addebiti su cliente con carta Stripe finiscono sulla prossima ricevuta. I rimborsi vanno confermati anche da Stripe.</p>
 
         <form action={addCustomerCharge} className="mt-4 grid gap-2 sm:grid-cols-[2fr_1fr_1fr_auto] sm:items-end">
           <input type="hidden" name="customer_id" value={id} />
@@ -220,7 +282,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <span className={`font-bold text-navy ${c.status === "void" ? "line-through" : ""}`}>{c.description}</span>
-                    <span className="ml-2 text-xs font-medium text-muted">{fmtDate(c.created_at)} · {c.status}</span>
+                    <span className="ml-2 text-xs font-medium text-muted">{fmtDate(c.created_at)} · {STATO_ADDEBITO[c.status] ?? c.status}</span>
                   </div>
                   <div className="flex flex-none items-center gap-3">
                     <span className={`font-display font-extrabold ${c.kind === "refund" ? "text-[#1F8A5B]" : "text-navy"}`}>{c.kind === "refund" ? "−" : ""}{eur(c.amount_cents)}</span>
@@ -250,6 +312,61 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           )}
         </div>
       </Card>
+
+      {/* Incassi e ricevute. La tabella esisteva già e la scheda non la
+          leggeva: per sapere se un cliente aveva pagato bisognava aprire
+          Stripe. Si scrive "ricevuta": la fattura è l'eccezione, e si nomina
+          solo dove esiste davvero. */}
+      <Card className="mt-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-display text-base font-extrabold text-navy">Incassi e ricevute ({incassi.length})</h2>
+          <span className="font-display text-sm font-extrabold text-navy">{eur(totaleIncassatoCents)} incassati in tutto</span>
+        </div>
+        <div className="mt-3 divide-y divide-line">
+          {incassi.length === 0 ? (
+            <p className="py-2 text-sm font-medium text-muted">
+              Nessun incasso registrato. Il registro parte da agosto 2026: i pagamenti precedenti si vedono nel riquadro «Secondo Stripe» qui sopra.
+            </p>
+          ) : (
+            incassi.map((i) => (
+              <div key={i.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
+                <div>
+                  <div className="font-bold text-navy">{i.fic_number ? `Fattura n. ${i.fic_number}` : "Ricevuta"}</div>
+                  <div className="text-xs font-medium text-muted">{fmtDate(i.created_at)}</div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-display font-extrabold text-navy">{eur(i.amount_cents)}</span>
+                  {i.fic_url && (
+                    <a href={i.fic_url} target="_blank" rel="noreferrer" className="font-display text-[11px] font-bold text-blue hover:underline">Apri</a>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
+
+      {/* Capi fuori abbonamento: prima si vedevano solo entrando nel singolo ordine */}
+      {capi.length > 0 && (
+        <Card className="mt-6">
+          <h2 className="font-display text-base font-extrabold text-navy">Capi fuori abbonamento ({capi.length})</h2>
+          <div className="mt-3 divide-y divide-line">
+            {capi.map((c) => (
+              <Link key={c.id} href={`/admin/ordini/${c.order_id}`} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm transition-colors hover:bg-ice">
+                <div>
+                  <div className="font-bold text-navy">{c.qty}× {c.item_name}</div>
+                  <div className="text-xs font-medium text-muted">
+                    {fmtDate(c.created_at)} · {c.refunded_at ? "stornato" : c.charged_at ? "addebitato" : "non ancora addebitato"}
+                  </div>
+                </div>
+                <span className={`font-display font-extrabold ${c.refunded_at ? "text-muted line-through" : "text-navy"}`}>
+                  {eur(c.price_cli_cents * c.qty)}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Ordini */}
       <Card className="mt-6">
