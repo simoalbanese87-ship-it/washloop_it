@@ -161,13 +161,18 @@ export function OrdersBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orders, q, zone, laundry, onlyUnassigned, onlyLate, periodo, oggi, fineSettimana, now]);
 
+  // I contatori si calcolano su ciò che è VISIBILE, non su tutti gli ordini.
+  // Prima ignoravano il filtro di periodo: con la vista "Oggi" si leggeva
+  // «5 ordini attivi, 5 in ritardo» sopra quattro colonne vuote, e sembrava che
+  // il board fosse rotto. Erano ordini di altri giorni, semplicemente non
+  // mostrati.
   const kpis = useMemo(() => {
-    const active = orders.filter((o) => o.status !== "completed" && o.status !== "delivered");
+    const active = filtered.filter((o) => o.status !== "completed" && o.status !== "delivered");
     const toAssign = active.filter((o) => !o.courier_id && NEEDS_RIDER.includes(o.status)).length;
-    const late = now > 0 ? orders.filter((o) => isLate(o, now)).length : 0;
-    const done = orders.filter((o) => o.status === "delivered" || o.status === "completed").length;
+    const late = now > 0 ? filtered.filter((o) => isLate(o, now)).length : 0;
+    const done = filtered.filter((o) => o.status === "delivered" || o.status === "completed").length;
     return { active: active.length, toAssign, late, done };
-  }, [orders, now]);
+  }, [filtered, now]);
 
   // Carico attivo per corriere (fermate non ancora consegnate).
   const courierLoad = useMemo(() => {

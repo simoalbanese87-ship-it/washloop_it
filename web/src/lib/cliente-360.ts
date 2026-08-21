@@ -67,7 +67,14 @@ export async function abbonamentoDaStripe(subId: string, customerId?: string | n
       }
     }
 
-    const fine = (sub as unknown as { current_period_end?: number }).current_period_end;
+    // Nelle API Stripe recenti la fine del periodo sta sugli ITEM, non più sulla
+    // subscription: leggendo solo il livello alto risultava sempre assente, e la
+    // scheda diceva "nessun addebito futuro programmato" anche per un
+    // abbonamento sano che rinnova domani. `subscription-sync` già lo gestiva
+    // così, questa parte era rimasta indietro.
+    const fine =
+      (sub as unknown as { current_period_end?: number }).current_period_end ??
+      (sub.items?.data?.[0] as unknown as { current_period_end?: number } | undefined)?.current_period_end;
     return {
       stato: sub.status,
       statoItaliano: statoAbbonamentoItaliano(sub.status),

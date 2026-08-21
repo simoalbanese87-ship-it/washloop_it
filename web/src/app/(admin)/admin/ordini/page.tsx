@@ -13,7 +13,7 @@ type Row = {
   eta_ready_at: string | null;
   courier_id: string | null;
   laundry_id: string | null;
-  customer: { full_name: string | null; phone: string | null } | null;
+  customer: { full_name: string | null; phone: string | null; is_test: boolean } | null;
   addresses: { zones: { name: string } | null } | null;
   laundries: { name: string } | null;
   courier: { full_name: string | null } | null;
@@ -25,9 +25,10 @@ type Opt = { id: string; name: string };
 export default async function AdminBoard({
   searchParams,
 }: {
-  searchParams: Promise<{ ok?: string; warn?: string; filtro?: string; stato?: string }>;
+  searchParams: Promise<{ ok?: string; warn?: string; filtro?: string; stato?: string; prova?: string }>;
 }) {
-  const { ok, warn, filtro, stato } = await searchParams;
+  const { ok, warn, filtro, stato, prova } = await searchParams;
+  const includiProva = prova === "1";
   const supabase = await createClient();
 
   // Gli ordini chiusi erano una pagina a sé ("Archivio"), e "consegnati"
@@ -69,7 +70,7 @@ export default async function AdminBoard({
       .from("orders")
       .select(
         "id, status, bags, created_at, eta_ready_at, courier_id, laundry_id, " +
-          "customer:profiles!orders_customer_id_fkey(full_name, phone), " +
+          "customer:profiles!orders_customer_id_fkey(full_name, phone, is_test), " +
           "addresses(zones(name)), laundries(name), " +
           "courier:profiles!orders_courier_id_fkey(full_name), " +
           "pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at), " +
@@ -83,7 +84,12 @@ export default async function AdminBoard({
     supabase.from("zones").select("id, name").eq("active", true).order("name").returns<Opt[]>(),
   ]);
 
-  const orders: BoardOrder[] = (rows ?? []).map((r) => ({
+  // Gli ordini di prova non stanno nel board: erano i 5 di Mario Test, tutti
+  // "in ritardo" dal 20 giugno, e riempivano i contatori di cose che nessuno
+  // avrebbe mai sistemato.
+  const visibili = (rows ?? []).filter((r) => includiProva || !r.customer?.is_test);
+
+  const orders: BoardOrder[] = visibili.map((r) => ({
     id: r.id,
     status: r.status,
     bags: r.bags,
@@ -105,8 +111,13 @@ export default async function AdminBoard({
   return (
     <>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <PageTitle kicker="Operations" title="Board ordini" sub={`${orders.length} ordini aperti · aggiornamento in tempo reale`} />
-        <Link href="/admin/ordini?stato=conclusi" className="mt-1 font-display text-sm font-bold text-blue hover:underline">Ordini conclusi →</Link>
+        <PageTitle kicker="Operations" title="Board ordini" sub={`${orders.length} ordini aperti · aggiornamento in tempo reale${includiProva ? " · inclusi i dati di prova" : ""}`} />
+        <div className="mt-1 flex flex-wrap items-center gap-4">
+          <Link href={includiProva ? "/admin/ordini" : "/admin/ordini?prova=1"} className="font-display text-sm font-bold text-navy/55 hover:text-navy">
+            {includiProva ? "Nascondi dati di prova" : "Mostra dati di prova"}
+          </Link>
+          <Link href="/admin/ordini?stato=conclusi" className="font-display text-sm font-bold text-blue hover:underline">Ordini conclusi →</Link>
+        </div>
       </div>
       {ok && <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
       {warn && <div className="mb-4 rounded-[14px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>}
