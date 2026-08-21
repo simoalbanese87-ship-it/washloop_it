@@ -58,7 +58,10 @@ export function Button({
   // `useFormStatus` guarda la form che contiene questo bottone: vale zero se il
   // bottone sta fuori da una form, quindi si può usare sempre senza pensarci.
   const { pending } = useFormStatus();
-  const inCorso = pending && type === "submit";
+  // `type` omesso dentro una form significa già "submit" per HTML: trattarlo
+  // diversamente vorrebbe dire che un domani un bottone senza type resta muto
+  // senza che nessuno se ne accorga.
+  const inCorso = pending && (type === undefined || type === "submit");
 
   return (
     <button

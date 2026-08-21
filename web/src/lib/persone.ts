@@ -80,11 +80,16 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       .returns<{ customer_id: string | null; created_at: string }[]>(),
   ]);
 
-  // Email dei profili: stanno in auth, non in `profiles`.
+  // Email dei profili: stanno in auth, non in `profiles`. Una sola chiamata
+  // paginata invece di una per persona — con otto clienti erano otto richieste
+  // in fila a ogni apertura della pagina, e sarebbero diventate cento con cento
+  // clienti. Stesso approccio già usato in admin-metrics.
   const emailDi = new Map<string, string>();
-  for (const p of profili ?? []) {
-    const { data } = await svc.auth.admin.getUserById(p.id);
-    if (data?.user?.email) emailDi.set(p.id, data.user.email);
+  for (let pagina = 1; ; pagina++) {
+    const { data } = await svc.auth.admin.listUsers({ page: pagina, perPage: 1000 });
+    const utenti = data?.users ?? [];
+    for (const u of utenti) if (u.email) emailDi.set(u.id, u.email);
+    if (utenti.length < 1000) break;
   }
 
   // Ultima subscription per utente: un cliente può averne più d'una.
@@ -141,10 +146,14 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
     });
   }
 
-  // I lead già diventati clienti non si ripetono: è il doppione che si vedeva
-  // fra Contatti e Clienti.
+  // Chi ha un account non è più un lead, qualunque ruolo abbia. Il confronto
+  // usa TUTTE le email registrate e non solo quelle dei clienti visibili:
+  // altrimenti un lead con l'email di un account nascosto (di prova, o dello
+  // staff) ricomparirebbe nella lista come se non si fosse mai registrato.
+  const emailRegistrate = new Set([...emailDi.values()].map(norm));
+
   for (const l of leads ?? []) {
-    if (emailViste.has(norm(l.email))) continue;
+    if (emailViste.has(norm(l.email)) || emailRegistrate.has(norm(l.email))) continue;
     if (l.phone && normTel(l.phone) && telViste.has(normTel(l.phone))) continue;
     persone.push({
       id: l.id,
