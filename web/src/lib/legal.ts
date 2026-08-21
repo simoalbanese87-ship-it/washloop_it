@@ -16,7 +16,7 @@ export const LEGAL = {
   pec: "",
   privacyEmail: "privacy@washloop.it",
   // Data ultimo aggiornamento dei documenti legali.
-  lastUpdated: "19 giugno 2026",
+  lastUpdated: "21 agosto 2026",
 } as const;
 
 /** True se restano placeholder da compilare (per avvisi interni). */

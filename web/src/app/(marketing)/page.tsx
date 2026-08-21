@@ -3,7 +3,6 @@ import { Logo } from "@/components/Logo";
 import { ButtonLink } from "@/components/ui/Button";
 import { PLAN_COPY } from "@/lib/plan-copy";
 import { FAQ } from "@/lib/faq";
-import { ChiediAWashLoop } from "@/components/marketing/ChiediAWashLoop";
 
 /* ============================================================
    Home — Sito vetrina WashLoop
@@ -273,8 +272,6 @@ export default function Home() {
                 <p className="mt-3 text-sm font-medium leading-relaxed text-muted">{f.a}</p>
               </details>
             ))}
-
-            <ChiediAWashLoop />
           </div>
         </div>
       </section>

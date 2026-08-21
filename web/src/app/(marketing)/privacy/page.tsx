@@ -29,6 +29,7 @@ export default function PrivacyPage() {
           <li><strong>Dati dell'ordine</strong>: numero di sacchi, servizio scelto, profumo, capi speciali, stato della lavorazione.</li>
           <li><strong>Dati di pagamento</strong>: gestiti dal nostro fornitore Stripe. Non conserviamo i dati completi della carta sui nostri sistemi; trattiamo solo riferimenti (es. ultime cifre, token, stato dell'abbonamento).</li>
           <li><strong>Dati account e tecnici</strong>: credenziali di accesso, log e identificatori di sessione necessari al funzionamento.</li>
+          <li><strong>Domande all&apos;assistente</strong>: il testo che scrivi nel riquadro «Chiedi a WashLoop». Non ti chiediamo dati personali per usarlo e ti invitiamo a non inserirne; se ne scrivi comunque, vengono trattati come descritto qui.</li>
         </ul>
       </LegalSection>
 
@@ -37,6 +38,7 @@ export default function PrivacyPage() {
           <li><strong>Erogazione del servizio</strong> (ritiro, lavaggio, riconsegna, gestione abbonamento): esecuzione del contratto (art. 6.1.b GDPR).</li>
           <li><strong>Pagamenti e fatturazione</strong>: esecuzione del contratto e obblighi legali/fiscali (art. 6.1.b e 6.1.c).</li>
           <li><strong>Comunicazioni transazionali</strong> (email di conferma e aggiornamenti sull'ordine): esecuzione del contratto.</li>
+          <li><strong>Assistenza automatica sulle domande frequenti</strong>: legittimo interesse a rispondere in modo tempestivo (art. 6.1.f). L&apos;assistente riceve solo la domanda che scrivi, non ha accesso al tuo account né ai tuoi ordini, e non produce decisioni che ti riguardano.</li>
           <li><strong>Sicurezza e prevenzione frodi</strong>: legittimo interesse (art. 6.1.f).</li>
           <li><strong>Adempimenti contabili e fiscali</strong>: obbligo legale (art. 6.1.c).</li>
         </ul>
@@ -49,6 +51,8 @@ export default function PrivacyPage() {
           <li><strong>Vercel</strong> — hosting dell'applicazione web.</li>
           <li><strong>Stripe</strong> — elaborazione dei pagamenti e gestione abbonamenti.</li>
           <li><strong>Brevo (Sendinblue)</strong> — invio delle email transazionali.</li>
+          <li><strong>Anthropic</strong> — assistente automatico sulle domande frequenti. Riceve il testo della domanda per generare la risposta; non riceve il tuo nome, il tuo indirizzo, i tuoi ordini né alcun identificativo del tuo account. Anthropic dichiara di non usare i dati trasmessi via API per addestrare i propri modelli.</li>
+          <li><strong>Fatture in Cloud (TeamSystem)</strong> — emissione e conservazione delle fatture elettroniche, per i soli clienti che ne fanno richiesta.</li>
           <li><strong>Lavanderie partner e corrieri</strong> — esecuzione materiale del servizio. Le lavanderie partner trattano i dati in forma minimizzata: vedono un <strong>codice cliente anonimo</strong> e i soli dati operativi necessari (sacchi, servizio, profumo, zona), mai nome, indirizzo o recapiti.</li>
         </ul>
         <p>Alcuni fornitori possono trattare dati al di fuori dello SEE: in tal caso il trasferimento avviene con garanzie adeguate (es. Clausole Contrattuali Standard UE).</p>
@@ -58,6 +62,11 @@ export default function PrivacyPage() {
         <p>
           Conserviamo i dati per la durata del rapporto contrattuale e, successivamente, per il tempo necessario ad adempiere
           agli obblighi di legge (es. documenti contabili e fiscali: 10 anni). I dati non più necessari sono cancellati o anonimizzati.
+        </p>
+        <p>
+          Le domande poste all&apos;assistente non vengono salvate nei nostri archivi né associate al tuo account: servono a
+          generare la risposta e finiscono lì. Per limitare gli abusi conserviamo temporaneamente un conteggio delle richieste
+          per indirizzo IP, in forma non riconducibile al contenuto delle domande.
         </p>
       </LegalSection>
 

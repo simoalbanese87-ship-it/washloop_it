@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { OrderTimeline } from "@/components/app/OrderTimeline";
 import { LiveRider } from "@/components/app/LiveRider";
-import { ChiediAWashLoop } from "@/components/marketing/ChiediAWashLoop";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { createClient } from "@/lib/supabase/server";
 import { signedProofUrl, statusIndex, ORDER_STATUS_LABEL, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
@@ -168,11 +167,9 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         </section>
       )}
 
-      {/* Aiuto: prima la risposta automatica sulle domande ricorrenti, poi
+      {/* Aiuto: l'assistente è il badge fisso in basso a destra, qui resta
           l'email per il caso specifico — che l'assistente non può risolvere
           perché non vede gli ordini. */}
-      <ChiediAWashLoop />
-
       <a
         href="mailto:info@washloop.it"
         className="flex w-full items-center justify-center gap-2 rounded-full bg-ice py-3.5 font-display text-sm font-extrabold text-blue"

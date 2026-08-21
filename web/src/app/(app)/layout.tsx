@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { MobileShell } from "@/components/app/MobileShell";
+import { ChiediAWashLoop } from "@/components/marketing/ChiediAWashLoop";
 import { getCurrentProfile } from "@/lib/auth";
 import { isImpersonating } from "@/lib/actions/impersonate";
 import { roleHome } from "@/lib/orders";
@@ -15,6 +16,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <MobileShell userName={profile.full_name ?? "Il mio account"} impersonating={impersonating}>
       {children}
+      {/* Alzato: nell'app la barra di navigazione sta in basso. */}
+      <ChiediAWashLoop offsetBasso />
     </MobileShell>
   );
 }
