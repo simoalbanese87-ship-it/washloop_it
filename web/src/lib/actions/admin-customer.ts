@@ -12,6 +12,8 @@ import { zoneIdForCap } from "@/lib/zones";
 import { geocodeAddress } from "@/lib/geo";
 import { type OrderStatus } from "@/lib/orders";
 import { slotFullMessage } from "@/lib/slots";
+import { inviaSollecito } from "@/lib/dunning";
+import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -560,4 +562,78 @@ export async function adminCreatePickup(formData: FormData) {
   revalidatePath(`/admin/abbonati/${customerId}`);
   revalidatePath("/admin/ordini");
   redirect(`/admin/ordini/${data!.id}?ok=${encodeURIComponent("Ritiro creato per conto del cliente. Il cliente è stato avvisato.")}`);
+}
+
+/** Admin: manda subito un sollecito di pagamento, senza aspettare il cron.
+ *
+ *  Serve perché la catena automatica parte da un fallimento NUOVO segnalato da
+ *  Stripe: chi era già bloccato prima che il recupero esistesse — o chi è in
+ *  `past_due` da tanto che Stripe ha smesso di ritentare — non riceverebbe mai
+ *  niente. Il primo sollecito lo fa partire una persona; dal secondo in poi
+ *  riprende il calendario automatico, perché questa azione scrive lo stesso
+ *  contatore che legge il cron.
+ *
+ *  Se non abbiamo il link della fattura (fallimenti precedenti a questa
+ *  funzione) lo si va a cercare su Stripe: senza, il cliente riceverebbe un
+ *  sollecito che non gli dice dove pagare. */
+export async function sollecitaOra(formData: FormData) {
+  await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  const subId = String(formData.get("sub_id") ?? "");
+  const back = (params: Record<string, string>) => `/admin/abbonati/${customerId}?${new URLSearchParams(params)}`;
+  if (!customerId || !subId) throw new Error("Parametri mancanti");
+
+  const svc = createServiceClient();
+  const { data: sub } = await svc
+    .from("subscriptions")
+    .select("id, status, dunning_step, last_failed_invoice_url, stripe_customer_id")
+    .eq("id", subId)
+    .maybeSingle<{ id: string; status: string; dunning_step: number | null; last_failed_invoice_url: string | null; stripe_customer_id: string | null }>();
+  if (!sub) redirect(back({ warn: "Abbonamento non trovato." }));
+  if (!["past_due", "unpaid"].includes(sub!.status)) {
+    redirect(back({ warn: "Non c'è niente da sollecitare: l'abbonamento non ha pagamenti in sospeso." }));
+  }
+
+  // Link di pagamento: quello salvato, oppure la fattura aperta più recente.
+  let invoiceUrl = sub!.last_failed_invoice_url;
+  if (!invoiceUrl && sub!.stripe_customer_id) {
+    try {
+      const aperte = await stripe().invoices.list({ customer: sub!.stripe_customer_id, status: "open", limit: 1 });
+      invoiceUrl = aperte.data[0]?.hosted_invoice_url ?? null;
+      if (invoiceUrl) {
+        await svc.from("subscriptions").update({ last_failed_invoice_url: invoiceUrl }).eq("id", sub!.id);
+      }
+    } catch (err) {
+      // Chiave mancante, cliente sparito da Stripe: il sollecito parte lo
+      // stesso, con il link alla pagina abbonamento invece che alla fattura.
+      console.error("[admin] fattura aperta non recuperata:", err);
+    }
+  }
+
+  const [{ data: prof }, { data: utente }] = await Promise.all([
+    svc.from("profiles").select("full_name").eq("id", customerId).maybeSingle<{ full_name: string | null }>(),
+    svc.auth.admin.getUserById(customerId),
+  ]);
+  const email = utente?.user?.email ?? null;
+  if (!email) redirect(back({ warn: "Il cliente non ha un'email: impossibile sollecitare." }));
+
+  // Il prossimo della serie. Arrivati al terzo non si va oltre: si può
+  // rimandare quello, ma il contatore resta fermo — tre avvisi automatici sono
+  // il limite che ci siamo dati.
+  const step = Math.min((sub!.dunning_step ?? 0) + 1, ULTIMO_SOLLECITO);
+
+  const esito = await inviaSollecito({
+    subscriptionId: sub!.id,
+    step,
+    invoiceUrl,
+    destinatario: { userId: customerId, email, nome: prof?.full_name ?? null },
+  });
+  if (!esito.inviato) redirect(back({ warn: `Sollecito non registrato: ${esito.motivo ?? "errore"}` }));
+
+  revalidatePath(`/admin/abbonati/${customerId}`);
+  redirect(back({
+    ok: invoiceUrl
+      ? `Sollecito ${step} di 3 inviato, con il link alla fattura da saldare.`
+      : `Sollecito ${step} di 3 inviato. Nessuna fattura aperta trovata su Stripe: il link porta alla pagina abbonamento.`,
+  }));
 }

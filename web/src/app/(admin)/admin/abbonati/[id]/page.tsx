@@ -4,10 +4,11 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra } from "@/lib/actions/admin-customer";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
 import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
+import { ATTESA_GIORNI } from "@/lib/dunning-piano";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
@@ -73,6 +74,8 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const slotConsegna = (slots ?? []).filter((sl) => sl.kind === "delivery");
 
   const active = sub?.status === "active" || sub?.status === "trialing";
+  const inSofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
+  const solleciti = sub?.dunning_step ?? 0;
   const priceLabel = sub?.custom_price_cents != null ? `${eur(sub.custom_price_cents)} (custom)` : sub?.plans ? `${eur(sub.plans.price_month_cents)}` : "—";
 
   return (
@@ -107,13 +110,17 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
               {/* A che punto è il recupero: senza, l'operatore non sa se il
                   cliente è già stato sollecitato e quante volte, e finisce per
-                  telefonargli sopra un'email appena partita. */}
-              {(sub.dunning_step ?? 0) > 0 && (
+                  telefonargli sopra un'email appena partita.
+                  Compare a partire dal pagamento in sospeso e non dal primo
+                  sollecito: chi era bloccato da prima che il recupero
+                  esistesse è a zero solleciti, ed è proprio quello che va
+                  fatto partire a mano. */}
+              {inSofferenza && (
                 <div className="mt-3 rounded-[14px] border border-[#C0392B]/30 bg-[#C0392B]/6 p-3">
                   <div className="font-display text-xs font-extrabold uppercase tracking-wide text-[#C0392B]">Recupero pagamento</div>
                   <div className="mt-1 space-y-1 text-sm font-medium text-muted">
                     <div>
-                      Solleciti inviati: <span className="font-bold text-navy">{sub.dunning_step} di 3</span>
+                      Solleciti inviati: <span className="font-bold text-navy">{solleciti} di 3</span>
                       {sub.dunning_last_sent_at && <> · ultimo {fmtDate(sub.dunning_last_sent_at)}</>}
                     </div>
                     {sub.last_failed_at && <div>Primo fallimento: {fmtDate(sub.last_failed_at)}</div>}
@@ -122,13 +129,34 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                         Apri la fattura da saldare →
                       </a>
                     ) : (
-                      <div className="text-xs">Nessun link di pagamento salvato: il fallimento è precedente a questa funzione.</div>
+                      <div className="text-xs">Nessun link salvato: lo cerchiamo su Stripe al primo sollecito.</div>
                     )}
-                    {sub.dunning_step! >= 3 && (
+
+                    {solleciti === 0 ? (
+                      <p className="rounded-[10px] bg-[#C9881F]/12 px-2.5 py-1.5 text-xs font-semibold text-[#C9881F]">
+                        Nessun sollecito ancora partito. Quelli automatici li fa scattare Stripe quando un addebito
+                        fallisce: se il blocco è vecchio, quel momento può non arrivare mai. Falli partire tu — dal
+                        secondo in poi prosegue il calendario da solo.
+                      </p>
+                    ) : solleciti >= 3 ? (
                       <p className="rounded-[10px] bg-[#C0392B]/10 px-2.5 py-1.5 text-xs font-semibold text-[#C0392B]">
                         Solleciti automatici esauriti. Da qui in poi decide una persona: telefonata o chiusura.
                       </p>
+                    ) : (
+                      <p className="text-xs">Il prossimo parte da solo {(ATTESA_GIORNI[solleciti] ?? 3)} giorni dopo l&apos;ultimo. Con il bottone lo anticipi.</p>
                     )}
+
+                    <form
+                      action={sollecitaOra}
+                      className="pt-1"
+                    >
+                      <input type="hidden" name="customer_id" value={id} />
+                      <input type="hidden" name="sub_id" value={sub.id} />
+                      <Button type="submit" size="md">
+                        {solleciti === 0 ? "Manda il 1º sollecito adesso" : solleciti >= 3 ? "Rimanda l'ultimo avviso" : `Manda il ${solleciti + 1}º sollecito adesso`}
+                      </Button>
+                    </form>
+                    <p className="text-[11px]">Parte davvero un&apos;email al cliente, con notifica push.</p>
                   </div>
                 </div>
               )}
