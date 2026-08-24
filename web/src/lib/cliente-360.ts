@@ -14,6 +14,21 @@ import { stripe } from "@/lib/stripe";
  *  copia arriva dai webhook e può essere rimasta indietro, mentre Stripe è la
  *  fonte del vero sui soldi. */
 
+/** Una fattura Stripe come serve leggerla dal pannello: quando, quanto, com'è
+ *  andata e dove si apre. `stato` resta la parola di Stripe perché è quella che
+ *  si ritrova nella loro dashboard quando si va a controllare. */
+export type FatturaStripe = {
+  id: string;
+  numero: string | null;
+  data: string;
+  importoCents: number;
+  dovutoCents: number;
+  stato: string;
+  pagata: boolean;
+  tentativi: number;
+  url: string | null;
+};
+
 export type AbbonamentoStripe = {
   stato: string;
   statoItaliano: string;
@@ -25,6 +40,11 @@ export type AbbonamentoStripe = {
   pagamentiRiusciti: number;
   totalePagatoCents: number;
   ultimoPagamento: string | null;
+  /** Le singole fatture, dalla più recente. Erano già scaricate per contarle e
+   *  poi buttate: la scheda diceva "1 pagamento, €160" senza mai dire quale, e
+   *  con un pagamento fallito non c'era modo di vedere quale fattura fosse
+   *  rimasta aperta. */
+  fatture: FatturaStripe[];
   errore?: string;
 };
 
@@ -54,17 +74,31 @@ export async function abbonamentoDaStripe(subId: string, customerId?: string | n
     let pagamentiRiusciti = 0;
     let totalePagatoCents = 0;
     let ultimoPagamento: string | null = null;
+    const righeFatture: FatturaStripe[] = [];
     if (customerId) {
       const fatture = await stripe().invoices.list({ customer: customerId, limit: 100 });
       for (const f of fatture.data) {
-        if ((f.amount_paid ?? 0) > 0) {
+        const pagata = (f.amount_paid ?? 0) > 0;
+        if (pagata) {
           pagamentiRiusciti++;
           totalePagatoCents += f.amount_paid ?? 0;
           const quando = f.status_transitions?.paid_at ?? f.created;
           const iso = new Date(quando * 1000).toISOString();
           if (!ultimoPagamento || iso > ultimoPagamento) ultimoPagamento = iso;
         }
+        righeFatture.push({
+          id: f.id ?? "",
+          numero: f.number ?? null,
+          data: new Date((f.status_transitions?.paid_at ?? f.created) * 1000).toISOString(),
+          importoCents: f.amount_paid ?? 0,
+          dovutoCents: f.amount_due ?? 0,
+          stato: f.status ?? "sconosciuto",
+          pagata,
+          tentativi: f.attempt_count ?? 0,
+          url: f.hosted_invoice_url ?? f.invoice_pdf ?? null,
+        });
       }
+      righeFatture.sort((a, b) => (a.data < b.data ? 1 : -1));
     }
 
     // Nelle API Stripe recenti la fine del periodo sta sugli ITEM, non più sulla
@@ -89,6 +123,7 @@ export async function abbonamentoDaStripe(subId: string, customerId?: string | n
       pagamentiRiusciti,
       totalePagatoCents,
       ultimoPagamento,
+      fatture: righeFatture,
     };
   } catch (err) {
     // Chiave mancante, id non più esistente, rete: la scheda deve aprirsi
@@ -104,6 +139,7 @@ export async function abbonamentoDaStripe(subId: string, customerId?: string | n
       pagamentiRiusciti: 0,
       totalePagatoCents: 0,
       ultimoPagamento: null,
+      fatture: [],
       errore: err instanceof Error ? err.message : "errore sconosciuto",
     };
   }

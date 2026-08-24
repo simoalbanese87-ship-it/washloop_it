@@ -7,7 +7,11 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { stripe, siteUrl } from "@/lib/stripe";
 import { creaClienteStripe } from "@/lib/stripe-customer";
-import { notifyNewCustomer, notifyRecurringChanged } from "@/lib/notify";
+import { notifyNewCustomer, notifyRecurringChanged, notifyOrderStatus } from "@/lib/notify";
+import { zoneIdForCap } from "@/lib/zones";
+import { geocodeAddress } from "@/lib/geo";
+import { type OrderStatus } from "@/lib/orders";
+import { slotFullMessage } from "@/lib/slots";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -115,7 +119,7 @@ export async function createCustomSubscriptionLink(
           recurring: { interval: "month" },
         },
       }],
-      success_url: `${siteUrl()}/app?checkout=success`,
+      success_url: `${siteUrl()}/checkout/grazie?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl()}/app/abbonamento?checkout=cancel`,
       metadata: { supabase_user_id: customerId, custom_price_cents: String(amount) },
       subscription_data: { metadata: { supabase_user_id: customerId, custom_price_cents: String(amount) } },
@@ -441,4 +445,119 @@ export async function setRecurringActive(formData: FormData) {
   await svc.from("recurring_pickups").update({ active }).eq("id", id).eq("customer_id", customerId);
   revalidatePath(`/admin/abbonati/${customerId}`);
   redirect(`/admin/abbonati/${customerId}?ok=${encodeURIComponent(active ? "Ritiro riattivato." : "Ritiro disattivato.")}`);
+}
+
+/** Admin: aggiunge un indirizzo al cliente.
+ *
+ *  Serviva perché un cliente creato dal pannello nasce senza: `createCustomer`
+ *  non tocca `addresses`, e fino a qui la scheda li mostrava in sola lettura.
+ *  Risultato: non si poteva né creargli un ritiro ricorrente né un ritiro
+ *  singolo, e l'unica via era entrare nei suoi panni e compilare il form
+ *  dell'app. Stessa derivazione di zona e coordinate di `createOnboardingAddress`
+ *  — quella lavora sull'utente in sessione, questa su un utente qualsiasi. */
+export async function addCustomerAddress(formData: FormData) {
+  await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  const street = String(formData.get("street") ?? "").trim();
+  const civico = String(formData.get("civico") ?? "").trim();
+  const cap = String(formData.get("cap") ?? "").trim();
+  const city = String(formData.get("city") ?? "").trim() || "Milano";
+  const label = String(formData.get("label") ?? "").trim() || "Casa";
+  const intercom = String(formData.get("intercom") ?? "").trim();
+  const floor = String(formData.get("floor") ?? "").trim();
+  const accessMode = String(formData.get("access_mode") ?? "door");
+  const accessNote = String(formData.get("access_note") ?? "").trim();
+  const conciergeHours = String(formData.get("concierge_hours") ?? "").trim();
+
+  const back = (params: Record<string, string>) =>
+    `/admin/abbonati/${customerId}?${new URLSearchParams(params)}`;
+  if (!customerId) throw new Error("Cliente mancante");
+  if (!street || !civico) redirect(back({ warn: "Via e numero civico sono obbligatori." }));
+
+  const svc = createServiceClient();
+  const zoneId = await zoneIdForCap(svc, cap);
+  const geo = await geocodeAddress({ street, civico, cap, city });
+  const fullStreet = [`${street} ${civico}`.trim(), cap, city].filter(Boolean).join(", ");
+
+  const { error } = await svc.from("addresses").insert({
+    user_id: customerId,
+    label,
+    street: fullStreet,
+    cap: cap || null,
+    civico: civico || null,
+    lat: geo?.lat ?? null,
+    lng: geo?.lng ?? null,
+    zone_id: zoneId,
+    intercom: accessMode !== "concierge" ? intercom || null : null,
+    floor: accessMode !== "concierge" ? floor || null : null,
+    access_mode: accessMode,
+    access_note: accessNote || null,
+    concierge_hours: accessMode === "concierge" ? conciergeHours || null : null,
+  });
+  if (error) redirect(back({ warn: `Indirizzo non salvato: ${error.message}` }));
+
+  revalidatePath(`/admin/abbonati/${customerId}`);
+  redirect(back({
+    ok: zoneId
+      ? "Indirizzo aggiunto."
+      : "Indirizzo aggiunto, ma il CAP non è mappato a nessuna zona attiva: assegnala a mano prima del ritiro.",
+  }));
+}
+
+/** Admin: crea un ritiro per conto del cliente.
+ *
+ *  Non passa da `bookPickup` di proposito. Quella è l'azione del cliente e ha
+ *  il gate sull'abbonamento attivo: con un pagamento fallito si rifiuta — che è
+ *  giusto per il cliente e sbagliato qui, perché è proprio il caso in cui
+ *  l'operatore deve poter prenotare al telefono. Resta traccia di chi l'ha
+ *  creato in `staff_notes`: un ordine comparso dal nulla nel board, senza dire
+ *  da dove viene, è peggio del problema che risolve. */
+export async function adminCreatePickup(formData: FormData) {
+  await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  const addressId = String(formData.get("address_id") ?? "");
+  const pickupSlotId = String(formData.get("pickup_slot_id") ?? "");
+  const deliverySlotId = String(formData.get("delivery_slot_id") ?? "");
+  const bags = Math.max(1, Number(formData.get("bags") ?? 1) || 1);
+  const notes = String(formData.get("notes") ?? "").trim();
+
+  const back = (params: Record<string, string>) =>
+    `/admin/abbonati/${customerId}?${new URLSearchParams(params)}`;
+  if (!customerId) throw new Error("Cliente mancante");
+  if (!addressId || !pickupSlotId) redirect(back({ warn: "Indirizzo e fascia di ritiro sono obbligatori." }));
+
+  const svc = createServiceClient();
+  const [{ data: slot }, { data: sub }] = await Promise.all([
+    svc.from("slots").select("starts_at, laundry_id").eq("id", pickupSlotId).maybeSingle<{ starts_at: string; laundry_id: string | null }>(),
+    svc.from("subscriptions").select("plans(turnaround_hours)").eq("user_id", customerId)
+      .order("created_at", { ascending: false }).limit(1)
+      .maybeSingle<{ plans: { turnaround_hours: number } | null }>(),
+  ]);
+  if (!slot) redirect(back({ warn: "Fascia di ritiro non trovata." }));
+
+  const turnaround = sub?.plans?.turnaround_hours ?? 48;
+  const eta = new Date(new Date(slot!.starts_at).getTime() + turnaround * 3600_000).toISOString();
+
+  const { data, error } = await svc
+    .from("orders")
+    .insert({
+      customer_id: customerId,
+      address_id: addressId,
+      pickup_slot_id: pickupSlotId,
+      delivery_slot_id: deliverySlotId || null,
+      laundry_id: slot!.laundry_id,
+      eta_ready_at: eta,
+      bags,
+      notes: notes || null,
+      staff_notes: "Ritiro creato dall'amministrazione per conto del cliente.",
+      status: "pickup_scheduled" as OrderStatus,
+    })
+    .select("id")
+    .single();
+  if (error) redirect(back({ warn: slotFullMessage(error) ?? `Ritiro non creato: ${error.message}` }));
+
+  await notifyOrderStatus(data!.id, "pickup_scheduled");
+  revalidatePath(`/admin/abbonati/${customerId}`);
+  revalidatePath("/admin/ordini");
+  redirect(`/admin/ordini/${data!.id}?ok=${encodeURIComponent("Ritiro creato per conto del cliente. Il cliente è stato avvisato.")}`);
 }

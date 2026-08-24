@@ -4,9 +4,9 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup } from "@/lib/actions/admin-customer";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
-import { fmtDate, WEEKDAY_IT } from "@/lib/format";
+import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -14,10 +14,11 @@ const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm
 
 
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string };
-type Sub = { id: string; status: string; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number } | null };
+type Sub = { id: string; status: string; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number } | null };
 type Addr = { id: string; label: string | null; street: string };
 type Ord = { id: string; status: OrderStatus; created_at: string; bags: number };
 type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; created_at: string };
+type Slot = { id: string; starts_at: string; ends_at: string; kind: string };
 
 /** Gli stati degli addebiti erano mostrati grezzi ("pending", "invoiced"):
  *  parole tecniche in inglese in una schermata che si legge di fretta. */
@@ -44,13 +45,14 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at").eq("id", id).maybeSingle<Prof>();
   if (!profile) notFound();
 
-  const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }] = await Promise.all([
+  const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }] = await Promise.all([
     svc.auth.admin.getUserById(id),
-    svc.from("subscriptions").select("id, status, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    svc.from("subscriptions").select("id, status, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
     svc.from("recurring_pickups").select("id, weekday, hhmm, bags, active, needs_confirmation, delivery_hhmm, address_id, addresses(label), pending_weekday, pending_hhmm, pending_bags, pending_delivery_hhmm").eq("customer_id", id).order("created_at", { ascending: false }).returns<Rec[]>(),
+    svc.from("slots").select("id, starts_at, ends_at, kind").gte("starts_at", new Date().toISOString()).order("starts_at").limit(60).returns<Slot[]>(),
   ]);
   const email = userRes?.user?.email ?? "—";
 
@@ -65,6 +67,10 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const totaleIncassatoCents = incassi.reduce((t, i) => t + i.amount_cents, 0);
   const addebitatoCents = charges?.filter((c) => c.kind !== "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
   const stornatoCents = charges?.filter((c) => c.kind === "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
+
+  // Le fasce future, divise per tipo: servono al ritiro creato dall'amministrazione.
+  const slotRitiro = (slots ?? []).filter((sl) => sl.kind === "pickup");
+  const slotConsegna = (slots ?? []).filter((sl) => sl.kind === "delivery");
 
   const active = sub?.status === "active" || sub?.status === "trialing";
   const priceLabel = sub?.custom_price_cents != null ? `${eur(sub.custom_price_cents)} (custom)` : sub?.plans ? `${eur(sub.plans.price_month_cents)}` : "—";
@@ -98,6 +104,34 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                 {sub.activated_at && <div>Attivato il: <span className="font-bold text-navy">{fmtDate(sub.activated_at)}</span></div>}
                 {sub.current_period_end && <div>Rinnovo: {fmtDate(sub.current_period_end)}</div>}
               </div>
+
+              {/* A che punto è il recupero: senza, l'operatore non sa se il
+                  cliente è già stato sollecitato e quante volte, e finisce per
+                  telefonargli sopra un'email appena partita. */}
+              {(sub.dunning_step ?? 0) > 0 && (
+                <div className="mt-3 rounded-[14px] border border-[#C0392B]/30 bg-[#C0392B]/6 p-3">
+                  <div className="font-display text-xs font-extrabold uppercase tracking-wide text-[#C0392B]">Recupero pagamento</div>
+                  <div className="mt-1 space-y-1 text-sm font-medium text-muted">
+                    <div>
+                      Solleciti inviati: <span className="font-bold text-navy">{sub.dunning_step} di 3</span>
+                      {sub.dunning_last_sent_at && <> · ultimo {fmtDate(sub.dunning_last_sent_at)}</>}
+                    </div>
+                    {sub.last_failed_at && <div>Primo fallimento: {fmtDate(sub.last_failed_at)}</div>}
+                    {sub.last_failed_invoice_url ? (
+                      <a href={sub.last_failed_invoice_url} target="_blank" rel="noreferrer" className="inline-block font-display text-xs font-bold text-blue hover:underline">
+                        Apri la fattura da saldare →
+                      </a>
+                    ) : (
+                      <div className="text-xs">Nessun link di pagamento salvato: il fallimento è precedente a questa funzione.</div>
+                    )}
+                    {sub.dunning_step! >= 3 && (
+                      <p className="rounded-[10px] bg-[#C0392B]/10 px-2.5 py-1.5 text-xs font-semibold text-[#C0392B]">
+                        Solleciti automatici esauriti. Da qui in poi decide una persona: telefonata o chiusura.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Cosa dice Stripe, che è la fonte del vero sui soldi: la nostra
                   copia arriva dai webhook e può essere rimasta indietro. */}
@@ -155,7 +189,10 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           <h2 className="font-display text-base font-extrabold text-navy">Indirizzi</h2>
           <div className="mt-3 space-y-2">
             {(addresses ?? []).length === 0 ? (
-              <p className="text-sm font-medium text-muted">Nessun indirizzo.</p>
+              <p className="text-sm font-medium text-muted">
+                Nessun indirizzo. Un cliente creato da qui nasce senza: finché non ne ha uno non si può prenotargli niente,
+                e in app trova solo un avviso al posto della prenotazione.
+              </p>
             ) : (
               (addresses ?? []).map((a) => (
                 <div key={a.id} className="rounded-[12px] border border-line bg-ice px-3 py-2 text-sm">
@@ -164,8 +201,74 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               ))
             )}
           </div>
+
+          <details className="mt-4" open={(addresses ?? []).length === 0}>
+            <summary className="cursor-pointer font-display text-sm font-bold text-blue">+ Aggiungi indirizzo</summary>
+            <form action={addCustomerAddress} className="mt-3 grid gap-2 sm:grid-cols-2">
+              <input type="hidden" name="customer_id" value={id} />
+              <label className="text-xs font-bold text-muted sm:col-span-2">Via<input name="street" required placeholder="es. Via Franco Russoli" className={input} /></label>
+              <label className="text-xs font-bold text-muted">Civico<input name="civico" required placeholder="9" className={input} /></label>
+              <label className="text-xs font-bold text-muted">CAP<input name="cap" inputMode="numeric" pattern="\d{5}" placeholder="20143" className={input} /></label>
+              <label className="text-xs font-bold text-muted">Città<input name="city" defaultValue="Milano" className={input} /></label>
+              <label className="text-xs font-bold text-muted">Etichetta<input name="label" defaultValue="Casa" className={input} /></label>
+              <label className="text-xs font-bold text-muted">Come si entra
+                <select name="access_mode" defaultValue="door" className={input}>
+                  <option value="door">Alla porta</option>
+                  <option value="home">Al portone</option>
+                  <option value="concierge">Portineria</option>
+                </select>
+              </label>
+              <label className="text-xs font-bold text-muted">Citofono<input name="intercom" placeholder="Cognome sul citofono" className={input} /></label>
+              <label className="text-xs font-bold text-muted">Piano<input name="floor" placeholder="es. 3" className={input} /></label>
+              <label className="text-xs font-bold text-muted">Orario portineria<input name="concierge_hours" placeholder="es. 8:00–18:00" className={input} /></label>
+              <label className="text-xs font-bold text-muted sm:col-span-2">Nota per il rider<input name="access_note" placeholder="Nome del portinaio, indicazioni…" className={input} /></label>
+              <div className="sm:col-span-2"><Button type="submit" size="md">Salva indirizzo</Button></div>
+            </form>
+            <p className="mt-2 text-xs font-medium text-muted">La zona si ricava dal CAP. Se il CAP non è coperto da una zona attiva l&apos;indirizzo si salva lo stesso, ma va assegnato a mano.</p>
+          </details>
         </Card>
       </div>
+
+      {/* Ritiro creato dall'amministrazione, per chi prenota al telefono */}
+      <Card className="mt-6">
+        <h2 className="font-display text-base font-extrabold text-navy">Crea un ritiro per il cliente</h2>
+        <p className="mt-1 text-xs font-medium text-muted">
+          Per chi prenota al telefono. Salta il controllo sull&apos;abbonamento — quello vale per il cliente in app, non per te —
+          quindi funziona anche con un pagamento fallito in corso. L&apos;ordine resta marcato come creato dall&apos;amministrazione,
+          e il cliente riceve l&apos;email di conferma come per una prenotazione qualsiasi.
+        </p>
+        {(addresses ?? []).length === 0 ? (
+          <p className="mt-3 text-sm font-medium text-muted">Aggiungi prima un indirizzo.</p>
+        ) : slotRitiro.length === 0 ? (
+          <p className="mt-3 text-sm font-medium text-muted">
+            Nessuna fascia di ritiro futura. <Link href="/admin/catalogo" className="font-bold text-blue hover:underline">Generane in Catalogo →</Link>
+          </p>
+        ) : (
+          <form action={adminCreatePickup} className="mt-4 grid gap-2 sm:grid-cols-[1.2fr_1.4fr_1.4fr_0.6fr_auto] sm:items-end">
+            <input type="hidden" name="customer_id" value={id} />
+            <label className="text-xs font-bold text-muted">Indirizzo
+              <select name="address_id" required className={input} defaultValue={(addresses ?? [])[0]?.id}>
+                {(addresses ?? []).map((a) => (<option key={a.id} value={a.id}>{a.label ?? a.street}</option>))}
+              </select>
+            </label>
+            <label className="text-xs font-bold text-muted">Ritiro
+              <select name="pickup_slot_id" required className={input} defaultValue="">
+                <option value="" disabled>Scegli…</option>
+                {slotRitiro.map((sl) => (<option key={sl.id} value={sl.id}>{fmtDateTime(sl.starts_at)}</option>))}
+              </select>
+            </label>
+            <label className="text-xs font-bold text-muted">Riconsegna
+              <select name="delivery_slot_id" className={input} defaultValue="">
+                <option value="">Da fissare dopo</option>
+                {slotConsegna.map((sl) => (<option key={sl.id} value={sl.id}>{fmtDateTime(sl.starts_at)}</option>))}
+              </select>
+            </label>
+            <label className="text-xs font-bold text-muted">Sacchi<input name="bags" type="number" min="1" defaultValue={1} className={input} /></label>
+            <Button type="submit" size="md">Crea ritiro</Button>
+            <label className="text-xs font-bold text-muted sm:col-span-5">Note per il rider<input name="notes" placeholder="es. citofonare due volte" className={input} /></label>
+          </form>
+        )}
+      </Card>
 
       {/* Ritiri ricorrenti — orari indicati dal cliente, modificabili dall'admin */}
       <Card className="mt-6">
@@ -241,6 +344,59 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           <p className="mt-3 text-xs font-medium text-muted">Aggiungi prima un indirizzo per creare un ritiro ricorrente.</p>
         )}
       </Card>
+
+      {/* Storico pagamenti, riga per riga, direttamente da Stripe.
+          Il registro locale `invoices` parte da agosto 2026 e i pagamenti
+          precedenti non ci sono: questo elenco copre tutta la vita del cliente,
+          e soprattutto mostra QUALE fattura è rimasta aperta — che è la domanda
+          che ci si fa quando arriva la telefonata. */}
+      {stripeSub && !stripeSub.errore && (
+        <Card className="mt-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-display text-base font-extrabold text-navy">Storico pagamenti ({stripeSub.fatture.length})</h2>
+            <span className="text-sm font-medium text-muted">
+              {stripeSub.pagamentiRiusciti} riusciti · <strong className="text-navy">{eur(stripeSub.totalePagatoCents)}</strong> incassati
+            </span>
+          </div>
+          <p className="mt-1 text-xs font-medium text-muted">Ogni fattura emessa da Stripe su questo cliente, dalla più recente. «Apri» porta alla pagina di pagamento: si può mandare al cliente così com&apos;è.</p>
+
+          <div className="mt-4 space-y-2">
+            {stripeSub.fatture.length === 0 ? (
+              <p className="text-sm font-medium text-muted">Nessuna fattura su Stripe per questo cliente.</p>
+            ) : (
+              stripeSub.fatture.map((f) => (
+                <div
+                  key={f.id}
+                  className={`flex flex-wrap items-center justify-between gap-2 rounded-[12px] border px-3 py-2 text-sm ${
+                    f.pagata ? "border-line bg-ice" : "border-[#C0392B]/30 bg-[#C0392B]/6"
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <span className="font-bold text-navy">{f.numero ? `Fattura ${f.numero}` : "Fattura"}</span>
+                    <span className="text-muted"> · {fmtDate(f.data)}</span>
+                    {!f.pagata && f.tentativi > 0 && (
+                      <span className="text-muted"> · {f.tentativi} {f.tentativi === 1 ? "tentativo" : "tentativi"}</span>
+                    )}
+                  </div>
+                  <div className="flex flex-none items-center gap-3">
+                    <span className={`font-display font-extrabold ${f.pagata ? "text-navy" : "text-[#C0392B]"}`}>
+                      {f.pagata ? eur(f.importoCents) : `${eur(f.dovutoCents)} da saldare`}
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${f.pagata ? "bg-[#1F8A5B]/12 text-[#1F8A5B]" : "bg-[#C0392B]/12 text-[#C0392B]"}`}>
+                      {f.stato}
+                    </span>
+                    {f.url && (
+                      <a href={f.url} target="_blank" rel="noreferrer" className="font-display text-xs font-bold text-blue hover:underline">
+                        Apri →
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Addebiti / rimborsi personalizzati */}
       <Card className="mt-6">
