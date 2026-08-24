@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/funnel-import",
       "schedule": "15 5 * * *"
+    },
+    {
+      "path": "/api/cron/dunning",
+      "schedule": "0 8 * * *"
     }
   ]
 }

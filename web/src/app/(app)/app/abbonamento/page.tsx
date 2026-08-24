@@ -3,11 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { startCheckout, openPortal } from "@/lib/actions/billing";
 import { fmtDate } from "@/lib/format";
 import { planRecap } from "@/lib/plan-copy";
+import { linkPagamento } from "@/lib/dunning-piano";
 import { CostsExplainer } from "@/components/app/CostsExplainer";
 import { DatiFatturaForm } from "@/components/app/DatiFatturaForm";
 
 type Plan = { id: string; code: string; name: string; price_month_cents: number; pickups_per_week: number; turnaround_hours: number };
-type Sub = { status: string; current_period_end: string | null; plan_id: string | null; plans: { name: string } | null };
+type Sub = { status: string; current_period_end: string | null; plan_id: string | null; last_failed_invoice_url: string | null; plans: { name: string } | null };
 
 const euro = (cents: number) => (cents / 100).toLocaleString("it-IT");
 
@@ -28,12 +29,19 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
   const [{ need }, { data: plans }, { data: sub }, { data: monthOrders }, { data: monthSpecials }] = await Promise.all([
     searchParams,
     supabase.from("plans").select("id, code, name, price_month_cents, pickups_per_week, turnaround_hours").eq("active", true).order("sort").returns<Plan[]>(),
-    supabase.from("subscriptions").select("status, current_period_end, plan_id, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    supabase.from("subscriptions").select("status, current_period_end, plan_id, last_failed_invoice_url, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     supabase.from("orders").select("bags, status, created_at").gte("created_at", monthStartIso).neq("status", "cancelled").returns<{ bags: number; status: string; created_at: string }[]>(),
     supabase.from("order_specials").select("price_cli_cents, created_at").gte("created_at", monthStartIso).returns<{ price_cli_cents: number; created_at: string }[]>(),
   ]);
 
   const active = sub?.status === "active" || sub?.status === "trialing";
+  // Fattura rimasta aperta. Finora tutto quello che serve a chi si trova qui —
+  // lo stato del piano, il portale Stripe, il link per pagare — stava dentro
+  // rami `active &&`, cioè irraggiungibile proprio a lui: vedeva il listino
+  // piani come un nuovo iscritto, e l'unico bottone apriva un SECONDO
+  // abbonamento invece di saldare il primo.
+  const sofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
+  const payUrl = linkPagamento(sub?.last_failed_invoice_url);
 
   // Dati di fatturazione: li chiediamo solo a chi vuole la fattura. Di norma
   // basta la ricevuta, che parte già via email a ogni addebito.
@@ -63,10 +71,41 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
         <p className="mt-1.5 text-sm font-medium text-muted">Cambia, metti in pausa o disdici quando vuoi.</p>
       </div>
 
-      {need && !active && (
+      {need && !active && !sofferenza && (
         <div className="rounded-[18px] border border-blue/30 bg-blue/5 p-4 text-sm font-semibold text-navy">
           Per prenotare un ritiro serve un abbonamento attivo. Scegli un piano qui sotto.
         </div>
+      )}
+
+      {/* Pagamento da recuperare: prima di tutto il resto, e con il link che
+          salda davvero la fattura invece di aprirne un'altra. */}
+      {sofferenza && (
+        <section className="rounded-[22px] border border-[#C0392B]/30 bg-[#C0392B]/5 p-5">
+          <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-[#C0392B]">
+            {sub?.status === "unpaid" ? "Abbonamento sospeso" : "Pagamento in sospeso"}
+          </div>
+          <h2 className="mt-1.5 font-display text-[22px] font-black leading-tight text-navy">
+            {sub?.plans?.name ? `Piano ${sub.plans.name}` : "Il tuo piano"} · {STATUS_LABEL[sub?.status ?? ""] ?? sub?.status}
+          </h2>
+          <p className="mt-2 text-sm font-medium text-muted">
+            L&apos;ultimo addebito non è andato a buon fine. Fino al saldo non puoi prenotare nuovi ritiri; quelli già fissati li
+            facciamo comunque. Di solito è una carta scaduta: si sistema in un minuto.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <a href={payUrl} className="inline-flex rounded-full bg-gradient-to-br from-blue to-cyan px-6 py-3 font-display text-sm font-extrabold text-white shadow-[0_10px_24px_-10px_rgba(0,200,240,0.7)]">
+              {sub?.last_failed_invoice_url ? "Paga la fattura →" : "Aggiorna il pagamento →"}
+            </a>
+            <form action={openPortal}>
+              <button type="submit" className="font-display text-sm font-bold text-blue hover:underline">
+                Cambia metodo di pagamento
+              </button>
+            </form>
+          </div>
+          <p className="mt-3 text-xs font-medium text-muted">
+            Hai già pagato? Possono volerci alcune ore: se dopo domani vedi ancora questo avviso, scrivici a {" "}
+            <a href="mailto:info@washloop.it" className="font-bold text-blue hover:underline">info@washloop.it</a>.
+          </p>
+        </section>
       )}
 
       {/* Piano attivo */}
@@ -105,7 +144,9 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
       {/* Piani */}
       <div className="space-y-3">
         {(plans ?? []).map((p) => {
-          const isCurrent = active && sub?.plan_id === p.id;
+          // In sofferenza il piano resta il suo: l'abbonamento esiste, è la
+          // fattura a non essere stata pagata.
+          const isCurrent = (active || sofferenza) && sub?.plan_id === p.id;
           return (
             <section key={p.id} className={`rounded-[22px] border bg-white p-5 ${isCurrent ? "border-cyan shadow-[0_18px_40px_-20px_rgba(0,200,240,0.45)]" : "border-line"}`}>
               <div className="flex items-center justify-between">
@@ -119,8 +160,20 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
               <p className="mt-1.5 text-sm font-medium text-muted">
                 {planRecap(p.code) ?? `Ritiro 1 volta a settimana · pronto in ${p.turnaround_hours}h · ritiro e consegna inclusi`}
               </p>
-              {isCurrent ? (
+              {isCurrent && sofferenza ? (
+                <a href={payUrl} className="mt-4 block rounded-full bg-gradient-to-br from-blue to-cyan py-3 text-center font-display text-sm font-extrabold text-white shadow-[0_10px_24px_-10px_rgba(0,200,240,0.7)]">
+                  Piano attuale · salda per riattivarlo
+                </a>
+              ) : isCurrent ? (
                 <div className="mt-4 rounded-full border-2 border-line py-3 text-center font-display text-sm font-extrabold text-muted">Piano attuale</div>
+              ) : sofferenza ? (
+                /* Senza questo ramo il bottone qui sotto era «Attiva {piano} →»
+                   con `startCheckout`: apriva un SECONDO abbonamento accanto a
+                   quello non pagato, addebitando due canoni allo stesso
+                   cliente. Prima si salda, poi semmai si cambia piano. */
+                <div className="mt-4 rounded-full border-2 border-line py-3 text-center font-display text-sm font-extrabold text-muted">
+                  Salda prima la fattura aperta
+                </div>
               ) : active ? (
                 <form action={openPortal} className="mt-4">
                   <button type="submit" className="w-full rounded-full border-2 border-line py-3 font-display text-sm font-extrabold text-navy">Passa a {p.name} →</button>

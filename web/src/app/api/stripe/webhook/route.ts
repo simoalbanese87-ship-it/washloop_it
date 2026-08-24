@@ -3,11 +3,12 @@ import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { createServiceClient } from "@/lib/supabase/server";
 import { eventoGiaVisto, syncSubscription } from "@/lib/subscription-sync";
-import { renderEmail, sendMail } from "@/lib/email";
+import { sendMail } from "@/lib/email";
 import { registraIncasso } from "@/lib/fatturazione";
 import { chargeEmailHtml } from "@/lib/email-templates";
 import { LEGAL } from "@/lib/legal";
 import { fmtDate } from "@/lib/format";
+import { inviaSollecito, chiudiRecupero } from "@/lib/dunning";
 
 /** Webhook Stripe → aggiorna `subscriptions` con service-role (bypassa RLS).
  *  Eventi: checkout completato, subscription creata/aggiornata/cancellata,
@@ -77,6 +78,11 @@ export async function POST(request: NextRequest) {
           lines?: { data?: { description?: string | null; amount?: number }[] };
         };
         if (!inv.amount_paid || inv.amount_paid <= 0) break; // niente da notificare (es. €0)
+
+        // I soldi sono arrivati: si chiude il recupero. Va fatto prima di
+        // qualsiasi altra cosa — se il banner "pagamento non riuscito" resta in
+        // app a chi ha appena pagato, è peggio che non averlo mai messo.
+        after(() => chiudiRecupero(inv.customer));
 
         // Registro fatturazione: la riga si scrive sempre, anche a ponte FIC
         // spento, così il giorno in cui si decide il regime fiscale gli incassi
@@ -158,36 +164,61 @@ export async function POST(request: NextRequest) {
 
     // Carta rifiutata. Prima non lo sapeva nessuno: l'abbonamento andava in
     // `past_due` su Stripe e il cliente lo scopriva aprendo l'app.
+    //
+    // Ora il fallimento lascia una traccia: l'URL della fattura rimasta aperta
+    // (che paga in un tap, senza nemmeno accedere) e il contatore dei
+    // solleciti. Da quella traccia vivono il banner in app e il cron che manda
+    // il secondo e il terzo avviso.
     case "invoice.payment_failed": {
       const inv = event.data.object as unknown as {
-        customer: string; customer_email?: string | null; customer_name?: string | null; amount_due?: number;
+        customer: string; customer_email?: string | null; customer_name?: string | null;
+        amount_due?: number; hosted_invoice_url?: string | null;
       };
       after(async () => {
         try {
+          const { data: sott } = await db
+            .from("subscriptions")
+            .select("id, user_id, dunning_step, profiles(full_name)")
+            .eq("stripe_customer_id", inv.customer)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle<{ id: string; user_id: string; dunning_step: number | null; profiles: { full_name: string | null } | null }>();
+
+          // L'URL va salvato comunque, anche se poi la notifica non parte: è il
+          // link che l'operatore legge dalla scheda cliente per farsi pagare.
+          if (sott) {
+            await db
+              .from("subscriptions")
+              .update({
+                last_failed_invoice_url: inv.hosted_invoice_url ?? null,
+                last_failed_at: new Date().toISOString(),
+              })
+              .eq("id", sott.id);
+          }
+
           let to = inv.customer_email ?? null;
           if (!to) {
             const cust = (await stripe().customers.retrieve(inv.customer)) as Stripe.Customer;
             to = cust.email ?? null;
           }
-          if (!to) return;
-          const { data: prof } = await db
-            .from("subscriptions")
-            .select("profiles(full_name)")
-            .eq("stripe_customer_id", inv.customer)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle<{ profiles: { full_name: string | null } | null }>();
-          const nome = prof?.profiles?.full_name?.split(" ")[0] ?? "";
-          await sendMail({
-            to,
-            subject: "Pagamento non riuscito — il servizio resta in pausa",
-            html: renderEmail({
-              title: `Pagamento non riuscito${nome ? `, ${nome}` : ""}`,
-              emoji: "💳",
-              preheader: "Aggiorna il metodo di pagamento per riattivare i ritiri.",
-              body: `Non siamo riusciti ad addebitare il canone WashLoop. Nessun problema: aggiorna il metodo di pagamento dall'area personale e i ritiri riprendono subito. Se pensi sia un errore, rispondi a questa email.`,
-              cta: { label: "Aggiorna pagamento", href: `${process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it"}/app/abbonamento` },
-            }),
+
+          if (!sott) {
+            console.error(`[webhook] payment_failed: nessuna subscription per il customer ${inv.customer}`);
+            return;
+          }
+
+          // Se un recupero è già in corso non si riparte da capo: Stripe
+          // ritenta la stessa fattura più volte e ogni tentativo fa scattare
+          // questo evento. Senza questo controllo il cliente riceverebbe il
+          // primo sollecito tre o quattro volte, e il calendario non
+          // avanzerebbe mai.
+          if ((sott.dunning_step ?? 0) > 0) return;
+
+          await inviaSollecito({
+            subscriptionId: sott.id,
+            step: 1,
+            invoiceUrl: inv.hosted_invoice_url,
+            destinatario: { userId: sott.user_id, email: to, nome: sott.profiles?.full_name ?? null },
           });
         } catch (err) {
           console.error("[webhook] invoice.payment_failed notify fallita:", err);
