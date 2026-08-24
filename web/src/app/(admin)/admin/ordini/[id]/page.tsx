@@ -177,8 +177,9 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
           <Card>
             <span className="font-display text-sm font-extrabold text-navy">Riconsegna</span>
             <p className="mt-1 text-xs font-medium text-muted">
-              La fascia la scegliamo noi: il cliente non prenota. Al salvataggio l&apos;ordine passa a
-              &laquo;in consegna programmata&raquo; e il cliente riceve giorno e ora.
+              Di norma la fascia la sceglie il cliente in prenotazione e la trovi già fissata qui sotto. Qui la si
+              cambia, o la si mette quando il cliente non ha scelto (nessuna fascia libera dopo la lavorazione).
+              Al salvataggio l&apos;ordine passa a &laquo;in consegna programmata&raquo; e il cliente riceve giorno e ora.
             </p>
             {order.delivery_slot && (
               <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-sm font-bold text-navy">

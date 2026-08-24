@@ -118,9 +118,11 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
         </div>
       </section>
 
-      {/* Riconsegna: la fissiamo noi, il cliente la riceve. Prima c'era qui un
-          form per scegliere la fascia, ma non è così che lavoriamo: dopo la
-          lavorazione siamo noi a programmare il giro. */}
+      {/* Riconsegna. La fascia ora si sceglie in prenotazione, quindi di norma
+          è già fissata da prima che il bucato sia pronto. Resta il caso in cui
+          non c'era nessuno slot libero dopo la lavorazione: lì la programma
+          l'ops, ed è il ramo qui sotto. Il form per sceglierla da questa
+          schermata non torna: la decisione si prende una volta sola. */}
       {prontoDaConsegnare && (
         <section className="rounded-[18px] border border-line bg-white p-5">
           {consegnaFissata ? (

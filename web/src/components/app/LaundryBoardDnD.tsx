@@ -29,6 +29,15 @@ const COLUMNS: { key: string; title: string; status: OrderStatus }[] = [
   { key: "pronti", title: "Pronti", status: "ready" },
 ];
 
+/** In quale colonna sta un ordine.
+ *
+ *  «Riconsegna programmata» non è una colonna: da quando il cliente sceglie la
+ *  fascia in prenotazione, un ordine segnato pronto ci finisce all'istante, e
+ *  senza questa mappa sparirebbe dal board nel momento esatto in cui la
+ *  lavanderia lo marca — mentre il sacco è ancora lì, sullo scaffale, ad
+ *  aspettare il rider. Resta tra i pronti finché qualcuno non lo carica. */
+const colonnaDi = (s: OrderStatus): OrderStatus => (s === "delivery_scheduled" ? "ready" : s);
+
 const NEXT_CTA: Partial<Record<OrderStatus, string>> = {
   picked_up: "Segna arrivato",
   at_laundry: "Avvia lavaggio",
@@ -146,7 +155,7 @@ export function LaundryBoardDnD({ orders }: { orders: PartnerOrder[] }) {
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {COLUMNS.map((col) => (
-          <DroppableColumn key={col.key} col={col} items={items.filter((o) => o.status === col.status)} />
+          <DroppableColumn key={col.key} col={col} items={items.filter((o) => colonnaDi(o.status) === col.status)} />
         ))}
       </div>
     </DndContext>

@@ -12,7 +12,10 @@ export default async function LaundryBoard() {
     .order("created_at", { ascending: true })
     .returns<(PartnerOrder & { created_at: string })[]>();
 
-  const active = (data ?? []).filter((r) => ["picked_up", "at_laundry", "washing", "ready"].includes(r.status));
+  // `delivery_scheduled` compreso: il sacco è pronto e la riconsegna ha già
+  // giorno e ora, ma finché il rider non passa resta fisicamente in lavanderia
+  // e deve restare sul board (colonna «Pronti»).
+  const active = (data ?? []).filter((r) => ["picked_up", "at_laundry", "washing", "ready", "delivery_scheduled"].includes(r.status));
 
   return (
     <>

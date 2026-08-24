@@ -14,6 +14,36 @@ const PARTNER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
   washing: "ready", // pronto per la riconsegna
 };
 
+/** Se il cliente ha già scelto la fascia di riconsegna in prenotazione, «pronto»
+ *  non è un punto d'attesa: l'appuntamento c'è già, e l'ordine va direttamente
+ *  in «riconsegna programmata» perché entri nel giro del rider.
+ *
+ *  Scrive con il service role di proposito: è una transizione di sistema, non
+ *  un gesto della lavanderia — che infatti non ha il permesso di portare un
+ *  ordine oltre `ready`.
+ *
+ *  Ritorna lo stato da notificare al cliente. Una notifica sola: «è pronto» e
+ *  subito dopo «te lo riportiamo giovedì» sono due messaggi per una notizia,
+ *  e il secondo contiene già il primo. */
+async function programmaRiconsegnaSeScelta(orderId: string): Promise<OrderStatus> {
+  const svc = createServiceClient();
+  const { data } = await svc
+    .from("orders")
+    .select("delivery_slot_id")
+    .eq("id", orderId)
+    .maybeSingle<{ delivery_slot_id: string | null }>();
+  if (!data?.delivery_slot_id) return "ready";
+
+  const { error } = await svc.from("orders").update({ status: "delivery_scheduled" }).eq("id", orderId);
+  if (error) {
+    // Meglio un ordine fermo su `ready` — che l'ops vede e programma a mano —
+    // che un errore in faccia alla lavanderia per un passaggio non suo.
+    console.error(`[partner] riconsegna automatica non riuscita per ${orderId}:`, error.message);
+    return "ready";
+  }
+  return "delivery_scheduled";
+}
+
 async function requirePartner() {
   const profile = await getCurrentProfile();
   if (!profile || profile.role !== "partner" || !profile.laundry_id) {
@@ -45,7 +75,8 @@ export async function advanceStatus(formData: FormData) {
   const { error } = await supabase.from("orders").update({ status: next }).eq("id", orderId);
   if (error) throw new Error(error.message);
 
-  await notifyOrderStatus(orderId, next);
+  const daNotificare = next === "ready" ? await programmaRiconsegnaSeScelta(orderId) : next;
+  await notifyOrderStatus(orderId, daNotificare);
   revalidatePath("/laundry");
   revalidatePath(`/laundry/${orderId}`);
 }
@@ -67,7 +98,8 @@ export async function setPartnerStatus(orderId: string, status: string) {
   if (error) throw new Error(error.message);
 
   if (statusIndex(status as OrderStatus) > statusIndex(order.status)) {
-    await notifyOrderStatus(orderId, status as OrderStatus);
+    const daNotificare = status === "ready" ? await programmaRiconsegnaSeScelta(orderId) : (status as OrderStatus);
+    await notifyOrderStatus(orderId, daNotificare);
   }
   revalidatePath("/laundry");
   revalidatePath(`/laundry/${orderId}`);

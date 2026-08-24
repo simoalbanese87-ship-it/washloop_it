@@ -25,9 +25,12 @@ export async function GET(req: Request) {
   const now = new Date();
   const until = new Date(now.getTime() + LOOKAHEAD_DAYS * 86_400_000);
 
-  const [{ data: recs }, { data: slots }] = await Promise.all([
-    sb.from("recurring_pickups").select("id, customer_id, address_id, weekday, hhmm, bags, notes").eq("active", true),
+  const [{ data: recs }, { data: slots }, { data: deliverySlots }] = await Promise.all([
+    sb.from("recurring_pickups").select("id, customer_id, address_id, weekday, hhmm, delivery_hhmm, bags, notes").eq("active", true),
     sb.from("slots").select("id, starts_at, laundry_id, capacity").eq("kind", "pickup").gte("starts_at", now.toISOString()).lte("starts_at", until.toISOString()),
+    // Fasce di riconsegna: si guarda più avanti dei ritiri, perché la
+    // riconsegna cade dopo la lavorazione (48h, o 24h sui piani veloci).
+    sb.from("slots").select("id, starts_at, laundry_id, capacity").eq("kind", "delivery").gte("starts_at", now.toISOString()).lte("starts_at", new Date(until.getTime() + 4 * 86_400_000).toISOString()),
   ]);
 
   let created = 0;
@@ -70,10 +73,27 @@ export async function GET(req: Request) {
       }
 
       const eta = new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString();
+
+      // La fascia di riconsegna preferita, onorata quando esiste davvero:
+      // primo slot delivery all'ora richiesta e non prima che il bucato sia
+      // pronto. Se non c'è, l'ordine nasce senza e la programma l'ops — come
+      // succedeva a tutti prima che la scelta esistesse.
+      let deliverySlotId: string | null = null;
+      if (rec.delivery_hhmm) {
+        const candidato = (deliverySlots ?? [])
+          .filter((d) => romeHHMM(d.starts_at) === rec.delivery_hhmm && d.starts_at >= eta)
+          .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0];
+        if (candidato) {
+          const { count } = await sb.from("orders").select("id", { count: "exact", head: true }).eq("delivery_slot_id", candidato.id).neq("status", "cancelled");
+          if (candidato.capacity == null || (count ?? 0) < candidato.capacity) deliverySlotId = candidato.id;
+        }
+      }
+
       const { data: ins, error } = await sb.from("orders").insert({
         customer_id: rec.customer_id,
         address_id: rec.address_id,
         pickup_slot_id: slot.id,
+        delivery_slot_id: deliverySlotId,
         laundry_id: slot.laundry_id,
         eta_ready_at: eta,
         bags: rec.bags,

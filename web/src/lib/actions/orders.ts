@@ -72,6 +72,9 @@ export async function createPickup(formData: FormData) {
 export async function bookPickup(input: {
   address_id: string;
   pickup_slot_id: string;
+  /** Fascia di riconsegna scelta dal cliente in prenotazione. Facoltativa: se
+   *  manca, la programma l'ops con `scheduleDelivery` come si è sempre fatto. */
+  delivery_slot_id?: string | null;
   laundry_id: string | null;
   bags: number;
   notes?: string | null;
@@ -84,6 +87,7 @@ export async function bookPickup(input: {
   if (!user) return { ok: false, error: "Non autenticato" };
 
   const { address_id, pickup_slot_id } = input;
+  const delivery_slot_id = input.delivery_slot_id || null;
   const laundry_id = input.laundry_id || null;
   const bags = Number.isFinite(input.bags) && input.bags > 0 ? input.bags : 1;
   if (!address_id || !pickup_slot_id) return { ok: false, error: "Indirizzo e slot obbligatori" };
@@ -110,6 +114,7 @@ export async function bookPickup(input: {
       customer_id: user.id,
       address_id,
       pickup_slot_id,
+      delivery_slot_id,
       laundry_id,
       eta_ready_at: eta,
       bags,
@@ -123,6 +128,13 @@ export async function bookPickup(input: {
   // Ricorrenza settimanale opzionale: salva il pattern (giorno+ora di Roma) e
   // lega l'ordine appena creato. Il cron genererà le settimane successive.
   if (input.recurring && slot?.starts_at) {
+    // L'ora di riconsegna scelta si tramanda alle settimane successive come
+    // preferenza: gli slot delivery futuri non esistono ancora tutti, ma l'ops
+    // (e il cron) sanno a che ora questa persona vuole ritrovarsi il bucato.
+    const { data: slotConsegna } = delivery_slot_id
+      ? await supabase.from("slots").select("starts_at").eq("id", delivery_slot_id).maybeSingle<{ starts_at: string }>()
+      : { data: null };
+
     const { data: rec } = await supabase
       .from("recurring_pickups")
       .insert({
@@ -130,6 +142,7 @@ export async function bookPickup(input: {
         address_id,
         weekday: romeWeekday(slot.starts_at),
         hhmm: romeHHMM(slot.starts_at),
+        delivery_hhmm: slotConsegna?.starts_at ? romeHHMM(slotConsegna.starts_at) : null,
         bags,
         notes: input.notes || null,
         active: true,

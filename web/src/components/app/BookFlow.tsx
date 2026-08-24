@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { bookPickup } from "@/lib/actions/orders";
 import { ACCESS_MODE_LABEL, type AccessMode } from "@/lib/orders";
 import { romeDayKey, fmtDow, fmtDayNum, fmtDowLong, fmtTimeRange } from "@/lib/format";
+import { fasceProponibili, prontoDa as calcolaProntoDa } from "@/lib/riconsegna";
 
 export type Address = { id: string; label: string | null; street: string; zone_id: string | null; access_mode: string | null; access_note: string | null };
 export type Slot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null; remaining?: number | null };
@@ -14,10 +15,25 @@ export type SpecialCategory = { id: string; name: string; emoji: string; items: 
 
 const eur = (cents: number) => "€" + (cents / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const TOTAL = 3;
-const TITLES = ["Quando ritiriamo?", "Hai capi speciali?", "Conferma"];
+/** Slot raggruppati per giorno di Roma, in ordine. Serve identico al ritiro e
+ *  alla riconsegna: era già scritto una volta dentro il componente. */
+function raggruppaPerGiorno(elenco: Slot[]) {
+  const map = new Map<string, Slot[]>();
+  for (const s of elenco) {
+    const k = romeDayKey(s.starts_at);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k)!.push(s);
+  }
+  return [...map.entries()]
+    .map(([key, list]) => ({ key, ref: list[0].starts_at, slots: list.sort((a, b) => a.starts_at.localeCompare(b.starts_at)) }))
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+const TOTAL = 4;
+const TITLES = ["Quando ritiriamo?", "Quando riportiamo?", "Hai capi speciali?", "Conferma"];
 const SUBS = [
   "Scegli il giorno e la fascia: passiamo noi sotto casa.",
+  "Il bucato torna pulito e piegato: dicci quando trovarti in casa.",
   "Mettili in un sacco separato dal bucato — al resto pensiamo noi.",
   "Controlla e conferma il ritiro.",
 ];
@@ -30,10 +46,16 @@ const Check = ({ size = 20 }: { size?: number }) => (<svg width={size} height={s
 export function BookFlow({
   addresses,
   slots,
+  deliverySlots,
+  turnaroundHours,
   categories,
 }: {
   addresses: Address[];
   slots: Slot[];
+  /** Fasce di riconsegna: stessa tabella `slots`, `kind = 'delivery'`. */
+  deliverySlots: Slot[];
+  /** Ore di lavorazione del piano: 48 di norma, 24 su Plus/Family. */
+  turnaroundHours: number;
   categories: SpecialCategory[];
 }) {
   const router = useRouter();
@@ -41,6 +63,8 @@ export function BookFlow({
   const [addressId, setAddressId] = useState(addresses[0]?.id ?? "");
   const [dayKey, setDayKey] = useState<string | null>(null);
   const [slotId, setSlotId] = useState<string | null>(null);
+  const [deliveryDayKey, setDeliveryDayKey] = useState<string | null>(null);
+  const [deliverySlotId, setDeliverySlotId] = useState<string | null>(null);
   const [bags, setBags] = useState(1);
   const [notes, setNotes] = useState("");
   // Ritiro sempre 1 volta a settimana (fisso per qualsiasi abbonamento).
@@ -52,24 +76,40 @@ export function BookFlow({
 
   const address = addresses.find((a) => a.id === addressId);
 
+  /** Che cosa si dice della riconsegna: la fascia scelta, oppure la verità —
+   *  che la programmiamo noi. Mai più un «entro 72h» inventato. */
+  const testoConsegna = () => {
+    if (selectedDeliverySlot) {
+      return `${cap(fmtDowLong(selectedDeliverySlot.starts_at))} · ${fmtTimeRange(selectedDeliverySlot.starts_at, selectedDeliverySlot.ends_at)}`;
+    }
+    return `Pronto in ${turnaroundHours}h — la fascia la fissiamo noi e ti avvisiamo`;
+  };
+
   // Giorni disponibili (raggruppo gli slot per giorno di Roma). La lavanderia
   // non è scelta né mostrata: si ricava dallo slot selezionato (routing interno).
-  const days = useMemo(() => {
-    const map = new Map<string, Slot[]>();
-    for (const s of slots) {
-      const k = romeDayKey(s.starts_at);
-      if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push(s);
-    }
-    return [...map.entries()]
-      .map(([key, list]) => ({ key, ref: list[0].starts_at, slots: list.sort((a, b) => a.starts_at.localeCompare(b.starts_at)) }))
-      .sort((a, b) => a.key.localeCompare(b.key));
-  }, [slots]);
+  const days = useMemo(() => raggruppaPerGiorno(slots), [slots]);
 
   const selectedDay = days.find((d) => d.key === dayKey) ?? null;
   const daySlots = selectedDay?.slots ?? [];
   const selectedSlot = slots.find((s) => s.id === slotId) ?? null;
 
+  // Prima di questo momento il bucato non è pronto: mostrare fasce che non
+  // possiamo rispettare è una promessa che si rompe da sola.
+  const prontoDa = useMemo(
+    () => (selectedSlot ? calcolaProntoDa(selectedSlot.starts_at, turnaroundHours) : null),
+    [selectedSlot, turnaroundHours],
+  );
+  const deliveryDays = useMemo(
+    () => (selectedSlot ? raggruppaPerGiorno(fasceProponibili(deliverySlots, selectedSlot.starts_at, turnaroundHours)) : []),
+    [deliverySlots, selectedSlot, turnaroundHours],
+  );
+
+  const selectedDeliveryDay = deliveryDays.find((d) => d.key === deliveryDayKey) ?? null;
+  const deliveryDaySlots = selectedDeliveryDay?.slots ?? [];
+  const selectedDeliverySlot = deliverySlots.find((s) => s.id === deliverySlotId) ?? null;
+
+  // La riconsegna si può saltare: se non ci sono fasce libere la programmiamo
+  // noi, come si è sempre fatto. Bloccare qui vorrebbe dire impedire il ritiro.
   const canNext = step === 0 ? !!selectedSlot : true;
 
   async function confirm() {
@@ -79,6 +119,7 @@ export function BookFlow({
     const res = await bookPickup({
       address_id: address.id,
       pickup_slot_id: selectedSlot.id,
+      delivery_slot_id: selectedDeliverySlot?.id ?? null,
       laundry_id: selectedSlot.laundry_id ?? null,
       bags,
       notes: notes.trim() || null,
@@ -108,7 +149,7 @@ export function BookFlow({
           <Row k="Ritiro" v={selectedSlot ? `${cap(fmtDowLong(selectedSlot.starts_at))} · ${fmtTimeRange(selectedSlot.starts_at, selectedSlot.ends_at)}` : "—"} />
           {recurring && <Row k="Ripetizione" v={selectedSlot ? `Ogni ${fmtDowLong(selectedSlot.starts_at)}` : "Ogni settimana"} />}
           <Row k="Indirizzo" v={address?.street ?? "—"} />
-          <Row k="Consegna" v="Entro 72h — scegli la fascia quando è pronto" last />
+          <Row k="Consegna" v={testoConsegna()} last />
         </div>
 
         <div className="mt-6 space-y-3">
@@ -153,7 +194,7 @@ export function BookFlow({
           {addresses.length > 1 && (
             <select
               value={addressId}
-              onChange={(e) => { setAddressId(e.target.value); setDayKey(null); setSlotId(null); }}
+              onChange={(e) => { setAddressId(e.target.value); setDayKey(null); setSlotId(null); setDeliveryDayKey(null); setDeliverySlotId(null); }}
               className="h-12 w-full rounded-[16px] border-2 border-line bg-white px-4 text-sm font-semibold text-navy outline-none focus:border-cyan"
             >
               {addresses.map((a) => (
@@ -175,7 +216,7 @@ export function BookFlow({
                   return (
                     <button
                       key={d.key}
-                      onClick={() => { setDayKey(d.key); setSlotId(null); }}
+                      onClick={() => { setDayKey(d.key); setSlotId(null); setDeliveryDayKey(null); setDeliverySlotId(null); }}
                       className={`flex-none w-[58px] rounded-[16px] py-2.5 text-center transition-all ${on ? "bg-gradient-to-br from-blue to-cyan text-white shadow-[0_16px_36px_-16px_rgba(43,127,212,0.55)]" : "border border-line bg-white"}`}
                     >
                       <div className={`font-display text-[11px] font-extrabold uppercase tracking-[0.06em] ${on ? "text-white/85" : "text-muted"}`}>{fmtDow(d.ref)}</div>
@@ -195,7 +236,10 @@ export function BookFlow({
                     return (
                       <button
                         key={s.id}
-                        onClick={() => { if (!full) setSlotId(s.id); }}
+                        // Cambiare il ritiro sposta il momento in cui il bucato è
+                        // pronto: la riconsegna scelta prima potrebbe non essere
+                        // più valida, quindi si azzera.
+                        onClick={() => { if (!full) { setSlotId(s.id); setDeliveryDayKey(null); setDeliverySlotId(null); } }}
                         disabled={full}
                         className={`rounded-[14px] border-2 bg-white px-3 py-3.5 text-center transition-all ${full ? "cursor-not-allowed border-transparent opacity-45" : on ? "border-cyan shadow-[0_14px_30px_-18px_rgba(0,200,240,0.5)]" : "border-transparent shadow-[0_1px_0_rgba(27,45,94,0.04),0_10px_24px_-18px_rgba(27,45,94,0.5)]"}`}
                       >
@@ -215,8 +259,83 @@ export function BookFlow({
         </div>
       )}
 
-      {/* STEP 1 — capi speciali (vetrina) */}
+      {/* STEP 1 — fascia di riconsegna.
+          Prima questo passo non esisteva e la schermata di conferma prometteva
+          «Entro 72h — scegli la fascia quando è pronto»: una scelta che non
+          c'era da nessuna parte, e per giunta con un numero sbagliato (la
+          lavorazione è di 48 ore, 24 sui piani veloci). */}
       {step === 1 && (
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 rounded-[18px] bg-cyan/[0.08] p-4 text-sm">
+            <span className="grid h-9 w-9 flex-none place-items-center rounded-[11px] bg-white text-blue">🧺</span>
+            <div>
+              <span className="font-display font-extrabold text-navy">
+                Pronto {prontoDa ? `da ${cap(fmtDowLong(prontoDa.toISOString()))}` : `in ${turnaroundHours} ore`}
+              </span>
+              <span className="mt-0.5 block font-medium text-muted">
+                Ci servono {turnaroundHours} ore per lavare, asciugare e piegare. Le fasce qui sotto partono da lì.
+              </span>
+            </div>
+          </div>
+
+          {deliveryDays.length === 0 ? (
+            <div className="rounded-[18px] border border-line bg-white p-5 text-sm font-medium text-muted">
+              Nessuna fascia di riconsegna disponibile dopo la lavorazione. Nessun problema: la programmiamo noi e ti
+              avvisiamo appena abbiamo giorno e ora. Puoi andare avanti.
+            </div>
+          ) : (
+            <>
+              <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+                {deliveryDays.map((d) => {
+                  const on = d.key === deliveryDayKey;
+                  return (
+                    <button
+                      key={d.key}
+                      onClick={() => { setDeliveryDayKey(d.key); setDeliverySlotId(null); }}
+                      className={`flex-none w-[58px] rounded-[16px] py-2.5 text-center transition-all ${on ? "bg-gradient-to-br from-blue to-cyan text-white shadow-[0_16px_36px_-16px_rgba(43,127,212,0.55)]" : "border border-line bg-white"}`}
+                    >
+                      <div className={`font-display text-[11px] font-extrabold uppercase tracking-[0.06em] ${on ? "text-white/85" : "text-muted"}`}>{fmtDow(d.ref)}</div>
+                      <div className={`mt-0.5 font-display text-xl font-black ${on ? "text-white" : "text-navy"}`}>{fmtDayNum(d.ref)}</div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedDeliveryDay ? (
+                <div className="grid grid-cols-2 gap-2.5">
+                  {deliveryDaySlots.map((s) => {
+                    const on = s.id === deliverySlotId;
+                    const full = s.remaining != null && s.remaining <= 0;
+                    const low = !full && s.remaining != null && s.remaining <= 3;
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => { if (!full) setDeliverySlotId(on ? null : s.id); }}
+                        disabled={full}
+                        className={`rounded-[14px] border-2 bg-white px-3 py-3.5 text-center transition-all ${full ? "cursor-not-allowed border-transparent opacity-45" : on ? "border-cyan shadow-[0_14px_30px_-18px_rgba(0,200,240,0.5)]" : "border-transparent shadow-[0_1px_0_rgba(27,45,94,0.04),0_10px_24px_-18px_rgba(27,45,94,0.5)]"}`}
+                      >
+                        <div className="font-display text-[15px] font-black text-navy">{fmtTimeRange(s.starts_at, s.ends_at)}</div>
+                        <div className={`mt-0.5 text-[11.5px] font-bold ${full ? "text-[#C0392B]" : low ? "text-[#C9881F]" : "text-muted"}`}>
+                          {full ? "Esaurito" : low ? `${s.remaining} ${s.remaining === 1 ? "posto" : "posti"}` : "Disponibile"}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="rounded-[14px] bg-ice px-4 py-3 text-sm font-medium text-muted">Scegli prima un giorno qui sopra.</p>
+              )}
+
+              <p className="text-center text-xs font-medium text-muted">
+                Non hai una preferenza? Vai avanti senza scegliere: alla riconsegna pensiamo noi.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* STEP 2 — capi speciali (vetrina) */}
+      {step === 2 && (
         <div className="space-y-3">
           <div className="flex items-start gap-3 rounded-[18px] bg-cyan/[0.08] p-4">
             <span className="grid h-11 w-11 flex-none place-items-center rounded-[13px] bg-white text-blue">
@@ -261,8 +380,8 @@ export function BookFlow({
         </div>
       )}
 
-      {/* STEP 2 — conferma */}
-      {step === 2 && (
+      {/* STEP 3 — conferma */}
+      {step === 3 && (
         <div className="space-y-3">
           <div className="rounded-[18px] border border-line bg-white p-5">
             <RowEdit
@@ -276,7 +395,7 @@ export function BookFlow({
               sub={`${address?.street ?? "—"} · ${ACCESS_MODE_LABEL[(address?.access_mode ?? "door") as AccessMode]}`}
             />
             <div className="my-3 h-px bg-line" />
-            <RowEdit title="Consegna" sub="Entro 72h — scegli la fascia quando è pronto" />
+            <RowEdit title="Consegna" sub={testoConsegna()} onEdit={() => setStep(1)} />
           </div>
 
           {/* Ritiro fisso: 1 volta a settimana (per qualsiasi abbonamento) */}
@@ -323,7 +442,7 @@ export function BookFlow({
       {error && <p className="text-sm font-semibold text-[#C0392B]">{error}</p>}
 
       {/* CTA */}
-      {step < 2 ? (
+      {step < TOTAL - 1 ? (
         <button
           onClick={() => canNext && setStep(step + 1)}
           disabled={!canNext}
