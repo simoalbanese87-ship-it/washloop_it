@@ -6,6 +6,7 @@ import { signOut } from "@/lib/actions/auth";
 import { InstallBanner } from "@/components/app/InstallBanner";
 import { NotificationPrompt } from "@/components/app/NotificationPrompt";
 import { ImpersonationBanner } from "@/components/app/ImpersonationBanner";
+import { PaymentAlertBanner } from "@/components/app/PaymentAlertBanner";
 
 /** Shell mobile-first dell'app cliente: header + contenuto + bottom tab bar
  *  con FAB centrale per prenotare. Allineato ai mockup (design-reference). */
@@ -40,7 +41,22 @@ const tabs = [
   { href: "/app/profilo", label: "Profilo", Icon: UserIcon },
 ];
 
-export function MobileShell({ userName, children, impersonating }: { userName: string; children: React.ReactNode; impersonating?: boolean }) {
+export function MobileShell({
+  userName,
+  children,
+  impersonating,
+  pagamento,
+  prenotaHref = "/app/prenota",
+}: {
+  userName: string;
+  children: React.ReactNode;
+  impersonating?: boolean;
+  /** Presente solo se c'è una fattura rimasta aperta. */
+  pagamento?: { payUrl: string; grave: boolean };
+  /** Dove porta il "+": senza indirizzo la prenotazione è un vicolo cieco, e
+   *  tanto vale mandare la persona dove può sbloccarsi. */
+  prenotaHref?: string;
+}) {
   const pathname = usePathname();
   const initial = (userName?.trim()?.[0] ?? "W").toUpperCase();
   const isActive = (t: (typeof tabs)[number]) => (t.exact ? pathname === t.href : pathname === t.href || pathname.startsWith(t.href + "/"));
@@ -48,6 +64,7 @@ export function MobileShell({ userName, children, impersonating }: { userName: s
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[460px] flex-col bg-ice">
       {impersonating && <ImpersonationBanner name={userName} />}
+      {pagamento && <PaymentAlertBanner payUrl={pagamento.payUrl} grave={pagamento.grave} />}
       {/* Header */}
       <header className="sticky top-0 z-40 flex items-center justify-between bg-ice/90 px-5 pb-3 pt-5 backdrop-blur">
         <div>
@@ -82,7 +99,7 @@ export function MobileShell({ userName, children, impersonating }: { userName: s
 
           {/* FAB prenota */}
           <Link
-            href="/app/prenota"
+            href={prenotaHref}
             aria-label="Prenota ritiro"
             className="grid h-14 w-14 -translate-y-5 place-items-center rounded-full bg-gradient-to-br from-blue to-cyan text-white shadow-[0_14px_30px_-8px_rgba(43,127,212,0.65)] transition-transform active:scale-95"
           >

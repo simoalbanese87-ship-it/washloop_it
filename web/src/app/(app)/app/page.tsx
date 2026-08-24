@@ -18,7 +18,7 @@ const ACTIVE_ORDER: OrderStatus[] = ["pickup_scheduled", "picked_up", "at_laundr
 
 export default async function Home() {
   const supabase = await createClient();
-  const [{ data: sub }, { data: orders }, { data: recs }] = await Promise.all([
+  const [{ data: sub }, { data: orders }, { data: recs }, { count: quantiIndirizzi }] = await Promise.all([
     supabase
       .from("subscriptions")
       .select("status, current_period_end, plans(name, bags_per_week)")
@@ -38,11 +38,20 @@ export default async function Home() {
       .or("active.eq.true,needs_confirmation.eq.true")
       .order("created_at", { ascending: false })
       .returns<RecRow[]>(),
+    // Serve solo sapere se ce n'è almeno uno: un cliente creato dal pannello
+    // nasce senza indirizzo, e finora se ne accorgeva solo sbattendo contro il
+    // muro di testo dentro «Prenota».
+    supabase.from("addresses").select("id", { count: "exact", head: true }),
   ]);
 
   const recurring = recs ?? [];
 
   const active = sub?.status === "active" || sub?.status === "trialing";
+  // Fattura rimasta aperta: è diverso da «non si è mai abbonato», e va detto
+  // con parole diverse. Prima entrambi finivano nello stesso ramo e a chi
+  // pagava da mesi comparive «Attiva un abbonamento».
+  const sofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
+  const senzaIndirizzo = (quantiIndirizzi ?? 0) === 0;
   const ongoing = (orders ?? []).find((o) => ACTIVE_ORDER.includes(o.status));
 
   // In cima si mette la cosa che la persona è venuta a cercare: quando ci
@@ -88,6 +97,28 @@ export default async function Home() {
             </p>
             <Link href={`/app/ordini/${ongoing.id}`} className="mt-4 inline-flex rounded-full bg-white/15 px-4 py-2 font-display text-sm font-extrabold text-white backdrop-blur transition-colors hover:bg-white/25">
               Vedi i dettagli →
+            </Link>
+          </>
+        ) : sofferenza ? (
+          <>
+            <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Pagamento in sospeso</div>
+            <div className="mt-2 font-display text-[26px] font-black leading-tight">Riattiva per prenotare</div>
+            <p className="mt-1.5 text-sm font-medium text-white/70">
+              L&apos;ultimo addebito non è andato a buon fine. I ritiri già fissati li facciamo comunque: si riparte appena la fattura è saldata.
+            </p>
+            <Link href="/app/abbonamento" className="mt-4 inline-flex rounded-full bg-gradient-to-br from-blue to-cyan px-5 py-2.5 font-display text-sm font-extrabold text-white shadow-[0_10px_24px_-10px_rgba(0,200,240,0.7)]">
+              Sistema il pagamento →
+            </Link>
+          </>
+        ) : senzaIndirizzo ? (
+          <>
+            <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Ci siamo quasi</div>
+            <div className="mt-2 font-display text-[26px] font-black leading-tight">Dicci dove passiamo</div>
+            <p className="mt-1.5 text-sm font-medium text-white/70">
+              Manca solo l&apos;indirizzo: via, civico, citofono e piano. Un minuto, e poi puoi prenotare il primo ritiro.
+            </p>
+            <Link href="/app/indirizzi" className="mt-4 inline-flex rounded-full bg-gradient-to-br from-blue to-cyan px-5 py-2.5 font-display text-sm font-extrabold text-white shadow-[0_10px_24px_-10px_rgba(0,200,240,0.7)]">
+              Aggiungi indirizzo →
             </Link>
           </>
         ) : active ? (
