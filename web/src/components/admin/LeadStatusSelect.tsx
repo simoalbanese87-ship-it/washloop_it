@@ -6,21 +6,30 @@ import { CONTACT_STATUS, CONTACT_STATUS_LABEL, CONTACT_STATUS_TONE, type Contact
 /** Stato del contatto, modificabile al volo. Stesso schema del select rider in
  *  OrdersBoard: un <form> con la server action e `requestSubmit()` al change —
  *  niente stato client, niente fetch, il revalidate rinfresca la pagina.
- *  `back` serve a tornare sulla pagina giusta col banner di conferma. */
+ *  `back` serve a tornare sulla pagina giusta col banner di conferma.
+ *
+ *  Si passa `leadId` per un contatto senza account, `profileId` per chi
+ *  l'account ce l'ha già: in Persone convivono nella stessa colonna. */
 export function LeadStatusSelect({
   leadId,
+  profileId,
   value,
   back,
   className = "",
 }: {
-  leadId: string;
+  leadId?: string;
+  profileId?: string;
   value: ContactStatus;
   back: string;
   className?: string;
 }) {
   return (
     <form action={setLeadContactStatus} className={className}>
-      <input type="hidden" name="lead_id" value={leadId} />
+      {profileId ? (
+        <input type="hidden" name="profile_id" value={profileId} />
+      ) : (
+        <input type="hidden" name="lead_id" value={leadId ?? ""} />
+      )}
       <input type="hidden" name="back" value={back} />
       <select
         name="contact_status"

@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { stadioDaSubscription, type Stadio } from "./persone-stadio";
 
 /** Tutte le persone in una lista sola, ognuna con il suo stadio.
  *
@@ -11,26 +12,19 @@ import { createServiceClient } from "@/lib/supabase/server";
  *
  *  Qui si uniscono per email (e in seconda battuta per telefono), e ognuno
  *  riceve uno stadio esplicito: dove si trova nel percorso, dal primo contatto
- *  alla disdetta. */
+ *  alla disdetta.
+ *
+ *  Gli stadi sono quattro e non cinque: "Registrato" è stato fuso dentro
+ *  "Lead". Nessuno sapeva dire che cosa fosse un registrato — chi ha aperto un
+ *  account e non ha mai pagato è un contatto caldo, non una categoria a parte,
+ *  e va richiamato con le stesse azioni di un lead. Quello che serviva davvero
+ *  saperlo (ha già un account? gli posso rimandare le credenziali?) si legge da
+ *  `profileId` e dal codice cliente, non da un'etichetta. */
 
-export const STADI = ["lead", "registrato", "attivo", "difficolta", "perso"] as const;
-export type Stadio = (typeof STADI)[number];
-
-export const STADIO_LABEL: Record<Stadio, string> = {
-  lead: "Lead",
-  registrato: "Registrato",
-  attivo: "Cliente attivo",
-  difficolta: "Pagamento fallito",
-  perso: "Cliente perso",
-};
-
-export const STADIO_TONO: Record<Stadio, string> = {
-  lead: "bg-navy/10 text-navy/70",
-  registrato: "bg-[#2b7fd4]/12 text-blue",
-  attivo: "bg-[#1F8A5B]/12 text-[#1F8A5B]",
-  difficolta: "bg-[#C0392B]/12 text-[#C0392B]",
-  perso: "bg-[#C9881F]/12 text-[#C9881F]",
-};
+// Vocabolario e regola stanno in `persone-stadio.ts`, che non importa
+// `server-only` e si può quindi collaudare senza database. Riesportati qui
+// perché è da questo modulo che li prende il resto dell'app.
+export { STADI, STADIO_LABEL, STADIO_TONO, type Stadio } from "./persone-stadio";
 
 export type Persona = {
   /** id del profilo se registrato, altrimenti id del lead. */
@@ -61,16 +55,12 @@ const normTel = (p: string | null | undefined) => {
   return d.length > 10 ? d.slice(-10) : d;
 };
 
-const ATTIVI = ["active", "trialing"];
-const vivo = (status: string, fine: string | null) =>
-  ATTIVI.includes(status) && (!fine || new Date(fine).getTime() >= Date.now());
-
 export async function elencoPersone(includiProva = false): Promise<Persona[]> {
   const svc = createServiceClient();
 
   const [{ data: profili }, { data: subs }, { data: leads }, { data: ordini }] = await Promise.all([
-    svc.from("profiles").select("id, full_name, phone, client_code, created_at, is_test").eq("role", "customer")
-      .returns<{ id: string; full_name: string | null; phone: string | null; client_code: string | null; created_at: string; is_test: boolean }[]>(),
+    svc.from("profiles").select("id, full_name, phone, client_code, created_at, is_test, contact_status").eq("role", "customer")
+      .returns<{ id: string; full_name: string | null; phone: string | null; client_code: string | null; created_at: string; is_test: boolean; contact_status: string | null }[]>(),
     svc.from("subscriptions").select("user_id, status, custom_price_cents, current_period_end, created_at, plans(name, price_month_cents)")
       .order("created_at", { ascending: false })
       .returns<{ user_id: string; status: string; custom_price_cents: number | null; current_period_end: string | null; created_at: string; plans: { name: string; price_month_cents: number } | null }[]>(),
@@ -114,13 +104,7 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
     const email = emailDi.get(p.id) ?? null;
     const ord = conteggioOrdini.get(p.id);
 
-    let stadio: Stadio = "registrato";
-    if (s) {
-      if (vivo(s.status, s.current_period_end)) stadio = "attivo";
-      else if (s.status === "past_due" || s.status === "unpaid") stadio = "difficolta";
-      else if (s.status === "incomplete" || s.status === "incomplete_expired") stadio = "registrato";
-      else stadio = "perso";
-    }
+    const stadio: Stadio = stadioDaSubscription(s);
 
     if (email) emailViste.add(norm(email));
     if (p.phone) telViste.add(normTel(p.phone));
@@ -138,7 +122,7 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       piano: s?.plans?.name ?? null,
       rinnovo: s?.current_period_end ?? null,
       provenienza: null,
-      statoContatto: null,
+      statoContatto: p.contact_status,
       ordini: ord?.n ?? 0,
       ultimoOrdine: ord?.ultimo ?? null,
       creatoIl: p.created_at,

@@ -167,22 +167,34 @@ async function requireAdmin() {
  *  non lanciano per errori "di business": mostrerebbero la pagina di errore di
  *  Next invece del banner. Stessa convenzione del resto dell'area admin. */
 function backWith(formData: FormData, params: Record<string, string>): string {
-  const back = String(formData.get("back") ?? "/admin/contatti") || "/admin/contatti";
+  const back = String(formData.get("back") ?? "/admin/persone") || "/admin/persone";
   const qs = new URLSearchParams(params).toString();
   return `${back}${back.includes("?") ? "&" : "?"}${qs}`;
 }
 
+/** Stato del contatto, su un lead puro **o** su chi ha già un account.
+ *
+ *  In Persone lead e clienti stanno nella stessa lista e da quando "Registrato"
+ *  è stato fuso dentro "Lead" metà delle righe da richiamare sono profili: se
+ *  lo stato si potesse mettere solo sui lead, funzionerebbe su una riga sì e
+ *  una no. Le due anagrafiche restano separate — `leads.contact_status` e
+ *  `profiles.contact_status` — ma il vocabolario è lo stesso e l'azione è una. */
 export async function setLeadContactStatus(formData: FormData) {
   await requireAdmin();
-  const id = String(formData.get("lead_id") ?? "");
+  const leadId = String(formData.get("lead_id") ?? "");
+  const profileId = String(formData.get("profile_id") ?? "");
   const status = String(formData.get("contact_status") ?? "");
-  if (!id || !isContactStatus(status)) {
+  if ((!leadId && !profileId) || !isContactStatus(status)) {
     redirect(backWith(formData, { warn: "Stato non valido." }));
   }
 
-  const { error } = await createServiceClient().from("leads").update({ contact_status: status }).eq("id", id);
+  const svc = createServiceClient();
+  const { error } = profileId
+    ? await svc.from("profiles").update({ contact_status: status }).eq("id", profileId)
+    : await svc.from("leads").update({ contact_status: status }).eq("id", leadId);
   if (error) redirect(backWith(formData, { warn: `Stato non salvato: ${error.message}` }));
 
+  revalidatePath("/admin/persone");
   revalidatePath("/admin/contatti");
   revalidatePath("/admin");
   redirect(backWith(formData, { ok: `Stato aggiornato: ${CONTACT_STATUS_LABEL[status as ContactStatus]}.` }));
@@ -198,6 +210,7 @@ export async function deleteLead(formData: FormData) {
   const { error } = await createServiceClient().from("leads").delete().eq("id", id);
   if (error) redirect(backWith(formData, { warn: `Eliminazione fallita: ${error.message}` }));
 
+  revalidatePath("/admin/persone");
   revalidatePath("/admin/contatti");
   revalidatePath("/admin");
   redirect(backWith(formData, { ok: "Richiesta eliminata." }));
@@ -265,6 +278,7 @@ export async function convertLeadToCustomer(formData: FormData) {
   // Benvenuto con le credenziali temporanee (best-effort, non blocca).
   await notifyNewCustomer({ to: email, fullName: lead.full_name, password, planName, priceLabel });
 
+  revalidatePath("/admin/persone");
   revalidatePath("/admin/contatti");
   revalidatePath("/admin/abbonati");
   revalidatePath("/admin");
