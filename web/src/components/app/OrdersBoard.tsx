@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { assignCourier, advanceStatus, bulkAssignCourier, autoAssignCouriers } from "@/lib/actions/orders";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, statusIndex, type OrderStatus } from "@/lib/orders";
+import { passaPeriodo, type Periodo } from "@/lib/board-periodo";
 import { fmtDateTime } from "@/lib/format";
 
 export type BoardOrder = {
@@ -36,7 +37,7 @@ const COLUMNS: { key: string; label: string; statuses: OrderStatus[] }[] = [
 
 const NEEDS_RIDER: OrderStatus[] = ["requested", "pickup_scheduled", "ready", "delivery_scheduled"];
 
-type Periodo = "oggi" | "settimana" | "tutti";
+
 
 /** La data che conta per un ordine è quella del passaggio previsto: il ritiro
  *  finché non è stato ritirato, poi la riconsegna. Se non c'è nessuno slot
@@ -92,7 +93,11 @@ export function OrdersBoard({
   const [onlyLate, setOnlyLate] = useState(filtroIniziale === "ritardo");
   // Oggi di default: il board caricava TUTTI gli ordini di sempre, e per capire
   // cosa fare adesso bisognava leggerli tutti.
-  const [periodo, setPeriodo] = useState<Periodo>("oggi");
+  // Chi arriva dalla home ha cliccato un numero ("1 ordine in ritardo") e deve
+  // trovare quell'ordine. Con il periodo su "oggi" non lo troverebbe mai: un
+  // ordine in ritardo è per definizione di un giorno passato, e il contatore
+  // della home non filtra per periodo. Il numero diceva 1 e la pagina 0.
+  const [periodo, setPeriodo] = useState<Periodo>(filtroIniziale ? "tutti" : "oggi");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -147,11 +152,9 @@ export function OrdersBoard({
       if (laundry && o.laundry_id !== laundry) return false;
       if (onlyUnassigned && o.courier_id) return false;
       if (onlyLate && !lateOf(o)) return false;
-      if (periodo !== "tutti" && oggi) {
-        const g = giornoRoma(dataRilevante(o));
-        if (periodo === "oggi" && g !== oggi) return false;
-        if (periodo === "settimana" && (g < oggi || g > fineSettimana)) return false;
-      }
+      // Regola in `board-periodo.ts`, collaudata: è quella che aveva fatto
+      // sparire un ordine vero per tre giorni.
+      if (!passaPeriodo({ status: o.status, giorno: giornoRoma(dataRilevante(o)) }, periodo, oggi, fineSettimana)) return false;
       if (needle) {
         const hay = `${o.customer_name ?? ""} ${o.id} ${o.customer_phone ?? ""}`.toLowerCase();
         if (!hay.includes(needle)) return false;
@@ -269,7 +272,7 @@ export function OrdersBoard({
           </button>
         ))}
         <span className="text-xs font-medium text-muted">
-          {periodo === "oggi" ? "Solo i passaggi di oggi" : periodo === "settimana" ? "Da oggi a fra sei giorni" : "Tutti gli ordini aperti"}
+          {periodo === "oggi" ? "I passaggi di oggi, più gli arretrati non ancora chiusi" : periodo === "settimana" ? "Da oggi a fra sei giorni, più gli arretrati" : "Tutti gli ordini aperti"}
         </span>
       </div>
 
