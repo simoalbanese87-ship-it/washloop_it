@@ -76,7 +76,14 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const active = sub?.status === "active" || sub?.status === "trialing";
   const inSofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
   const solleciti = sub?.dunning_step ?? 0;
-  const priceLabel = sub?.custom_price_cents != null ? `${eur(sub.custom_price_cents)} (custom)` : sub?.plans ? `${eur(sub.plans.price_month_cents)}` : "—";
+  const priceLabel =
+    sub?.custom_price_cents === 0
+      ? "€0,00 (omaggio)"
+      : sub?.custom_price_cents != null
+        ? `${eur(sub.custom_price_cents)} (custom)`
+        : sub?.plans
+          ? `${eur(sub.plans.price_month_cents)}`
+          : "—";
 
   return (
     <>

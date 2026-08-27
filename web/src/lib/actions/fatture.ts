@@ -6,6 +6,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { registraIncasso } from "@/lib/fatturazione";
 import { ficMode } from "@/lib/fic";
+import { importaIncassiDaStripe } from "@/lib/incassi-import";
 
 const REV = "/admin/incassi";
 
@@ -49,4 +50,35 @@ export async function riemettiFattura(formData: FormData) {
 
   revalidatePath(REV);
   redirect(`${REV}?ok=${encodeURIComponent("Tentativo eseguito: controlla lo stato qui sotto.")}`);
+}
+
+/** Importa da Stripe gli incassi che il registro non ha mai visto.
+ *
+ *  Serve quando il webhook `invoice.payment_succeeded` non arriva — perché
+ *  quell'evento non è attivo sull'endpoint, o perché è stato attivato dopo che
+ *  i primi pagamenti erano già avvenuti. In pannello si vedeva "incassato
+ *  €0,00" con i soldi già sul conto.
+ *
+ *  L'esito è anche la diagnosi: se trova incassi che non avevamo, il webhook va
+ *  sistemato, altrimenti fra un mese servirà di nuovo. */
+export async function importaIncassi() {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
+  const esito = await importaIncassiDaStripe();
+  revalidatePath(REV);
+  revalidatePath("/admin");
+
+  if (esito.errore) {
+    redirect(`${REV}?warn=${encodeURIComponent(`Importazione non riuscita: ${esito.errore}`)}`);
+  }
+  if (esito.lette === 0) {
+    redirect(`${REV}?warn=${encodeURIComponent("Su Stripe non risulta nessuna fattura pagata. Il registro è a zero perché non è ancora entrato niente, non perché si è perso qualcosa.")}`);
+  }
+  const euro = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const messaggio =
+    esito.scritte > 0
+      ? `Importati ${esito.scritte} incassi che mancavano, su ${esito.lette} fatture pagate trovate su Stripe (${euro(esito.totaleCents)} in tutto). Erano fuori dal registro: controlla che sull'endpoint Stripe sia attivo l'evento invoice.payment_succeeded, altrimenti i prossimi si perderanno di nuovo.`
+      : `Nessuna riga da aggiungere: le ${esito.lette} fatture pagate su Stripe (${euro(esito.totaleCents)}) erano già tutte registrate.`;
+  redirect(`${REV}?ok=${encodeURIComponent(messaggio)}`);
 }

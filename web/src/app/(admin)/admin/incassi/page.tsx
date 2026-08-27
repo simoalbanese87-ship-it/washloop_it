@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { createServiceClient } from "@/lib/supabase/server";
 import { ficMode } from "@/lib/fic";
-import { riemettiFattura } from "@/lib/actions/fatture";
+import { riemettiFattura, importaIncassi } from "@/lib/actions/fatture";
 import { fmtFull } from "@/lib/format";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 
@@ -124,6 +124,30 @@ export default async function IncassiPage({
 
       {ok && <div className="mb-4 rounded-[14px] bg-[#1F8A5B]/10 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
       {warn && <div className="mb-4 rounded-[14px] bg-[#C9881F]/12 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>}
+
+      {/* Il registro si riempie dal webhook di Stripe. Se quell'evento non è
+          attivo sull'endpoint, i soldi arrivano sul conto e qui resta zero: da
+          qui si va a rileggere lo storico direttamente da Stripe. */}
+      <Card className="mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="font-display text-base font-extrabold text-navy">Il registro viene da Stripe</h2>
+            <p className="mt-1 text-xs font-medium text-muted">
+              Ogni pagamento riuscito dovrebbe arrivare da solo, avvisato da Stripe. Se qui manca qualcosa — o se l&apos;incassato
+              è a zero mentre i soldi sono sul conto — rileggi lo storico: si aggiungono solo le righe mancanti, rilanciarlo
+              non crea doppioni. Gli incassi importati entrano come ricevute: nessuna fattura viene emessa a posteriori.
+            </p>
+          </div>
+          <form action={importaIncassi} className="flex-none">
+            <BottoneInvio
+              attesa="Sto leggendo Stripe…"
+              className="inline-flex items-center rounded-full border-2 border-navy/30 px-5 py-2.5 font-display text-sm font-extrabold text-navy transition-colors hover:bg-navy/5"
+            >
+              Rileggi gli incassi da Stripe
+            </BottoneInvio>
+          </form>
+        </div>
+      </Card>
 
       {/* Filtri */}
       <Card className="mb-6">
