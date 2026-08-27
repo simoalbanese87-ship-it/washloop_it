@@ -78,7 +78,7 @@ export async function importaIncassi() {
   const euro = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const messaggio =
     esito.scritte > 0
-      ? `Importati ${esito.scritte} incassi che mancavano, su ${esito.lette} fatture pagate trovate su Stripe (${euro(esito.totaleCents)} in tutto). Erano fuori dal registro: controlla che sull'endpoint Stripe sia attivo l'evento invoice.payment_succeeded, altrimenti i prossimi si perderanno di nuovo.`
-      : `Nessuna riga da aggiungere: le ${esito.lette} fatture pagate su Stripe (${euro(esito.totaleCents)}) erano già tutte registrate.`;
+      ? `Importati ${esito.scritte} incassi che mancavano, su ${esito.lette} fatture pagate trovate su Stripe (${euro(esito.totaleCents)} in tutto). Sono entrati come ricevute: nessun documento è stato emesso su Fatture in Cloud. Erano fuori dal registro, quindi controlla che sull'endpoint Stripe sia attivo l'evento invoice.payment_succeeded, altrimenti i prossimi si perderanno di nuovo.`
+      : `Nessuna riga da aggiungere: le ${esito.lette} fatture pagate su Stripe (${euro(esito.totaleCents)}) erano già tutte registrate. Nessun documento emesso su Fatture in Cloud.`;
   redirect(`${REV}?ok=${encodeURIComponent(messaggio)}`);
 }
