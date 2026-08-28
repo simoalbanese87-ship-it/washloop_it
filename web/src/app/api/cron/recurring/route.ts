@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { romeWeekday, romeHHMM } from "@/lib/format";
 import { notifyOrderStatus } from "@/lib/notify";
+import { registraGuasto } from "@/lib/incidenti";
 
 /** Cron giornaliero: genera gli ordini delle ricorrenze settimanali attive,
  *  agganciandoli a uno slot reale con stesso giorno+ora (Europe/Rome) nei
@@ -104,6 +105,10 @@ export async function GET(req: Request) {
       if (!error && ins) {
         created++;
         await notifyOrderStatus(ins.id, "pickup_scheduled"); // email+push cliente + heads-up lavanderia
+      } else if (error) {
+        // Prima finiva qui, in silenzio: il ritiro settimanale del cliente non
+        // veniva creato e non lo sapeva nessuno, né lui né noi.
+        await registraGuasto("cron", `Ricorrenza non generata: ${error.message}`, { recurring_id: rec.id, slot_id: slot.id });
       }
     }
   }

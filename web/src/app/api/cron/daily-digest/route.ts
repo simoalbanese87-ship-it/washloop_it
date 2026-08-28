@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { registraGuasto } from "@/lib/incidenti";
 import { sendDailyDigest } from "@/lib/digest";
 
 /** Cron giornaliero: invia agli admin il riepilogo dei nuovi clienti e lead
@@ -18,6 +19,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, ...r });
   } catch (e) {
     console.error("[cron/daily-digest] errore:", e);
+    await registraGuasto("cron", `Cron daily-digest fallito: ${e instanceof Error ? e.message : "errore"}`);
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "errore" }, { status: 500 });
   }
 }

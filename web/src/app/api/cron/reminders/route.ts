@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { notifyPromemoria } from "@/lib/notify";
 import { fmtSlot } from "@/lib/format";
+import { registraGuasto } from "@/lib/incidenti";
 
 /** Cron della sera: avvisa chi domani ha un ritiro o una riconsegna.
  *
@@ -119,9 +120,15 @@ export async function GET(req: Request) {
 
   if (ritiri.error || consegne.error) {
     console.error("[cron/reminders] query fallita:", ritiri.error ?? consegne.error);
+    await registraGuasto("cron", `Cron reminders fallito: ${(ritiri.error ?? consegne.error)?.message ?? "errore"}`);
     return NextResponse.json({ ok: false, error: (ritiri.error ?? consegne.error)?.message }, { status: 500 });
   }
-  if (errori.length) console.error("[cron/reminders] marcature fallite:", errori);
+  if (errori.length) {
+    console.error("[cron/reminders] marcature fallite:", errori);
+    // Marcatura fallita = il promemoria può ripartire domani allo stesso
+    // cliente. Va visto, non solo loggato.
+    await registraGuasto("cron", `Reminders: ${errori.length} marcature non salvate`, { errori: errori.slice(0, 5) });
+  }
 
   return NextResponse.json({
     ok: true,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { registraGuasto } from "@/lib/incidenti";
 import { createServiceClient } from "@/lib/supabase/server";
 import { prossimoSollecito } from "@/lib/dunning-piano";
 import { inviaSollecito } from "@/lib/dunning";
@@ -77,6 +78,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, inRecupero: righe?.length ?? 0, inviati });
   } catch (e) {
     console.error("[cron/dunning] errore:", e);
+    await registraGuasto("cron", `Cron dunning fallito: ${e instanceof Error ? e.message : "errore"}`);
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "errore" }, { status: 500 });
   }
 }

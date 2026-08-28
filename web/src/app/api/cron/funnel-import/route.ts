@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { importaLeadFunnel } from "@/lib/funnel-import";
+import { registraGuasto } from "@/lib/incidenti";
 
 /** Cron notturno: copia i lead del funnel dal Google Sheet dentro `leads`.
  *
@@ -23,6 +24,7 @@ export async function GET(req: Request) {
   const esito = await importaLeadFunnel();
   if (!esito.ok) {
     console.error("[cron/funnel-import] fallito:", esito.errore);
+    await registraGuasto("cron", `Cron funnel-import fallito: ${esito.errore ?? "errore"}`);
     return NextResponse.json({ ok: false, error: esito.errore }, { status: 500 });
   }
   return NextResponse.json(esito);

@@ -2,6 +2,7 @@ import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { sendMail, renderEmail } from "@/lib/email";
 import { waitlistLeads } from "@/lib/waitlist";
+import { guastiRecenti, type Guasto } from "@/lib/incidenti";
 
 /** Digest "novità": nuovi clienti registrati + nuovi lead dal funnel, in una
  *  finestra temporale. Usato dal cron giornaliero (email agli admin) e dalla
@@ -25,6 +26,11 @@ export type DigestData = {
   newLeads: DigestLead[];
   newLandingLeads: DigestLandingLead[];
   leadError: string | null;
+  /** Guasti registrati nella finestra: email non partite, cron falliti, webhook rifiutati. */
+  guasti: Guasto[];
+  /** Segni di vita. Servono a rendere visibile il silenzio: il caso che ci è
+   *  costato un mese non produceva errori, semplicemente non arrivava niente. */
+  battito: { eventiStripe: number; incassi: number; ordini: number };
 };
 
 /** Raccoglie clienti e lead comparsi nelle ultime `hours` ore. */
@@ -89,7 +95,24 @@ export async function gatherDigest(hours = 24): Promise<DigestData> {
     created_at: l.created_at,
   }));
 
-  return { sinceIso, hours, newCustomers, newLeads, newLandingLeads, leadError };
+  // Guasti e segni di vita, raccolti insieme al resto.
+  const [guasti, eventiStripe, incassi, ordini] = await Promise.all([
+    guastiRecenti(hours),
+    svc.from("stripe_events").select("id", { count: "exact", head: true }).gte("received_at", sinceIso),
+    svc.from("invoices").select("id", { count: "exact", head: true }).gte("created_at", sinceIso),
+    svc.from("orders").select("id", { count: "exact", head: true }).gte("created_at", sinceIso),
+  ]);
+
+  return {
+    sinceIso,
+    hours,
+    newCustomers,
+    newLeads,
+    newLandingLeads,
+    leadError,
+    guasti,
+    battito: { eventiStripe: eventiStripe.count ?? 0, incassi: incassi.count ?? 0, ordini: ordini.count ?? 0 },
+  };
 }
 
 /** Email di tutti gli admin (+ eventuali destinatari extra da env DIGEST_RECIPIENTS). */
@@ -136,12 +159,37 @@ function digestEmailHtml(d: DigestData): string {
          </table>`
       : `<div style="font-size:13px;color:#8597AB">${empty}</div>`}`;
 
+  const gRows = d.guasti.map((g) => `
+    <tr>
+      <td style="padding:8px 10px;border-bottom:1px solid #E1E8F1;font-size:13px;color:#46586E">${esc(g.area)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #E1E8F1;font-size:14px;color:#0B1F3A">${esc(g.messaggio)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #E1E8F1;font-size:13px;color:#46586E">${g.quante}&times;</td>
+    </tr>`).join("");
+
+  // Il riquadro dei guasti sta IN CIMA quando c'è: è l'unica parte per cui vale
+  // la pena aprire l'email di corsa.
+  const allarme = d.guasti.length
+    ? `<div style="margin:0 0 16px;padding:12px 14px;border-radius:10px;background:#FBECEA;border:1px solid #E4B4AE">
+         <div style="font-family:'Nunito',Arial,sans-serif;font-size:15px;font-weight:800;color:#C0392B">⚠️ ${d.guasti.length === 1 ? "1 guasto" : `${d.guasti.length} guasti`} nelle ultime ${d.hours} ore</div>
+         <div style="font-size:13px;color:#8A4B42;margin-top:2px">Roba che non ha funzionato e che nessuno ha visto: email non partite, cron falliti, webhook rifiutati.</div>
+       </div>`
+    : "";
+
   const body = `
+    ${allarme}
     Riepilogo delle ultime ${d.hours} ore.<br/>
     <strong>${d.newCustomers.length}</strong> nuovi clienti · <strong>${d.newLeads.length}</strong> lead dal funnel · <strong>${d.newLandingLeads.length}</strong> richieste di disponibilità.
     ${table("👤 Nuovi clienti", ["Nome", "Contatti", "Stato"], cRows, "Nessun nuovo cliente.")}
     ${table("🌱 Nuovi lead (funnel)", ["Nome", "Contatti", "Indirizzo"], lRows, d.leadError ? `Lista d'attesa non raggiungibile: ${esc(d.leadError)}` : "Nessun nuovo lead.")}
     ${table("📍 Richieste disponibilità (landing)", ["Nome", "Contatti", "Zona"], dRows, "Nessuna nuova richiesta.")}
+    ${table("⚠️ Guasti", ["Dove", "Cosa", "Volte"], gRows, "Nessun guasto registrato. ")}
+    <div style="margin:18px 0 6px;font-family:'Nunito',Arial,sans-serif;font-size:15px;font-weight:800;color:#0B1F3A">💓 Segni di vita</div>
+    <div style="font-size:13px;color:#46586E;line-height:1.7">
+      Messaggi ricevuti da Stripe: <strong>${d.battito.eventiStripe}</strong> ·
+      incassi registrati: <strong>${d.battito.incassi}</strong> ·
+      ordini creati: <strong>${d.battito.ordini}</strong>
+      <div style="color:#8597AB;margin-top:4px">Sono numeri che di norma non stanno a zero tutti insieme. Se ci restano per giorni, qualcosa si è staccato senza dare errore — è così che per un mese non è arrivato un solo pagamento da Stripe.</div>
+    </div>
   `;
 
   return renderEmail({
@@ -160,14 +208,20 @@ export async function sendDailyDigest(hours = 24): Promise<{ sent: boolean; cust
   // di disponibilità non farebbe partire nessun digest.
   const leadCount = data.newLeads.length + data.newLandingLeads.length;
   const total = data.newCustomers.length + leadCount;
-  if (total === 0) return { sent: false, customers: 0, leads: 0, recipients: 0, reason: "nessuna novità" };
+  // Un guasto è una novità: in una giornata senza clienti né lead, prima il
+  // digest non partiva ed era proprio il giorno in cui serviva di più.
+  if (total === 0 && data.guasti.length === 0) {
+    return { sent: false, customers: 0, leads: 0, recipients: 0, reason: "nessuna novità" };
+  }
 
   const to = await digestRecipients();
   if (to.length === 0) return { sent: false, customers: data.newCustomers.length, leads: leadCount, recipients: 0, reason: "nessun destinatario admin" };
 
   await sendMail({
     to: to.join(","),
-    subject: `WashLoop · ${data.newCustomers.length} nuovi clienti, ${leadCount} nuovi lead (${hours}h)`,
+    subject: data.guasti.length
+      ? `WashLoop · ⚠️ ${data.guasti.length} da controllare · ${data.newCustomers.length} clienti, ${leadCount} lead (${hours}h)`
+      : `WashLoop · ${data.newCustomers.length} nuovi clienti, ${leadCount} nuovi lead (${hours}h)`,
     html: digestEmailHtml(data),
   });
   return { sent: true, customers: data.newCustomers.length, leads: leadCount, recipients: to.length };

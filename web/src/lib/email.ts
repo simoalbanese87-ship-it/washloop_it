@@ -71,6 +71,17 @@ async function disiscritto(email: string): Promise<boolean> {
   }
 }
 
+/** Segnala un guasto senza tirarsi dietro Supabase all'avvio: questo modulo
+ *  carica il client solo quando serve, e lo stesso vale qui. Non lancia mai. */
+async function segnala(messaggio: string, dettaglio?: Record<string, unknown>) {
+  try {
+    const { registraGuasto } = await import("@/lib/incidenti");
+    await registraGuasto("email", messaggio, dettaglio);
+  } catch {
+    /* già loggato a monte: qui non si fa altro rumore */
+  }
+}
+
 export async function sendMail({
   to,
   subject,
@@ -104,6 +115,8 @@ export async function sendMail({
   const tx = transporter();
   if (!tx) {
     console.warn(`[email] SMTP non configurato — email "${subject}" → ${to} non inviata`);
+    // Silenzioso ma grave: in produzione significa che NESSUNA email parte.
+    void segnala("SMTP non configurato: nessuna email viene inviata", { subject });
     return { skipped: true };
   }
   try {
@@ -128,6 +141,9 @@ export async function sendMail({
     return { skipped: false };
   } catch (err) {
     console.error(`[email] invio fallito ("${subject}" → ${to}):`, err);
+    // L'esito di sendMail non lo guarda nessuno dei chiamanti: senza questa
+    // riga, un'email non recapitata non lascia traccia da nessuna parte.
+    void segnala(`Invio fallito: ${err instanceof Error ? err.message : "errore"}`, { subject, to });
     return { skipped: false, error: true };
   }
 }

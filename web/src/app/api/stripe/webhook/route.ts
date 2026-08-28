@@ -9,6 +9,7 @@ import { chargeEmailHtml } from "@/lib/email-templates";
 import { LEGAL } from "@/lib/legal";
 import { fmtDate } from "@/lib/format";
 import { inviaSollecito, chiudiRecupero } from "@/lib/dunning";
+import { registraGuasto } from "@/lib/incidenti";
 
 /** Webhook Stripe → aggiorna `subscriptions` con service-role (bypassa RLS).
  *  Eventi: checkout completato, subscription creata/aggiornata/cancellata,
@@ -234,6 +235,7 @@ export async function POST(request: NextRequest) {
     // perso comunque — esattamente il problema che stiamo chiudendo.
     await db.from("stripe_events").delete().eq("id", event.id);
     console.error(`[webhook] ${event.type} fallito:`, err);
+    await registraGuasto("webhook", `Evento ${event.type} rifiutato: ${err instanceof Error ? err.message : "errore"}`, { event_id: event.id });
     return NextResponse.json({ error: "processing failed" }, { status: 500 });
   }
 
