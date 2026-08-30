@@ -50,3 +50,25 @@ test("nessuna fascia dopo la lavorazione: elenco vuoto, non un errore", () => {
   assert.deepEqual(fasceProponibili([f("troppopresto", "2026-08-24T20:00:00Z")], RITIRO, 48), []);
   assert.deepEqual(fasceProponibili([], RITIRO, 48), []);
 });
+
+test("non si può prenotare la riconsegna a settimane di distanza", () => {
+  // Caso vero: una cliente ha scelto ritiro il 23 settembre e riconsegna il 30
+  // ottobre. Cinque settimane con il suo bucato fermo da noi.
+  const fasce = [
+    f("tradue", "2026-08-27T12:00:00Z"),
+    f("aunasettimana", "2026-09-02T12:00:00Z"),
+    f("troppolontano", "2026-10-05T12:00:00Z"),
+  ];
+  const ids = fasceProponibili(fasce, RITIRO, 48).map((x) => x.id);
+  assert.ok(ids.includes("tradue"));
+  assert.ok(!ids.includes("troppolontano"), "una fascia a settimane di distanza non va proposta");
+});
+
+test("il bordo della finestra è incluso, un minuto dopo no", () => {
+  // Ritiro lunedì 24/08 08:00 + 48h → pronto mercoledì 26/08 08:00.
+  // Finestra di 7 giorni → si chiude il 02/09 alle 08:00, non a mezzogiorno.
+  const dentro = [f("albordo", "2026-09-02T08:00:00Z")];
+  const fuori = [f("unminutodopo", "2026-09-02T08:01:00Z")];
+  assert.equal(fasceProponibili(dentro, RITIRO, 48).length, 1);
+  assert.equal(fasceProponibili(fuori, RITIRO, 48).length, 0);
+});

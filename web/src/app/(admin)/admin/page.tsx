@@ -84,7 +84,10 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
       label: "Pagamenti falliti",
       n: pagamentiKo.count ?? 0,
       sub: "abbonamenti da recuperare",
-      href: "/admin/abbonati",
+      // Portava all'elenco completo degli abbonati, senza filtro: il numero
+      // diceva 1 e la pagina ne mostrava dieci. Stesso difetto dei ritiri in
+      // ritardo e dei contatti da richiamare.
+      href: "/admin/persone?stadio=difficolta",
       tono: "text-[#C9881F]",
     },
   ];
