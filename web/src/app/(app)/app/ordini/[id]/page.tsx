@@ -6,6 +6,9 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { createClient } from "@/lib/supabase/server";
 import { signedProofUrl, statusIndex, ORDER_STATUS_LABEL, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
 import { fmtDate, fmtFull } from "@/lib/format";
+import { spostaRitiro, clienteDisdiceRitiro } from "@/lib/actions/orders";
+import { pickupCounts } from "@/lib/slots";
+import { BottoneInvio } from "@/components/ui/BottoneInvio";
 
 type Item = { id: string; kind: string | null; status: ItemStatus; photo_url: string | null };
 
@@ -27,6 +30,9 @@ type Order = {
   eta_ready_at: string | null;
   addresses: { street: string; label: string | null } | null;
   delivery_slot: { starts_at: string; ends_at: string } | null;
+  pickup_slot: { id: string; starts_at: string; ends_at: string } | null;
+  pickup_slot_id: string | null;
+  laundry: { id: string } | null;
 };
 const ChevLeft = () => (
   <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
@@ -34,14 +40,14 @@ const ChevLeft = () => (
   </svg>
 );
 
-export default async function OrderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ err?: string }> }) {
+export default async function OrderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ err?: string; ok?: string }> }) {
   const { id } = await params;
-  const { err } = await searchParams;
+  const { err, ok } = await searchParams;
   const supabase = await createClient();
 
   const { data: order } = await supabase
     .from("orders")
-    .select("id, status, bags, notes, created_at, delivery_slot_id, laundry_id, eta_ready_at, addresses(street, label), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)")
+    .select("id, status, bags, notes, created_at, delivery_slot_id, pickup_slot_id, laundry_id, eta_ready_at, addresses(street, label), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at), pickup_slot:slots!orders_pickup_slot_id_fkey(id, starts_at, ends_at)")
     .eq("id", id)
     .maybeSingle<Order>();
 
@@ -66,6 +72,27 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
 
   const inProgress = statusIndex(order.status) < statusIndex("delivered");
 
+  // Finché il sacco è ancora a casa, la data si cambia e il ritiro si disdice.
+  // Prima non si poteva fare niente delle due, e l'unica strada era scriverci.
+  const modificabile = order.status === "requested" || order.status === "pickup_scheduled";
+  let alternative: { id: string; starts_at: string; ends_at: string; liberi: number }[] = [];
+  if (modificabile) {
+    const { data: slots } = await supabase
+      .from("slots")
+      .select("id, starts_at, ends_at, capacity")
+      .eq("kind", "pickup")
+      .gte("starts_at", new Date().toISOString())
+      .order("starts_at")
+      .limit(30)
+      .returns<{ id: string; starts_at: string; ends_at: string; capacity: number | null }[]>();
+    const occupati = await pickupCounts(supabase, (slots ?? []).map((s) => s.id));
+    alternative = (slots ?? [])
+      .map((s) => ({ ...s, liberi: (s.capacity ?? 0) - (occupati.get(s.id) ?? 0) }))
+      // La fascia attuale resta in elenco: si vede dov'è, e la si può riscegliere.
+      .filter((s) => s.id === order.pickup_slot_id || s.liberi > 0)
+      .slice(0, 12);
+  }
+
   return (
     <div className="space-y-4">
       {/* Back bar */}
@@ -78,6 +105,9 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
 
       {err && (
         <div className="rounded-[16px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{err}</div>
+      )}
+      {ok && (
+        <div className="rounded-[16px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/10 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>
       )}
 
       {/* Status hero */}
@@ -117,6 +147,60 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
           <OrderTimeline orderId={order.id} initialStatus={order.status} />
         </div>
       </section>
+
+      {/* Cambiare idea è normale: si sposta la fascia o si disdice, finché il
+          sacco è ancora a casa. Dopo il ritiro sparisce, perché il bucato è già
+          in viaggio e non sarebbe più una promessa che possiamo mantenere. */}
+      {modificabile && (
+        <section className="rounded-[18px] border border-line bg-white p-5">
+          <div className="font-display text-sm font-extrabold text-navy">Cambia o annulla il ritiro</div>
+          {order.pickup_slot && (
+            <p className="mt-1 text-sm font-medium text-muted">
+              Adesso passiamo <span className="font-bold text-navy">{fmtFull(order.pickup_slot.starts_at)}</span>.
+            </p>
+          )}
+
+          {alternative.length > 0 ? (
+            <form action={spostaRitiro} className="mt-3 space-y-2">
+              <input type="hidden" name="order_id" value={order.id} />
+              <input type="hidden" name="da" value="cliente" />
+              <label className="block text-xs font-bold text-muted">
+                Nuova fascia
+                <select
+                  name="pickup_slot_id"
+                  defaultValue={order.pickup_slot_id ?? ""}
+                  className="mt-1 h-11 w-full rounded-[14px] border border-line bg-ice px-3 text-sm font-semibold text-navy outline-none focus:border-blue"
+                >
+                  {alternative.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {fmtFull(s.starts_at)}
+                      {s.id === order.pickup_slot_id ? " · attuale" : ` · ${s.liberi} ${s.liberi === 1 ? "posto" : "posti"}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <BottoneInvio className="h-11 w-full rounded-full bg-gradient-to-br from-blue to-cyan font-display text-sm font-extrabold text-white">
+                Sposta il ritiro
+              </BottoneInvio>
+            </form>
+          ) : (
+            <p className="mt-3 rounded-[14px] bg-ice p-3 text-sm font-medium text-muted">
+              Non ci sono altre fasce libere al momento. Scrivici e troviamo noi una soluzione.
+            </p>
+          )}
+
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-bold text-[#C0392B]">Non ti serve più? Annulla il ritiro</summary>
+            <form action={clienteDisdiceRitiro} className="mt-2 flex items-center gap-2">
+              <input type="hidden" name="order_id" value={order.id} />
+              <span className="text-xs font-semibold text-navy">Confermi di annullarlo?</span>
+              <BottoneInvio className="rounded-full bg-[#C0392B] px-4 py-1.5 font-display text-xs font-extrabold text-white">
+                Sì, annulla
+              </BottoneInvio>
+            </form>
+          </details>
+        </section>
+      )}
 
       {/* Riconsegna. La fascia ora si sceglie in prenotazione, quindi di norma
           è già fissata da prima che il bucato sia pronto. Resta il caso in cui

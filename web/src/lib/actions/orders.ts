@@ -691,3 +691,102 @@ export async function setEta(formData: FormData) {
   revalidatePath(`/admin/ordini/${id}`);
   revalidatePath(`/app/ordini/${id}`);
 }
+
+// ---- Spostare o disdire un ritiro già prenotato ----
+//
+// Prima non si poteva fare, da nessuna parte. Il cliente prenotava e quella
+// data restava scolpita: nella sua pagina non c'era un bottone per cambiarla
+// né per disdire, e in amministrazione si poteva spostare solo la riconsegna.
+// L'unico modo era cancellare l'ordine e rifarlo — perdendo la traccia di cosa
+// era stato promesso.
+
+/** Stati in cui il sacco non è ancora stato ritirato: fin qui la data si cambia. */
+const PRIMA_DEL_RITIRO: OrderStatus[] = ["requested", "pickup_scheduled"];
+
+/** Chi può toccare questo ordine, e da dove sta guardando.
+ *  L'amministrazione può sempre; il cliente solo il proprio, e solo finché il
+ *  bucato è ancora a casa sua. */
+async function permessoSulRitiro(orderId: string) {
+  const me = await getCurrentProfile();
+  if (!me) return { ok: false as const, errore: "Sessione scaduta." };
+
+  const svc = createServiceClient();
+  const { data: ordine } = await svc
+    .from("orders")
+    .select("id, status, customer_id, pickup_slot_id")
+    .eq("id", orderId)
+    .maybeSingle<{ id: string; status: OrderStatus; customer_id: string | null; pickup_slot_id: string | null }>();
+  if (!ordine) return { ok: false as const, errore: "Ritiro non trovato." };
+
+  const admin = me.role === "admin";
+  if (!admin && ordine.customer_id !== me.id) return { ok: false as const, errore: "Non è un tuo ritiro." };
+  if (!PRIMA_DEL_RITIRO.includes(ordine.status)) {
+    return {
+      ok: false as const,
+      errore: admin
+        ? "Il sacco è già stato ritirato: da qui in poi si sposta la riconsegna, non il ritiro."
+        : "Il sacco è già in viaggio: per cambiare qualcosa scrivici, facciamo noi.",
+    };
+  }
+  return { ok: true as const, admin, ordine };
+}
+
+/** Sposta il ritiro su un'altra fascia. La usano sia il cliente sia l'admin:
+ *  il permesso cambia, il gesto no. */
+export async function spostaRitiro(formData: FormData) {
+  const id = String(formData.get("order_id") ?? "");
+  const pickup_slot_id = String(formData.get("pickup_slot_id") ?? "");
+  const dalCliente = String(formData.get("da") ?? "") === "cliente";
+  const dove = dalCliente ? `/app/ordini/${id}` : `/admin/ordini/${id}`;
+  if (!id || !pickup_slot_id) redirect(`${dove}?err=${encodeURIComponent("Scegli una fascia.")}`);
+
+  const p = await permessoSulRitiro(id);
+  if (!p.ok) redirect(`${dove}?err=${encodeURIComponent(p.errore)}`);
+
+  // La capacità della fascia la difende il trigger in database: qui si traduce
+  // solo il suo errore in una frase leggibile.
+  const svc = createServiceClient();
+  const { error } = await svc
+    .from("orders")
+    .update({ pickup_slot_id, status: "pickup_scheduled" as OrderStatus })
+    .eq("id", id);
+  if (error) {
+    redirect(`${dove}?err=${encodeURIComponent(slotFullMessage(error) ?? "Questa fascia non è disponibile. Provane un'altra.")}`);
+  }
+
+  revalidatePath(`/app/ordini/${id}`);
+  revalidatePath(`/admin/ordini/${id}`);
+  revalidatePath("/admin/ordini");
+  revalidatePath("/admin/calendario");
+  revalidatePath("/courier");
+  redirect(`${dove}?ok=${encodeURIComponent("Ritiro spostato.")}`);
+}
+
+/** Il cliente disdice un ritiro che non è ancora avvenuto.
+ *
+ *  Separata da `cancelOrder` (che è dell'amministrazione) perché le guardie
+ *  sono diverse: qui conta che l'ordine sia suo e che il sacco non sia ancora
+ *  partito. La nota resta scritta sull'ordine, così in amministrazione si
+ *  distingue una disdetta del cliente da un annullamento nostro. */
+export async function clienteDisdiceRitiro(formData: FormData) {
+  const id = String(formData.get("order_id") ?? "");
+  const dove = `/app/ordini/${id}`;
+  if (!id) redirect(`${dove}?err=${encodeURIComponent("Ritiro mancante.")}`);
+
+  const p = await permessoSulRitiro(id);
+  if (!p.ok) redirect(`${dove}?err=${encodeURIComponent(p.errore)}`);
+
+  const svc = createServiceClient();
+  const { error } = await svc
+    .from("orders")
+    .update({ status: "cancelled" as OrderStatus, staff_notes: "Disdetto dal cliente dall'app." })
+    .eq("id", id);
+  if (error) redirect(`${dove}?err=${encodeURIComponent("Non siamo riusciti ad annullarlo. Riprova.")}`);
+
+  await notifyOrderStatus(id, "cancelled");
+  revalidatePath("/app/ordini");
+  revalidatePath("/admin/ordini");
+  revalidatePath("/admin/calendario");
+  revalidatePath("/courier");
+  redirect(`/app/ordini?ok=${encodeURIComponent("Ritiro annullato.")}`);
+}

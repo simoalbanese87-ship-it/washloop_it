@@ -3,7 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { advanceStatus, assignOrder, setEta, scheduleDelivery } from "@/lib/actions/orders";
+import { advanceStatus, assignOrder, setEta, scheduleDelivery, spostaRitiro } from "@/lib/actions/orders";
 import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
 import { DeleteOrderButton } from "@/components/admin/DeleteOrderButton";
 import { chargeOrderSpecials, refundOrderSpecial, addSpecialAdmin } from "@/lib/actions/charge";
@@ -12,7 +12,7 @@ import { signedProofUrl } from "@/lib/orders";
 import { AddSpecialForm, type ListItem } from "@/components/app/AddSpecialForm";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtFull, fmtSlot, toRomeInputValue } from "@/lib/format";
-import { deliveryCounts } from "@/lib/slots";
+import { deliveryCounts, pickupCounts } from "@/lib/slots";
 
 type Order = {
   id: string;
@@ -27,6 +27,8 @@ type Order = {
   eta_ready_at: string | null;
   delivery_slot_id: string | null;
   delivery_slot: { starts_at: string; ends_at: string } | null;
+  pickup_slot_id: string | null;
+  pickup_slot: { starts_at: string; ends_at: string } | null;
   customer: { full_name: string | null; phone: string | null } | null;
   addresses: { street: string; intercom: string | null; floor: string | null; zones: { name: string } | null } | null;
 };
@@ -49,7 +51,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }, { data: items }] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, status, bags, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)")
+      .select("id, status, bags, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, pickup_slot_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at)")
       .eq("id", id)
       .maybeSingle<Order>(),
     supabase.from("order_events").select("id, status, created_at, note").eq("order_id", id).order("created_at", { ascending: false }).returns<Event[]>(),
@@ -71,6 +73,23 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
     const { data: raw } = await q.order("starts_at").limit(20).returns<DeliverySlot[]>();
     const usati = await deliveryCounts(supabase, (raw ?? []).map((s) => s.id));
     fasceConsegna = (raw ?? []).map((s) => ({ ...s, presi: usati.get(s.id) ?? 0 }));
+  }
+
+  // Fasce di RITIRO: finché il sacco non è stato preso, la data si sposta anche
+  // da qui. Prima si poteva cambiare solo la riconsegna, e un ritiro sbagliato
+  // si poteva solo annullare e rifare da capo.
+  let fasceRitiro: DeliverySlot[] = [];
+  const ritiroSpostabile = !!order && (order.status === "requested" || order.status === "pickup_scheduled");
+  if (order && ritiroSpostabile) {
+    let q = supabase
+      .from("slots")
+      .select("id, starts_at, ends_at, capacity")
+      .eq("kind", "pickup")
+      .gte("starts_at", new Date().toISOString());
+    if (order.laundry_id) q = q.eq("laundry_id", order.laundry_id);
+    const { data: raw } = await q.order("starts_at").limit(20).returns<DeliverySlot[]>();
+    const usati = await pickupCounts(supabase, (raw ?? []).map((s) => s.id));
+    fasceRitiro = (raw ?? []).map((s) => ({ ...s, presi: usati.get(s.id) ?? 0 }));
   }
 
   // Bucket privato: le foto prova si servono con link firmato a scadenza.
@@ -173,6 +192,43 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
               </Button>
             </form>
           </Card>
+
+          {ritiroSpostabile && (
+            <Card>
+              <span className="font-display text-sm font-extrabold text-navy">Ritiro</span>
+              <p className="mt-1 text-xs font-medium text-muted">
+                Si sposta finché il sacco non è stato preso. Il cliente lo può fare anche da solo dalla sua app:
+                qui serve quando chiama e non vuole farlo lui.
+              </p>
+              {order.pickup_slot && (
+                <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-sm font-bold text-navy">
+                  Adesso: {fmtSlot(order.pickup_slot.starts_at, order.pickup_slot.ends_at)}
+                </p>
+              )}
+              {fasceRitiro.length > 0 ? (
+                <form action={spostaRitiro} className="mt-3 flex gap-3">
+                  <input type="hidden" name="order_id" value={order.id} />
+                  <select name="pickup_slot_id" required className={input} defaultValue={order.pickup_slot_id ?? ""}>
+                    <option value="" disabled>Fascia di ritiro…</option>
+                    {fasceRitiro.map((s) => {
+                      const pieno = s.capacity != null && (s.presi ?? 0) >= s.capacity && s.id !== order.pickup_slot_id;
+                      return (
+                        <option key={s.id} value={s.id} disabled={pieno}>
+                          {fmtSlot(s.starts_at, s.ends_at)}
+                          {s.capacity != null ? ` — ${Math.max(0, s.capacity - (s.presi ?? 0))} posti` : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <Button type="submit" size="md" variant="ghost-navy">Sposta</Button>
+                </form>
+              ) : (
+                <p className="mt-3 rounded-[12px] bg-ice px-3 py-2 text-sm font-medium text-muted">
+                  Nessuna fascia di ritiro futura per questa lavanderia: generane in Catalogo.
+                </p>
+              )}
+            </Card>
+          )}
 
           <Card>
             <span className="font-display text-sm font-extrabold text-navy">Riconsegna</span>
