@@ -6,6 +6,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
 import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra } from "@/lib/actions/admin-customer";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
+import { BottoneInvio } from "@/components/ui/BottoneInvio";
+import { impersonate } from "@/lib/actions/impersonate";
 import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 import { ATTESA_GIORNI } from "@/lib/dunning-piano";
@@ -14,7 +16,9 @@ const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFr
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
 
-type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string };
+type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string;
+  billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
+  billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
 type Sub = { id: string; status: string; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number } | null };
 type Addr = { id: string; label: string | null; street: string };
 type Ord = { id: string; status: OrderStatus; created_at: string; bags: number };
@@ -43,7 +47,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const { ok, warn } = await searchParams;
   const svc = createServiceClient();
 
-  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at").eq("id", id).maybeSingle<Prof>();
+  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
   if (!profile) notFound();
 
   const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }] = await Promise.all([
@@ -88,7 +92,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   return (
     <>
       <Link href="/admin/abbonati" className="font-display text-sm font-bold text-blue hover:underline">← Abbonati</Link>
-      <PageTitle kicker="Cliente" title={profile.full_name ?? "Cliente"} sub={`${email}${profile.client_code ? ` · ${profile.client_code}` : ""} · Iscritto il ${fmtDate(profile.created_at)}`} />
+      <PageTitle kicker="Cliente" title={profile.full_name ?? "Cliente"} sub={`${email}${profile.client_code ? ` · ${profile.client_code}` : ""} · ${profile.phone ?? "SENZA TELEFONO"} · Iscritto il ${fmtDate(profile.created_at)}`} />
 
       {ok && (
         <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>
@@ -97,10 +101,24 @@ export default async function CustomerPage({ params, searchParams }: { params: P
         <div className="mb-4 rounded-[14px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>
       )}
 
-      <form action={resendCredentials} className="mb-4">
-        <input type="hidden" name="customer_id" value={id} />
-        <Button type="submit" size="md" variant="ghost-navy">Reinvia credenziali via email</Button>
-      </form>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <form action={resendCredentials}>
+          <input type="hidden" name="customer_id" value={id} />
+          <Button type="submit" size="md" variant="ghost-navy">Reinvia credenziali via email</Button>
+        </form>
+        {/* «Accedi come» stava solo nell'elenco abbonati: chi apriva la scheda
+            di un cliente per capire un problema doveva tornare indietro e
+            ritrovarlo in lista. Serve qui, dov'è il problema. */}
+        <form action={impersonate}>
+          <input type="hidden" name="user_id" value={id} />
+          <BottoneInvio
+            attesa="Entro…"
+            className="inline-flex min-h-[48px] items-center rounded-full border-2 border-navy/30 px-6 font-display text-[15px] font-extrabold text-navy transition-colors hover:bg-navy/5"
+          >
+            Accedi come cliente →
+          </BottoneInvio>
+        </form>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Abbonamento */}
@@ -218,6 +236,29 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           )}
           {!active && <CustomSubscriptionForm customerId={id} />}
         </Card>
+
+        {/* Fatturazione: chi la vuole va saputo QUI, sulla scheda di chi paga.
+            Prima non era scritto da nessuna parte, e in Incassi ogni incasso
+            compariva fra le «fatture da fare» anche di chi non ne aveva chiesta
+            nessuna — quindi il dato vero non si distingueva dal rumore. */}
+        {profile.billing_wants_invoice ? (
+          <Card>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="font-display text-base font-extrabold text-navy">Fatturazione</h2>
+              <span className="rounded-full bg-[#C9881F]/15 px-2.5 py-0.5 font-display text-[11px] font-extrabold uppercase text-[#C9881F]">
+                Vuole la fattura
+              </span>
+            </div>
+            <div className="mt-3 space-y-1 text-sm font-medium text-muted">
+              <div>Intestazione: <span className="font-bold text-navy">{profile.billing_name ?? "—"}</span></div>
+              <div>{[profile.billing_address, profile.billing_cap, profile.billing_city].filter(Boolean).join(", ") || "Indirizzo non indicato"}</div>
+              <div>
+                {profile.billing_vat ? `P.IVA ${profile.billing_vat}` : profile.billing_tax_code ? `CF ${profile.billing_tax_code}` : "Nessun codice fiscale o partita IVA"}
+              </div>
+              <div>{profile.billing_sdi ? `SDI ${profile.billing_sdi}` : profile.billing_pec ? `PEC ${profile.billing_pec}` : "Nessun recapito elettronico"}</div>
+            </div>
+          </Card>
+        ) : null}
 
         {/* Indirizzi */}
         <Card>

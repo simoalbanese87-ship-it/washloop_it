@@ -135,20 +135,39 @@ export async function bookPickup(input: {
       ? await supabase.from("slots").select("starts_at").eq("id", delivery_slot_id).maybeSingle<{ starts_at: string }>()
       : { data: null };
 
-    const { data: rec } = await supabase
+    const giorno = romeWeekday(slot.starts_at);
+    const ora = romeHHMM(slot.starts_at);
+
+    // Se un ritiro settimanale identico c'è già, si riusa invece di aggiungerne
+    // un altro. Una cliente vera ha prenotato cinque volte per provare e si è
+    // ritrovata cinque ritiri settimanali sovrapposti, tutti dello stesso
+    // giorno alla stessa ora: cinque sacchi attesi a settimana invece di uno.
+    const { data: esistente } = await supabase
       .from("recurring_pickups")
-      .insert({
-        customer_id: user.id,
-        address_id,
-        weekday: romeWeekday(slot.starts_at),
-        hhmm: romeHHMM(slot.starts_at),
-        delivery_hhmm: slotConsegna?.starts_at ? romeHHMM(slotConsegna.starts_at) : null,
-        bags,
-        notes: input.notes || null,
-        active: true,
-      })
       .select("id")
-      .single();
+      .eq("customer_id", user.id)
+      .eq("address_id", address_id)
+      .eq("weekday", giorno)
+      .eq("hhmm", ora)
+      .eq("active", true)
+      .maybeSingle<{ id: string }>();
+
+    const { data: rec } = esistente
+      ? { data: esistente }
+      : await supabase
+          .from("recurring_pickups")
+          .insert({
+            customer_id: user.id,
+            address_id,
+            weekday: giorno,
+            hhmm: ora,
+            delivery_hhmm: slotConsegna?.starts_at ? romeHHMM(slotConsegna.starts_at) : null,
+            bags,
+            notes: input.notes || null,
+            active: true,
+          })
+          .select("id")
+          .single();
     if (rec) await supabase.from("orders").update({ recurring_id: rec.id }).eq("id", data!.id);
   }
 

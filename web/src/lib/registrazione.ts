@@ -66,9 +66,19 @@ export async function registraUtente(
  *  prima era un `await` sulla strada del reindirizzamento, e un problema qui
  *  bloccava tutta l'iscrizione. Il consenso resta comunque nei metadati
  *  dell'utente, scritti al momento della registrazione. */
-export async function segnaConsenso(supabase: SupabaseClient, userId: string, quando: string): Promise<void> {
+export async function segnaConsenso(
+  supabase: SupabaseClient,
+  userId: string,
+  quando: string,
+  telefono?: string,
+): Promise<void> {
   try {
-    await supabase.from("profiles").update({ terms_accepted_at: quando }).eq("id", userId);
+    // Il telefono si scrive esplicitamente sul profilo: nei metadati dell'utente
+    // ci finisce comunque, ma è da `profiles.phone` che lo legge il rider quando
+    // deve chiamare qualcuno sotto casa.
+    const campi: Record<string, string> = { terms_accepted_at: quando };
+    if (telefono?.trim()) campi.phone = telefono.trim();
+    await supabase.from("profiles").update(campi).eq("id", userId);
   } catch (err) {
     console.error("[registrazione] consenso non scritto sul profilo:", err);
   }

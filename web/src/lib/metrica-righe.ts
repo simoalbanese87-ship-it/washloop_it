@@ -147,19 +147,27 @@ export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false):
     case "sacchi-mese": {
       const { data: ordini } = await svc
         .from("orders")
-        .select("id, bags, created_at, status, customer_id, profiles!orders_customer_id_fkey(full_name, is_test)")
+        .select("id, bags, created_at, status, customer_id, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at), profiles!orders_customer_id_fkey(full_name, is_test)")
         .neq("status", "cancelled")
         .gte("created_at", monthStart)
-        .order("created_at", { ascending: false })
-        .returns<{ id: string; bags: number; created_at: string; status: string; customer_id: string | null; profiles: { full_name: string | null; is_test: boolean } | null }[]>();
+        .returns<{ id: string; bags: number; created_at: string; status: string; customer_id: string | null; pickup_slot: { starts_at: string } | null; profiles: { full_name: string | null; is_test: boolean } | null }[]>();
 
-      const utili = (ordini ?? []).filter((o) => includiProva || !o.profiles?.is_test);
+      // La data che conta è quella del RITIRO, non quella in cui il cliente ha
+      // premuto il pulsante. Cinque ritiri prenotati la stessa sera per quattro
+      // settimane diverse comparivano tutti come «29/08», e sembravano lo
+      // stesso giorno. Ordinati per passaggio, così l'elenco è un calendario.
+      const utili = (ordini ?? [])
+        .filter((o) => includiProva || !o.profiles?.is_test)
+        .sort((a, b) => (a.pickup_slot?.starts_at ?? a.created_at).localeCompare(b.pickup_slot?.starts_at ?? b.created_at));
       return {
         titolo: "Sacchi del mese",
-        spiegazione: "Sacchi dichiarati sugli ordini creati questo mese, esclusi gli annullati.",
+        spiegazione:
+          "Sacchi dichiarati sugli ordini creati questo mese, esclusi gli annullati. La data è quella del ritiro, non quella della prenotazione.",
         righe: utili.map((o) => ({
           etichetta: o.profiles?.full_name ?? "—",
-          dettaglio: `${data(o.created_at)} · ordine #${o.id.slice(0, 8)}`,
+          dettaglio: o.pickup_slot?.starts_at
+            ? `Ritiro ${data(o.pickup_slot.starts_at)} · prenotato il ${data(o.created_at)} · #${o.id.slice(0, 8)}`
+            : `Prenotato il ${data(o.created_at)} · ritiro da fissare · #${o.id.slice(0, 8)}`,
           quantita: o.bags,
           href: `/admin/ordini/${o.id}`,
         })),

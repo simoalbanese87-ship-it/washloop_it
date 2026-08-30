@@ -53,6 +53,9 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
 
   async function doRegister() {
     if (!accepted) return setError("Devi accettare i Termini e la Privacy per continuare.");
+    // Il telefono serve al rider: senza, chi è sotto casa con il sacco non ha
+    // modo di avvisare. Giulia si è iscritta senza e l'abbiamo scoperto tardi.
+    if (!phone.trim()) return setError("Serve un numero di telefono: il rider lo usa per avvisarti quando è sotto casa.");
     setLoading(true); setError(null); setInfo(null);
     const supabase = createClient();
     const acceptedAt = new Date().toISOString();
@@ -65,7 +68,7 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
     // Prova del consenso sul profilo (GDPR) e benvenuto: entrambi best-effort,
     // fuori dalla strada che porta al passo successivo. Prima erano davanti, e
     // un intoppo lasciava la persona ferma sul modulo con l'account già creato.
-    void segnaConsenso(supabase, esito.userId, acceptedAt);
+    void segnaConsenso(supabase, esito.userId, acceptedAt, phone);
     void sendWelcomeIfNeeded();
     setLoading(false); setStep(2);
   }
@@ -148,7 +151,7 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
               <div className="mt-6 space-y-3">
                 <input className={input} placeholder="Nome e cognome" value={fullName} onChange={(e) => setFullName(e.target.value)} />
                 <input className={input} type="email" autoComplete="email" placeholder="tu@email.it" value={email} onChange={(e) => setEmail(e.target.value)} />
-                <input className={input} placeholder="Telefono" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                <input className={input} type="tel" required placeholder="Telefono" value={phone} onChange={(e) => setPhone(e.target.value)} />
                 <PasswordField className={input} value={password} onChange={setPassword} email={email} nome={fullName} />
               </div>
               <label className="mt-4 flex cursor-pointer items-start gap-3 text-[13px] font-medium leading-relaxed text-white">

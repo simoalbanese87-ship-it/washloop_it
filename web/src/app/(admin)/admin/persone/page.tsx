@@ -5,6 +5,8 @@ import { importaFunnelSeServe } from "@/lib/funnel-import";
 import { fmtDate, eurCents } from "@/lib/format";
 import { LeadStatusSelect } from "@/components/admin/LeadStatusSelect";
 import { LeadActions } from "@/components/admin/LeadActions";
+import { BottoneInvio } from "@/components/ui/BottoneInvio";
+import { impersonate } from "@/lib/actions/impersonate";
 import { CONTACT_STATUS_LABEL, isContactStatus, type ContactStatus } from "@/lib/lead-status";
 
 export const dynamic = "force-dynamic";
@@ -212,9 +214,20 @@ export default async function PersonePage({
                   <td className="py-2.5">
                     <div className="flex items-center justify-end gap-3">
                       {p.profileId ? (
-                        <Link href={`/admin/abbonati/${p.profileId}`} className="font-display text-xs font-bold text-blue hover:underline">
-                          Scheda →
-                        </Link>
+                        <>
+                          <Link href={`/admin/abbonati/${p.profileId}`} className="font-display text-xs font-bold text-blue hover:underline">
+                            Scheda →
+                          </Link>
+                          {/* Vedere l'app com'è per il cliente, senza passare
+                              dall'elenco abbonati: qui c'è chi ti ha appena
+                              scritto che qualcosa non gli funziona. */}
+                          <form action={impersonate}>
+                            <input type="hidden" name="user_id" value={p.profileId} />
+                            <BottoneInvio attesa="Entro…" className="font-display text-xs font-bold text-blue hover:underline">
+                              Accedi come →
+                            </BottoneInvio>
+                          </form>
+                        </>
                       ) : (
                         <LeadActions leadId={p.leadId!} name={p.nome} back={qui} />
                       )}

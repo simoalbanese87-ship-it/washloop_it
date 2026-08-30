@@ -42,6 +42,7 @@ function LoginForm() {
   const [mode, setMode] = useState<Mode>(params.get("mode") === "signup" ? "signup" : "signin");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -60,11 +61,18 @@ function LoginForm() {
         setLoading(false);
         return setError("Devi accettare i Termini e la Privacy per continuare.");
       }
+      // Il telefono qui non veniva chiesto affatto, e chi si registrava da
+      // questa pagina restava senza. Al rider serve: è l'unico modo che ha per
+      // avvisare quando è sotto casa.
+      if (!phone.trim()) {
+        setLoading(false);
+        return setError("Serve un numero di telefono: il rider lo usa per avvisarti quando è sotto casa.");
+      }
       const acceptedAt = new Date().toISOString();
       const esito = await registraUtente(supabase, {
         email,
         password,
-        meta: { full_name: fullName, terms_accepted_at: acceptedAt },
+        meta: { full_name: fullName, phone: phone.trim(), terms_accepted_at: acceptedAt },
       });
       if (!esito.ok) {
         setLoading(false);
@@ -75,7 +83,7 @@ function LoginForm() {
       }
       // Consenso e benvenuto non stanno sulla strada del reindirizzamento: un
       // intoppo qui bloccava l'iscrizione a metà.
-      void segnaConsenso(supabase, esito.userId, acceptedAt);
+      void segnaConsenso(supabase, esito.userId, acceptedAt, phone);
       void sendWelcomeIfNeeded();
       vaiA(dest);
       return;
@@ -160,6 +168,17 @@ function LoginForm() {
             placeholder="tu@email.it"
             className={input}
           />
+          {isSignup && (
+            <input
+              type="tel"
+              required
+              autoComplete="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="Telefono"
+              className={input}
+            />
+          )}
           <PasswordField
             required
             autoComplete={isSignup ? "new-password" : "current-password"}

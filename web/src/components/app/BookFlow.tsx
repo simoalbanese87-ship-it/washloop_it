@@ -67,8 +67,10 @@ export function BookFlow({
   const [deliverySlotId, setDeliverySlotId] = useState<string | null>(null);
   const [bags, setBags] = useState(1);
   const [notes, setNotes] = useState("");
-  // Ritiro sempre 1 volta a settimana (fisso per qualsiasi abbonamento).
-  const [recurring] = useState(true);
+  // La scelta è del cliente. Prima era fissa a `true`, senza modo di dire di no:
+  // chi prenotava cinque volte per provare si ritrovava cinque ritiri
+  // settimanali attivi che non aveva chiesto. È successo davvero.
+  const [recurring, setRecurring] = useState(true);
   const [openCat, setOpenCat] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -398,17 +400,37 @@ export function BookFlow({
             <RowEdit title="Consegna" sub={testoConsegna()} onEdit={() => setStep(1)} />
           </div>
 
-          {/* Ritiro fisso: 1 volta a settimana (per qualsiasi abbonamento) */}
-          <div className="flex items-start gap-3 rounded-[18px] border border-line bg-white p-4">
-            <span className="grid h-11 w-11 flex-none place-items-center rounded-[13px] bg-cyan/[0.1] text-blue">
-              <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4" /></svg>
-            </span>
-            <div className="min-w-0">
-              <div className="font-display text-sm font-extrabold text-navy">Ritiro 1 volta a settimana</div>
-              <div className="mt-0.5 text-xs font-medium text-muted">
-                {selectedSlot ? `Si ripete ogni ${fmtDowLong(selectedSlot.starts_at)}, stessa fascia. Puoi saltare o modificare quando vuoi.` : "Si ripete ogni settimana, stessa fascia. Puoi saltare o modificare quando vuoi."}
-              </div>
+          {/* Una volta o tutte le settimane: la scelta va fatta qui, in chiaro.
+              Prima la ricorrenza era imposta e invisibile. */}
+          <div className="rounded-[18px] border border-line bg-white p-4">
+            <div className="font-display text-sm font-extrabold text-navy">Ogni quanto?</div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setRecurring(true)}
+                aria-pressed={recurring}
+                className={`rounded-[14px] border-2 px-3 py-3 text-left transition-colors ${recurring ? "border-cyan bg-cyan/[0.06]" : "border-line"}`}
+              >
+                <div className="font-display text-sm font-extrabold text-navy">Ogni settimana</div>
+                <div className="mt-0.5 text-[11px] font-medium leading-snug text-muted">
+                  {selectedSlot ? `Ogni ${fmtDowLong(selectedSlot.starts_at)}, stessa fascia` : "Stesso giorno, stessa fascia"}
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecurring(false)}
+                aria-pressed={!recurring}
+                className={`rounded-[14px] border-2 px-3 py-3 text-left transition-colors ${!recurring ? "border-cyan bg-cyan/[0.06]" : "border-line"}`}
+              >
+                <div className="font-display text-sm font-extrabold text-navy">Solo questa volta</div>
+                <div className="mt-0.5 text-[11px] font-medium leading-snug text-muted">Un ritiro singolo, niente di fisso</div>
+              </button>
             </div>
+            <p className="mt-2.5 text-xs font-medium text-muted">
+              {recurring
+                ? "Il ritiro si ripete finché non lo disattivi. Lo trovi in Home e lo puoi saltare o spostare quando vuoi."
+                : "Nessun impegno: per il prossimo ritiro prenoti di nuovo quando vuoi."}
+            </p>
           </div>
 
           <div className="flex items-center justify-between rounded-[18px] border border-line bg-white p-4">
