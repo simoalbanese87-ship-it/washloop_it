@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PageTitle } from "@/components/app/AppShell";
 import { OrdersBoard, type BoardOrder } from "@/components/app/OrdersBoard";
+import { adessoDelRender } from "@/lib/board-periodo";
 import { ArchiveList, type ArchiveRow } from "@/components/app/ArchiveList";
 import { createClient } from "@/lib/supabase/server";
 import type { OrderStatus } from "@/lib/orders";
@@ -121,7 +122,7 @@ export default async function AdminBoard({
       </div>
       {ok && <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
       {warn && <div className="mb-4 rounded-[14px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>}
-      <OrdersBoard orders={orders} couriers={courierOpts} laundries={laundries ?? []} zones={zones ?? []} adesso={Date.now()} filtroIniziale={filtro === "ritardo" || filtro === "da_assegnare" ? filtro : undefined} />
+      <OrdersBoard orders={orders} couriers={courierOpts} laundries={laundries ?? []} zones={zones ?? []} adesso={adessoDelRender()} filtroIniziale={filtro === "ritardo" || filtro === "da_assegnare" ? filtro : undefined} />
     </>
   );
 }

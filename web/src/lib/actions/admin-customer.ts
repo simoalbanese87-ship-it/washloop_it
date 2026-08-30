@@ -327,7 +327,12 @@ export async function deleteCustomer(formData: FormData) {
   const customerId = String(formData.get("customer_id") ?? "");
   if (!customerId) throw new Error("Cliente mancante");
   const svc = createServiceClient();
-  const backTo = `/admin/abbonati/${customerId}`;
+  // Si elimina anche dalla pagina delle etichette, dove si ripulisce l'elenco
+  // dai registrati che non sono mai diventati clienti: da lì rimandare alla
+  // scheda di uno appena cancellato non avrebbe senso. Solo percorsi interni.
+  const daDove = String(formData.get("back") ?? "").trim();
+  const backTo = /^\/admin\/[A-Za-z0-9/_-]*$/.test(daDove) ? daDove : `/admin/abbonati/${customerId}`;
+  const dopo = /^\/admin\/[A-Za-z0-9/_-]*$/.test(daDove) ? daDove : "/admin/abbonati";
 
   // Le condizioni che impediscono l'eliminazione NON sono errori di sistema:
   // vengono mostrate come banner nella pagina cliente, senza pagina d'errore.
@@ -382,7 +387,8 @@ export async function deleteCustomer(formData: FormData) {
   if (error) redirect(`${backTo}?warn=${encodeURIComponent(error.message)}`);
 
   revalidatePath("/admin/abbonati");
-  redirect(`/admin/abbonati?ok=${encodeURIComponent("Lead eliminato.")}`);
+  revalidatePath(dopo);
+  redirect(`${dopo}?ok=${encodeURIComponent("Lead eliminato.")}`);
 }
 
 // ---- Ritiri ricorrenti: l'admin vede/modifica gli orari indicati dal cliente ----

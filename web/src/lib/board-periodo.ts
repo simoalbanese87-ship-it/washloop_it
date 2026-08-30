@@ -58,3 +58,13 @@ export function confrontaUrgenza(
   if (a.ritardo !== b.ritardo) return a.ritardo ? -1 : 1;
   return new Date(a.quando).getTime() - new Date(b.quando).getTime();
 }
+
+/** L'istante in cui il server sta disegnando la pagina.
+ *
+ *  Esiste per avere un nome: il board ha bisogno di sapere "adesso" già al
+ *  primo render, e leggerlo è di proposito una lettura dell'orologio — non un
+ *  calcolo puro. Tenerla qui la rende una scelta dichiarata invece di una
+ *  chiamata a `Date.now()` in mezzo al JSX. */
+export function adessoDelRender(): number {
+  return Date.now();
+}
