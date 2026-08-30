@@ -1,7 +1,22 @@
 // WashLoop service worker — shell cache + network-first + Web Push.
 //
-// v3. Tre cose cambiate rispetto alla v2, tutte per lo stesso motivo: l'app
-// installata si comportava male proprio quando serviva, cioè offline.
+// v4. La novità di questa versione: **l'area riservata non passa più di qui**.
+//
+// Il service worker rispondeva a ogni navigazione con `respondWith(fetch(...))`,
+// anche per /app. Fare da tramite su una risposta in streaming la rompeva: la
+// pagina /app/installa restava ferma sulla rotellina, con il contenuto già
+// arrivato ma dentro il contenitore nascosto dello streaming, mai scoperto.
+// Prova pulita: stessa versione del sito, con il service worker registrato la
+// pagina è bloccata, disattivandolo si apre. E valeva per chiunque avesse
+// aperto l'app anche una sola volta.
+//
+// Adesso per quelle rotte non si chiama `respondWith` affatto: il browser fa da
+// solo, esattamente come se il service worker non ci fosse. Non ci perdiamo
+// niente, perché quelle pagine non erano comunque messe in cache — sono dati
+// personali.
+//
+// Dalla v2 restano le tre correzioni di allora, tutte per lo stesso motivo:
+// l'app installata si comportava male proprio quando serviva, cioè offline.
 //
 // 1. `/app` NON sta più nel precache. Richiede il login: se l'utente installava
 //    da sloggato, finiva in cache l'HTML della pagina di login con chiave
@@ -11,7 +26,7 @@
 //    installata offline mostrava la landing marketing.
 // 3. Le pagine autenticate non si mettono più in cache: su un dispositivo
 //    condiviso restavano leggibili dopo il logout.
-const CACHE = "washloop-v3";
+const CACHE = "washloop-v4";
 const OFFLINE = "/offline";
 const SHELL = ["/", "/login", OFFLINE, "/icon-192.png", "/manifest.webmanifest"];
 
@@ -44,10 +59,17 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (request.mode === "navigate") {
+    // Area riservata: non ci mettiamo in mezzo. Niente `respondWith`, quindi la
+    // richiesta viaggia come se il service worker non esistesse — streaming
+    // compreso. Queste pagine non finivano comunque in cache (dati personali),
+    // quindi l'unica cosa che facevamo era fare da tramite: e fare da tramite
+    // era il guasto.
+    if (isPrivate(url)) return;
+
     event.respondWith(
       fetch(request)
         .then((res) => {
-          if (!isPrivate(url) && res.ok) {
+          if (res.ok) {
             const copy = res.clone();
             caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
           }
