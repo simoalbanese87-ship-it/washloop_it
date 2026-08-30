@@ -290,6 +290,54 @@ export async function advanceStatus(formData: FormData) {
   revalidatePath("/courier");
 }
 
+/** Solo admin: annulla un ordine.
+ *
+ *  Dal board si poteva soltanto assegnare un rider o mandare avanti l'ordine.
+ *  Un ritiro sbagliato, doppio, o che il cliente disdice al telefono restava lì
+ *  per sempre — e continuava a comparire fra quelli in ritardo e senza rider,
+ *  gonfiando i contatori di cose che nessuno avrebbe mai sistemato.
+ *
+ *  Un ordine già consegnato non si annulla: quello è successo davvero, e
+ *  cancellarlo falserebbe gli incassi e i compensi della lavanderia. Se c'è da
+ *  rimediare a una consegna, si passa da un rimborso. */
+export async function cancelOrder(formData: FormData) {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
+  const supabase = await createClient();
+  const id = String(formData.get("order_id") ?? "");
+  if (!id) throw new Error("Ordine mancante");
+
+  const { data: ordine } = await supabase
+    .from("orders")
+    .select("status")
+    .eq("id", id)
+    .maybeSingle<{ status: OrderStatus }>();
+  if (!ordine) redirect(`/admin/ordini?warn=${encodeURIComponent("Ordine non trovato.")}`);
+  if (ordine!.status === "cancelled") redirect("/admin/ordini");
+  if (ordine!.status === "delivered" || ordine!.status === "completed") {
+    redirect(`/admin/ordini?warn=${encodeURIComponent("Un ordine già consegnato non si annulla: se c'è da rimediare, usa un rimborso dalla scheda cliente.")}`);
+  }
+
+  const nota = String(formData.get("motivo") ?? "").trim();
+  const { error } = await supabase
+    .from("orders")
+    .update({
+      status: "cancelled" as OrderStatus,
+      staff_notes: nota ? `Annullato dall'amministrazione: ${nota}` : "Annullato dall'amministrazione.",
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
+  // Il cliente lo deve sapere: il testo «Ritiro annullato» esiste già.
+  await notifyOrderStatus(id, "cancelled");
+  revalidatePath("/admin/ordini");
+  revalidatePath(`/admin/ordini/${id}`);
+  revalidatePath("/admin");
+  revalidatePath("/courier");
+  redirect(`/admin/ordini?ok=${encodeURIComponent("Ordine annullato. Il cliente è stato avvisato.")}`);
+}
+
 /** Corriere: avanza stato + opzionale foto prova (già caricata su Storage).
  *  Verifica che l'ordine sia davvero suo e che il passo sia uno dei tre del
  *  mestiere del rider: prima non c'era alcun controllo. */

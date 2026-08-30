@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { assignCourier, advanceStatus, bulkAssignCourier, autoAssignCouriers } from "@/lib/actions/orders";
+import { assignCourier, advanceStatus, bulkAssignCourier, autoAssignCouriers, cancelOrder } from "@/lib/actions/orders";
+import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, statusIndex, type OrderStatus } from "@/lib/orders";
 import { passaPeriodo, type Periodo } from "@/lib/board-periodo";
@@ -365,9 +367,42 @@ export function OrdersBoard({
   );
 }
 
+/** Il rider si sceglie da una tendina che invia da sola: mentre invia si
+ *  blocca, altrimenti si può cambiare due volte mentre la prima sta ancora
+ *  partendo e l'ultima scelta non è quella che arriva. */
+function SelezioneRider({ valore, couriers }: { valore: string; couriers: Opt[] }) {
+  const { pending } = useFormStatus();
+  return (
+    <select
+      name="courier_id"
+      defaultValue={valore}
+      disabled={pending}
+      onChange={(e) => e.currentTarget.form?.requestSubmit()}
+      className={`h-8 rounded-[10px] border border-line bg-ice px-2 text-xs font-semibold text-navy outline-none focus:border-blue ${pending ? "opacity-60" : ""}`}
+    >
+      <option value="">{pending ? "Assegno…" : "Rider…"}</option>
+      {couriers.map((c) => (
+        <option key={c.id} value={c.id}>{c.name}</option>
+      ))}
+    </select>
+  );
+}
+
+/** «In ritardo» da solo non dice niente: di quanto, e rispetto a cosa. */
+function spiegaRitardo(etaIso: string): string {
+  const ore = Math.floor((Date.now() - new Date(etaIso).getTime()) / 3_600_000);
+  if (ore < 1) return "Doveva essere pronto poco fa";
+  if (ore < 24) return `In ritardo di ${ore} ${ore === 1 ? "ora" : "ore"} sulla data di pronto`;
+  const giorni = Math.floor(ore / 24);
+  return `In ritardo di ${giorni} ${giorni === 1 ? "giorno" : "giorni"} sulla data di pronto`;
+}
+
 function BoardCard({ o, couriers, late, selected, onToggle }: { o: BoardOrder; couriers: Opt[]; late: boolean; selected: boolean; onToggle: () => void }) {
   const needsRider = NEEDS_RIDER.includes(o.status) && !o.courier_id;
   const next = nextStatus(o.status);
+  // Un ordine già consegnato non si annulla: è successo davvero, e toglierlo
+  // falserebbe incassi e compensi della lavanderia.
+  const annullabile = o.status !== "delivered" && o.status !== "completed" && o.status !== "cancelled";
   const slotAt = o.status === "ready" || o.status === "delivery_scheduled" || o.status === "out_for_delivery" ? o.delivery_at : o.pickup_at;
 
   return (
@@ -392,6 +427,10 @@ function BoardCard({ o, couriers, late, selected, onToggle }: { o: BoardOrder; c
         <div>{o.zone_name ?? "—"} · {o.bags} {o.bags === 1 ? "busta" : "buste"}{o.laundry_name ? ` · ${o.laundry_name}` : ""}</div>
         {slotAt && <div>Slot: {fmtDateTime(slotAt)}</div>}
         {o.eta_ready_at && <div>Pronto: {fmtDateTime(o.eta_ready_at)}</div>}
+        {/* Il motivo scritto, non da dedurre. Prima c'era solo l'etichetta
+            «In ritardo» e due date: toccava fare il conto a mente per capire
+            di quanto, e su quale delle due. */}
+        {late && o.eta_ready_at && <div className="font-semibold text-[#C0392B]">{spiegaRitardo(o.eta_ready_at)}</div>}
         {o.courier_name ? <div>Rider: <span className="font-bold text-navy">{o.courier_name}</span></div> : null}
         {o.customer_phone && <a href={`tel:${o.customer_phone}`} className="font-bold text-blue hover:underline">📞 {o.customer_phone}</a>}
       </div>
@@ -400,26 +439,41 @@ function BoardCard({ o, couriers, late, selected, onToggle }: { o: BoardOrder; c
         {couriers.length > 0 && (
           <form action={assignCourier}>
             <input type="hidden" name="order_id" value={o.id} />
-            <select
-              name="courier_id"
-              defaultValue={o.courier_id ?? ""}
-              onChange={(e) => e.currentTarget.form?.requestSubmit()}
-              className="h-8 rounded-[10px] border border-line bg-ice px-2 text-xs font-semibold text-navy outline-none focus:border-blue"
-            >
-              <option value="">Rider…</option>
-              {couriers.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            <SelezioneRider valore={o.courier_id ?? ""} couriers={couriers} />
           </form>
         )}
         {next && (
           <form action={advanceStatus}>
             <input type="hidden" name="order_id" value={o.id} />
             <input type="hidden" name="status" value={next} />
-            <button type="submit" className="h-8 rounded-[10px] bg-grad px-3 font-display text-xs font-extrabold text-white">
+            {/* `BottoneInvio` e non un <button> semplice: mentre lavora si
+                blocca e mostra la rotellina. Senza, premendo non succedeva
+                niente di visibile e si finiva per premere tre volte chiedendosi
+                se il comando fosse stato preso. */}
+            <BottoneInvio
+              attesa="Aggiorno…"
+              className="inline-flex h-8 items-center rounded-[10px] bg-grad px-3 font-display text-xs font-extrabold text-white"
+            >
               → {ORDER_STATUS_LABEL[next]}
-            </button>
+            </BottoneInvio>
+          </form>
+        )}
+        {annullabile && (
+          <form
+            action={cancelOrder}
+            onSubmit={(e) => {
+              if (!confirm(`Annullare l'ordine di ${o.customer_name ?? "questo cliente"}?\n\nIl cliente riceve l'avviso che il ritiro è stato annullato.`)) {
+                e.preventDefault();
+              }
+            }}
+          >
+            <input type="hidden" name="order_id" value={o.id} />
+            <BottoneInvio
+              attesa="Annullo…"
+              className="inline-flex h-8 items-center rounded-[10px] border border-[#C0392B]/30 px-3 font-display text-xs font-bold text-[#C0392B] hover:bg-[#C0392B]/5"
+            >
+              Annulla
+            </BottoneInvio>
           </form>
         )}
       </div>
