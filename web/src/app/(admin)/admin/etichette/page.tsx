@@ -21,7 +21,14 @@ type Riga = {
   is_test: boolean | null;
   created_at: string;
   subscriptions:
-    | { status: string; current_period_end: string | null; created_at: string; manual: boolean | null; plans: { name: string } | null }[]
+    | {
+        status: string;
+        current_period_end: string | null;
+        created_at: string;
+        manual: boolean | null;
+        custom_price_cents: number | null;
+        plans: { name: string } | null;
+      }[]
     | null;
 };
 
@@ -62,7 +69,7 @@ export default async function EtichettePage({
   const svc = createServiceClient();
   const { data: righe } = await svc
     .from("profiles")
-    .select("id, full_name, client_code, tags_delivered_at, tags_qty, is_test, created_at, subscriptions(status, current_period_end, created_at, manual, plans(name))")
+    .select("id, full_name, client_code, tags_delivered_at, tags_qty, is_test, created_at, subscriptions(status, current_period_end, created_at, manual, custom_price_cents, plans(name))")
     .eq("role", "customer")
     .not("client_code", "is", null)
     .order("created_at", { ascending: false })
@@ -74,10 +81,12 @@ export default async function EtichettePage({
       // L'ultima subscription: la stessa regola di /admin/persone, così un
       // cliente non risulta attivo di là e lead di qua.
       const ultima = [...(r.subscriptions ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
-      // Il piano com'è scritto sull'etichetta. Un abbonamento concordato a mano
-      // non ha un piano di listino: si scrive "Personalizzato" invece di
-      // lasciare la riga vuota sul cartellino.
-      const abbonamento = ultima?.plans?.name ?? (ultima?.manual ? "Personalizzato" : "—");
+      // Il piano com'è scritto sull'etichetta. Chi ha un prezzo concordato non
+      // ha un piano di listino — né quando è segnato `manual`, né quando paga
+      // con un link a importo libero, che è il caso di un cliente vero e che
+      // faceva stampare "ABBONAMENTO: —" su un'etichetta di chi paga.
+      const senzaListino = ultima && (ultima.manual || ultima.custom_price_cents != null);
+      const abbonamento = ultima?.plans?.name ?? (senzaListino ? "Personalizzato" : "—");
       return { ...r, stadio: stadioDaSubscription(ultima), abbonamento };
     });
 
