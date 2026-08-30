@@ -8,10 +8,26 @@ import { romeLocalToISO } from "@/lib/format";
 import { geocodeAddress } from "@/lib/geo";
 import { zoneIdForCap } from "@/lib/zones";
 
+/** Verifica che a chiamare sia un amministratore.
+ *
+ *  Le regole del database già bloccano queste scritture — le tabelle di
+ *  configurazione accettano solo `is_admin()` — ma una server action è
+ *  raggiungibile da chiunque abbia una sessione, non solo da chi vede il
+ *  pannello. Senza questo controllo la difesa era una sola, e chi provava si
+ *  prendeva un errore incomprensibile del database invece di un rifiuto
+ *  chiaro. Stessa guardia che avevano già `deleteLaundry`, `updateDepot` e le
+ *  altre: queste erano rimaste indietro. */
+async function soloAdmin() {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+  return me;
+}
+
 const REV = "/admin/catalogo";
 
 // ---------- ZONE ----------
 export async function createZone(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Nome zona obbligatorio");
@@ -21,6 +37,7 @@ export async function createZone(formData: FormData) {
 }
 
 export async function toggleZone(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const id = String(formData.get("id") ?? "");
   const active = formData.get("active") === "true";
@@ -30,6 +47,7 @@ export async function toggleZone(formData: FormData) {
 }
 
 export async function deleteZone(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const id = String(formData.get("id") ?? "");
   const { error } = await supabase.from("zones").delete().eq("id", id);
@@ -71,6 +89,7 @@ export async function backfillGeocode() {
 /** Assegna (o rimuove) il rider dedicato di una zona. L'auto-assegnazione ordini
  *  manda alla zona il suo rider; le zone senza rider usano il fallback bilanciato. */
 export async function setZoneCourier(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const id = String(formData.get("zone_id") ?? "");
   const courier_id = String(formData.get("courier_id") ?? "") || null;
@@ -96,6 +115,7 @@ export async function updateDepot(formData: FormData) {
 
 // ---------- LAVANDERIE ----------
 export async function createLaundry(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Nome lavanderia obbligatorio");
@@ -115,6 +135,7 @@ export async function createLaundry(formData: FormData) {
 }
 
 export async function updateLaundry(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const id = String(formData.get("id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
@@ -174,6 +195,7 @@ export async function deleteLaundry(formData: FormData) {
 
 // ---------- PIANI ----------
 export async function updatePlanPrice(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const id = String(formData.get("plan_id") ?? "");
   const stripe_price_id = String(formData.get("stripe_price_id") ?? "").trim() || null;
@@ -183,6 +205,7 @@ export async function updatePlanPrice(formData: FormData) {
 }
 
 export async function updatePlan(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const id = String(formData.get("plan_id") ?? "");
   const euro = Number(formData.get("price_eur") ?? 0);
@@ -202,6 +225,7 @@ export async function updatePlan(formData: FormData) {
 
 // ---------- SLOT ----------
 export async function createSlot(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const date = String(formData.get("date") ?? "");
   const from = String(formData.get("from") ?? "");
@@ -221,6 +245,7 @@ export async function createSlot(formData: FormData) {
 }
 
 export async function deleteSlot(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const id = String(formData.get("slot_id") ?? "");
   const { error } = await supabase.from("slots").delete().eq("id", id);
@@ -280,6 +305,7 @@ export async function deleteFutureSlots(formData: FormData) {
 
 /** Genera slot ricorrenti per una lavanderia su un intervallo, giorni e fasce. */
 export async function generateSlots(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const laundry_id = String(formData.get("laundry_id") ?? "");
   if (!laundry_id) throw new Error("Lavanderia obbligatoria");

@@ -7,8 +7,24 @@ import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus } from "@/lib/notify";
 import type { ItemStatus, OrderStatus } from "@/lib/orders";
 
+/** Verifica che a chiamare sia un amministratore.
+ *
+ *  Le regole del database già bloccano queste scritture — le tabelle di
+ *  configurazione accettano solo `is_admin()` — ma una server action è
+ *  raggiungibile da chiunque abbia una sessione, non solo da chi vede il
+ *  pannello. Senza questo controllo la difesa era una sola, e chi provava si
+ *  prendeva un errore incomprensibile del database invece di un rifiuto
+ *  chiaro. Stessa guardia che avevano già `deleteLaundry`, `updateDepot` e le
+ *  altre: queste erano rimaste indietro. */
+async function soloAdmin() {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+  return me;
+}
+
 /** Aggiunge un capo all'ordine (tipo + stato + foto opzionale). */
 export async function addItem(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const order_id = String(formData.get("order_id") ?? "");
   const kind = String(formData.get("kind") ?? "").trim();
@@ -26,6 +42,7 @@ export async function addItem(formData: FormData) {
 }
 
 export async function updateItemStatus(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const id = String(formData.get("item_id") ?? "");
   const order_id = String(formData.get("order_id") ?? "");
@@ -37,6 +54,7 @@ export async function updateItemStatus(formData: FormData) {
 }
 
 export async function deleteItem(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const id = String(formData.get("item_id") ?? "");
   const order_id = String(formData.get("order_id") ?? "");
@@ -47,6 +65,7 @@ export async function deleteItem(formData: FormData) {
 
 /** Note interne staff (non visibili al cliente). */
 export async function setStaffNotes(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const id = String(formData.get("order_id") ?? "");
   const staff_notes = String(formData.get("staff_notes") ?? "") || null;
@@ -57,6 +76,7 @@ export async function setStaffNotes(formData: FormData) {
 
 /** Annulla l'ordine: resta in archivio, non sparisce. */
 export async function cancelOrder(formData: FormData) {
+  await soloAdmin();
   const supabase = await createClient();
   const id = String(formData.get("order_id") ?? "");
   const { error } = await supabase.from("orders").update({ status: "cancelled" as OrderStatus }).eq("id", id);

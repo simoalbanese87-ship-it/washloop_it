@@ -212,7 +212,12 @@ export function OrdersBoard({
         >
           <span className="text-lg">⚠️</span>
           <span className="font-display text-sm font-extrabold text-[#C0392B]">
-            {kpis.late} {kpis.late === 1 ? "ordine è" : "ordini sono"} in ritardo sull&apos;ETA
+            {/* Spazi espliciti: in produzione «sono» e «in» comparivano
+                attaccati — «6 ordini sonoin ritardo». Stesso trattamento già
+                usato in InstallGuide per lo stesso motivo. */}
+            {kpis.late}{" "}
+            {kpis.late === 1 ? "ordine è" : "ordini sono"}{" "}
+            in ritardo sull&apos;ETA
           </span>
           <span className="ml-auto font-display text-xs font-bold text-[#C0392B] underline">{onlyLate ? "Mostra tutti" : "Mostra solo questi"}</span>
         </button>
