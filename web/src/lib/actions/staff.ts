@@ -44,10 +44,36 @@ export async function createStaff(formData: FormData) {
   if (error || !created?.user) redirect(`${REV}?warn=${encodeURIComponent(error?.message || "Creazione accesso fallita")}`);
   const uid = created!.user.id;
 
-  await svc.from("profiles").update({
-    full_name, phone, role,
-    laundry_id: role === "partner" ? laundry_id : null,
-  }).eq("id", uid);
+  // Il ruolo è la cosa che rende questo account un accesso staff, e finché non
+  // è scritto l'account non è nato: restava `customer`, spariva dall'elenco e
+  // il pannello annunciava lo stesso "Accesso creato", con tanto di password
+  // spedita a una persona che non poteva entrare da nessuna parte.
+  //
+  // Si rilegge il profilo invece di fidarsi dell'assenza di errore: la scrittura
+  // passa da un trigger, e un `update` che non tocca nessuna riga non è un
+  // errore per il database.
+  const { error: erroreProfilo } = await svc
+    .from("profiles")
+    .update({
+      full_name,
+      phone,
+      role,
+      laundry_id: role === "partner" ? laundry_id : null,
+    })
+    .eq("id", uid);
+
+  const { data: verifica } = await svc
+    .from("profiles")
+    .select("role")
+    .eq("id", uid)
+    .maybeSingle<{ role: string }>();
+
+  if (erroreProfilo || verifica?.role !== role) {
+    // Niente account a metà in giro: si annulla la creazione e si dice perché.
+    await svc.auth.admin.deleteUser(uid);
+    const motivo = erroreProfilo?.message ?? "il ruolo non è stato assegnato";
+    redirect(`${REV}?warn=${encodeURIComponent(`Accesso NON creato (${motivo}). Nessuna email inviata: riprova.`)}`);
+  }
 
   const area = AREA[role];
   await notifyStaffAccount({ to: email, fullName: full_name, password, areaLabel: area.label, areaPath: area.path });
@@ -117,8 +143,26 @@ export async function deleteStaff(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("Membro mancante");
   const svc = createServiceClient();
+
+  // Quanti passaggi restano senza rider: va detto, perché vanno riassegnati e
+  // nessun'altra schermata lo segnala.
+  const { count } = await svc
+    .from("orders")
+    .select("id", { count: "exact", head: true })
+    .eq("courier_id", id)
+    .not("status", "in", "(delivered,completed,cancelled)");
+
   const { error } = await svc.auth.admin.deleteUser(id);
-  if (error) redirect(`${REV}?warn=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`${REV}?warn=${encodeURIComponent(`Accesso non eliminato: ${error.message}`)}`);
+
   revalidatePath(REV);
-  redirect(`${REV}?ok=${encodeURIComponent("Accesso eliminato.")}`);
+  revalidatePath("/admin/ordini");
+  const scoperti = count ?? 0;
+  redirect(
+    `${REV}?ok=${encodeURIComponent(
+      scoperti > 0
+        ? `Accesso eliminato. ${scoperti} ${scoperti === 1 ? "passaggio è rimasto" : "passaggi sono rimasti"} senza rider: riassegnali dal board.`
+        : "Accesso eliminato.",
+    )}`,
+  );
 }
