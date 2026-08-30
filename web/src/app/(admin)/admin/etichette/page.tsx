@@ -99,12 +99,23 @@ export default async function EtichettePage({
 
   // Un QR per persona scelta, generato qui: `qrcode` gira solo lato server.
   // Il QR è più grande di prima (l'etichetta è 15 cm): a 320 px sgranava.
-  const tags: { code: string; qr: string; nome: string; abbonamento: string }[] = [];
+  //
+  // Le copie si alternano: la prima con nome e abbonamento — per chi maneggia
+  // il sacco a casa del cliente — la seconda senza, ed è quella che può
+  // arrivare al banco della lavanderia, che non deve sapere di chi sia il
+  // bucato. Con il default di 2 copie ne esce una per tipo.
+  const tags: { code: string; qr: string; nome: string; abbonamento: string; conNome: boolean }[] = [];
   for (const cl of scelti) {
     if (!cl.client_code) continue;
     const qr = await QRCode.toDataURL(cl.client_code, { margin: 1, width: 600 });
     for (let i = 0; i < copie; i++) {
-      tags.push({ code: cl.client_code, qr, nome: cl.full_name ?? "—", abbonamento: cl.abbonamento });
+      tags.push({
+        code: cl.client_code,
+        qr,
+        nome: cl.full_name ?? "—",
+        abbonamento: cl.abbonamento,
+        conNome: i % 2 === 0,
+      });
     }
   }
 
@@ -141,8 +152,10 @@ export default async function EtichettePage({
         <div className="no-print mb-5 rounded-[14px] border border-line bg-ice px-4 py-3 text-sm font-medium text-muted">
           Ogni etichetta misura <strong>15 × 6 cm</strong>, la misura del porta-etichette: stampa su A4 al
           <strong> 100%</strong>, senza &ldquo;adatta alla pagina&rdquo;, altrimenti esce più piccola e non entra.
-          Su un foglio ne stanno quattro. Dopo averle consegnate, torna all&apos;elenco e segnale come consegnate:
-          è l&apos;unico modo per sapere poi chi manca.
+          Su un foglio ne stanno quattro. Le copie si alternano: la prima con nome e abbonamento, la seconda
+          senza — quella è la <strong>copia lavanderia</strong>, che al banco non deve dire di chi sia il bucato.
+          Dopo averle consegnate, torna all&apos;elenco e segnale come consegnate: è l&apos;unico modo per sapere
+          poi chi manca.
         </div>
 
         <div className="foglio flex flex-col items-start gap-4">
@@ -153,6 +166,7 @@ export default async function EtichettePage({
               qrDataUrl={t.qr}
               nome={t.nome}
               abbonamento={t.abbonamento}
+              conNome={t.conNome}
             />
           ))}
         </div>

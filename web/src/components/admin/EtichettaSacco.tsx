@@ -8,23 +8,26 @@ import { Logo } from "@/components/Logo";
  *  proprio la cosa sbagliata. A schermo si vede più piccola o più grande a
  *  seconda dello zoom; sulla carta viene 150 × 60 mm.
  *
- *  **Cosa c'è scritto sopra, e perché è cambiato.** Il cartellino precedente
- *  portava solo logo, codice e QR, di proposito: viaggia col sacco fino al
- *  banco della lavanderia, che per contratto non deve sapere di chi sia il
- *  bucato. Ora, su richiesta esplicita, mostra anche nome, cognome e tipo di
- *  abbonamento. È una scelta operativa consapevole — chi maneggia il sacco
- *  riconosce il cliente a colpo d'occhio — ma va saputa: da qui in poi il nome
- *  del cliente arriva in lavanderia insieme al bucato. */
+ *  **Due copie, e non sono uguali.** La prima porta nome, cognome e tipo di
+ *  abbonamento: serve a chi maneggia il sacco a casa del cliente, che deve
+ *  riconoscerlo a colpo d'occhio. La seconda — `conNome={false}` — ha solo
+ *  logo, codice e QR, ed è quella che può viaggiare fino al banco della
+ *  lavanderia, che per contratto non deve sapere di chi sia il bucato: tutte
+ *  le viste del portale partner mostrano solo `WL-####`, e un cartellino col
+ *  nome butterebbe via quella protezione con del nastro adesivo. */
 export function EtichettaSacco({
   clientCode,
   qrDataUrl,
   nome,
   abbonamento,
+  conNome = true,
 }: {
   clientCode: string;
   qrDataUrl: string;
   nome: string;
   abbonamento: string;
+  /** `false` = copia per la lavanderia: niente nome, niente abbonamento. */
+  conNome?: boolean;
 }) {
   return (
     <div
@@ -49,19 +52,24 @@ export function EtichettaSacco({
           </div>
           <div className="font-mono text-[9mm] font-black leading-[1.05] tracking-tight text-navy">{clientCode}</div>
 
-          {/* Il nome può essere lungo: si accorcia con i puntini invece di
-              far crescere l'etichetta e sballare la misura della tasca. */}
-          <div className="mt-[2mm] truncate font-display text-[5.2mm] font-extrabold leading-tight text-navy">
-            {nome}
-          </div>
-          <div className="truncate font-display text-[3.6mm] font-bold text-navy/60">
-            <span className="uppercase tracking-[0.1em] text-navy/40">Abbonamento: </span>
-            {abbonamento}
-          </div>
+          {conNome && (
+            <>
+              {/* Il nome può essere lungo: si accorcia con i puntini invece di
+                  far crescere l'etichetta e sballare la misura della tasca. */}
+              <div className="mt-[2mm] truncate font-display text-[5.2mm] font-extrabold leading-tight text-navy">
+                {nome}
+              </div>
+              <div className="truncate font-display text-[3.6mm] font-bold text-navy/60">
+                <span className="uppercase tracking-[0.1em] text-navy/40">Abbonamento: </span>
+                {abbonamento}
+              </div>
+            </>
+          )}
         </div>
 
         <p className="text-[2.6mm] font-semibold text-navy/40">
           Non rimuovere: serve a ritiro e riconsegna · se trovato, scrivi a info@washloop.it
+          {!conNome && <span className="float-right font-bold text-navy/30">copia lavanderia</span>}
         </p>
       </div>
     </div>
