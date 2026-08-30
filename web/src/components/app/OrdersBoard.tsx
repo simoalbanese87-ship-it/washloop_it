@@ -9,7 +9,7 @@ import { assignCourier, advanceStatus, bulkAssignCourier, autoAssignCouriers, ca
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, statusIndex, type OrderStatus } from "@/lib/orders";
-import { passaPeriodo, type Periodo } from "@/lib/board-periodo";
+import { passaPeriodo, confrontaUrgenza, type Periodo } from "@/lib/board-periodo";
 import { fmtDateTime } from "@/lib/format";
 
 export type BoardOrder = {
@@ -334,9 +334,15 @@ export function OrdersBoard({
       {/* Board */}
       <div className="grid gap-4 lg:grid-cols-4">
         {COLUMNS.map((col) => {
+          // Dal passaggio più vicino al più lontano, con gli in ritardo in cima.
           const items = filtered
             .filter((o) => col.statuses.includes(o.status))
-            .sort((a, b) => Number(lateOf(b)) - Number(lateOf(a)));
+            .sort((a, b) =>
+              confrontaUrgenza(
+                { ritardo: lateOf(a), quando: dataRilevante(a) },
+                { ritardo: lateOf(b), quando: dataRilevante(b) },
+              ),
+            );
           return (
             <div key={col.key} className="rounded-[20px] bg-white/60 p-3">
               <div className="mb-3 flex items-center justify-between px-1">

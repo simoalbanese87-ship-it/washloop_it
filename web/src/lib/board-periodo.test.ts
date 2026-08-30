@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { arretrato, passaPeriodo } from "./board-periodo.ts";
+import { arretrato, passaPeriodo, confrontaUrgenza } from "./board-periodo.ts";
 
 const OGGI = "2026-08-27";
 const FINE_SETTIMANA = "2026-09-02";
@@ -49,4 +49,30 @@ test("prima dell'idratazione non si filtra niente: il board non deve nascere vuo
 test("con la vista 'tutti' passa qualunque cosa, anche i chiusi", () => {
   const o = { status: "delivered", giorno: "2026-01-01" };
   assert.equal(passaPeriodo(o, "tutti", OGGI, FINE_SETTIMANA), true);
+});
+
+test("in colonna comanda il passaggio più vicino, non l'ordine di creazione", () => {
+  const card = (quando: string, ritardo = false) => ({ ritardo, quando });
+  const ordinate = [
+    card("2026-09-09T10:00:00+00:00"),
+    card("2026-09-23T10:00:00+00:00"),
+    card("2026-09-14T10:00:00+00:00"),
+    card("2026-09-02T10:00:00+00:00"),
+  ].sort(confrontaUrgenza);
+  assert.deepEqual(
+    ordinate.map((c) => c.quando.slice(0, 10)),
+    ["2026-09-02", "2026-09-09", "2026-09-14", "2026-09-23"],
+  );
+});
+
+test("chi è in ritardo sta in cima anche se il suo passaggio è più vecchio", () => {
+  const tardi = { ritardo: true, quando: "2026-08-20T10:00:00+00:00" };
+  const domani = { ritardo: false, quando: "2026-08-28T10:00:00+00:00" };
+  assert.deepEqual([domani, tardi].sort(confrontaUrgenza), [tardi, domani]);
+});
+
+test("fusi diversi non ingannano l'ordinamento", () => {
+  const estate = { ritardo: false, quando: "2026-09-02T09:00:00+02:00" }; // 07:00 UTC
+  const inverno = { ritardo: false, quando: "2026-09-02T08:00:00+00:00" };
+  assert.deepEqual([inverno, estate].sort(confrontaUrgenza), [estate, inverno]);
 });

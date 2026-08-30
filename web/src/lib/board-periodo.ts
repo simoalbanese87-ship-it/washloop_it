@@ -41,3 +41,20 @@ export function passaPeriodo(
   if (periodo === "oggi") return o.giorno === oggi;
   return o.giorno >= oggi && o.giorno <= fineSettimana;
 }
+
+/** L'ordine con cui le card compaiono in colonna.
+ *
+ *  Prima erano ordinate solo per "in ritardo sì/no", e a parità restavano
+ *  nell'ordine con cui arrivano dal database — dal più recente creato. In
+ *  colonna si leggeva 9 set, 23 set, 23 set, 14 set, 2 set: per capire cosa
+ *  ritirare domani bisognava leggerle tutte.
+ *
+ *  Ora comanda il passaggio previsto, dal più vicino al più lontano. Chi è già
+ *  in ritardo resta in cima: è quello su cui bisogna agire adesso. */
+export function confrontaUrgenza(
+  a: { ritardo: boolean; quando: string },
+  b: { ritardo: boolean; quando: string },
+): number {
+  if (a.ritardo !== b.ritardo) return a.ritardo ? -1 : 1;
+  return new Date(a.quando).getTime() - new Date(b.quando).getTime();
+}
