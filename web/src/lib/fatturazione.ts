@@ -26,24 +26,39 @@ export async function registraIncasso(input: {
 }): Promise<void> {
   const svc = createServiceClient();
 
-  const { data: riga, error } = await svc
+  // Si guarda prima e si inserisce solo se manca, invece di fare un upsert.
+  // L'upsert riscriveva `stato` a ogni passaggio: Stripe ritenta i webhook per
+  // tre giorni, e il secondo tentativo riportava indietro lo stato di una
+  // fattura già emessa. Lo stato di una riga esistente non si tocca più.
+  const { data: esistente } = await svc
     .from("invoices")
-    .upsert(
-      {
+    .select("id, stato, fic_document_id")
+    .eq("stripe_invoice_id", input.stripeInvoiceId)
+    .maybeSingle<{ id: string; stato: string; fic_document_id: number | null }>();
+
+  let riga = esistente;
+  if (!riga) {
+    const { data: creata, error } = await svc
+      .from("invoices")
+      .insert({
         stripe_invoice_id: input.stripeInvoiceId,
         stripe_customer_id: input.stripeCustomerId,
         amount_cents: input.amountCents,
         user_id: input.userId ?? null,
-        stato: "da_emettere",
-      },
-      { onConflict: "stripe_invoice_id", ignoreDuplicates: false },
-    )
-    .select("id, stato, fic_document_id")
-    .maybeSingle<{ id: string; stato: string; fic_document_id: number | null }>();
-
-  if (error) {
-    console.error("[fatture] registrazione incasso fallita:", error.message);
-    return;
+        // "saltata" = incassato, ricevuta e basta. È la normalità del regime
+        // scelto col commercialista, non un'eccezione: la riga nasce così e
+        // diventa "da_emettere" solo per chi la fattura l'ha chiesta davvero.
+        // Prima nasceva "da_emettere" per tutti, e ogni incasso finiva nella
+        // lista «Fatture da fare» anche di chi non aveva chiesto niente.
+        stato: "saltata",
+      })
+      .select("id, stato, fic_document_id")
+      .maybeSingle<{ id: string; stato: string; fic_document_id: number | null }>();
+    if (error) {
+      console.error("[fatture] registrazione incasso fallita:", error.message);
+      return;
+    }
+    riga = creata;
   }
   // Già fatturato da un tentativo precedente: non si emette una seconda volta.
   if (!riga || riga.fic_document_id) return;
@@ -51,6 +66,7 @@ export async function registraIncasso(input: {
   // Fattura solo a chi l'ha chiesta: per tutti gli altri la riga resta
   // "saltata", che non è un errore ma la normalità del regime scelto.
   if (!input.userId) return;
+
   const dati = await datiFatturazione(input.userId);
   if (!dati?.vuole) return;
   if (ficMode() === "off") {
