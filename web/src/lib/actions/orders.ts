@@ -523,6 +523,11 @@ export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<
 
 /** Admin: assegna corriere e lavanderia. */
 export async function assignOrder(formData: FormData) {
+  // Guardia di ruolo come su advanceStatus: la form vive in area admin, ma la
+  // server action è raggiungibile da chiunque abbia una sessione.
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
   const supabase = await createClient();
   const id = String(formData.get("order_id") ?? "");
   const courier_id = String(formData.get("courier_id") ?? "") || null;
@@ -536,6 +541,11 @@ export async function assignOrder(formData: FormData) {
 
 /** Assegna solo il rider (preserva la lavanderia). Per azione rapida dal board. */
 export async function assignCourier(formData: FormData) {
+  // Guardia di ruolo come su advanceStatus: la form vive in area admin, ma la
+  // server action è raggiungibile da chiunque abbia una sessione.
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
   const supabase = await createClient();
   const id = String(formData.get("order_id") ?? "");
   const courier_id = String(formData.get("courier_id") ?? "") || null;
@@ -621,6 +631,11 @@ export async function autoAssignCouriers() {
 
 /** Assegna lo stesso rider a più ordini (assegnazione massiva). */
 export async function bulkAssignCourier(formData: FormData) {
+  // Guardia di ruolo come su advanceStatus: la form vive in area admin, ma la
+  // server action è raggiungibile da chiunque abbia una sessione.
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
   const supabase = await createClient();
   const ids = String(formData.get("order_ids") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const courier_id = String(formData.get("courier_id") ?? "") || null;
@@ -630,6 +645,7 @@ export async function bulkAssignCourier(formData: FormData) {
   if (error) throw new Error(error.message);
   await Promise.all(ids.map((id) => notifyCourierAssigned(id)));
   revalidatePath("/admin/ordini");
+  redirect(`/admin/ordini?ok=${encodeURIComponent(`Rider assegnato a ${ids.length} ${ids.length === 1 ? "ordine" : "ordini"}.`)}`);
 }
 
 /** Lavanderia/admin: imposta o affina la data "pronto" (ETA). */

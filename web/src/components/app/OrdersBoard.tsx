@@ -342,21 +342,36 @@ export function OrdersBoard({
         })}
       </div>
 
-      {/* Barra assegnazione massiva */}
+      {/* Assegnazione di più ordini insieme.
+          Nel video compariva all'improvviso in fondo allo schermo mentre si
+          cercava di far avanzare un ordine: succedeva qualcosa, ma non quello
+          che si stava chiedendo, e senza dire cosa fosse. Serve — con venti
+          ritiri il lunedì mattina assegnarli uno a uno è il lavoro — ma deve
+          spiegarsi da sola. */}
       {selected.size > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-white/95 backdrop-blur">
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t-2 border-blue bg-white shadow-[0_-10px_30px_-12px_rgba(27,45,94,0.35)]">
           <form action={bulkAssignCourier} className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-5 py-3">
             <input type="hidden" name="order_ids" value={[...selected].join(",")} />
-            <span className="font-display text-sm font-extrabold text-navy">{selected.size} selezionati</span>
+            <div className="min-w-0">
+              <div className="font-display text-sm font-extrabold text-navy">
+                {selected.size === 1 ? "1 ordine selezionato" : `${selected.size} ordini selezionati`}
+              </div>
+              <div className="text-xs font-medium text-muted">
+                Scegli un rider e glieli assegni tutti insieme. Per uscire, «Deseleziona».
+              </div>
+            </div>
             <select name="courier_id" required className={`${inputCls} ml-auto`} defaultValue="">
               <option value="" disabled>Assegna rider…</option>
               {couriers.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
-            <button type="submit" className="h-10 rounded-[12px] bg-grad px-5 font-display text-sm font-extrabold text-white">
+            <BottoneInvio
+              attesa="Assegno…"
+              className="inline-flex h-10 items-center rounded-[12px] bg-grad px-5 font-display text-sm font-extrabold text-white"
+            >
               Assegna a {selected.size}
-            </button>
+            </BottoneInvio>
             <button type="button" onClick={() => setSelected(new Set())} className="font-display text-sm font-bold text-muted hover:text-navy">
               Deseleziona
             </button>
@@ -409,7 +424,14 @@ function BoardCard({ o, couriers, late, selected, onToggle }: { o: BoardOrder; c
     <div className={`rounded-[16px] border bg-white p-3.5 shadow-[var(--shadow-sm)] ${selected ? "border-blue ring-2 ring-blue/20" : late ? "border-[#C0392B]/40" : "border-line"}`}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
-          <input type="checkbox" checked={selected} onChange={onToggle} className="accent-[#2b7fd4]" />
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            aria-label={`Seleziona l'ordine di ${o.customer_name ?? "questo cliente"} per assegnare più ordini insieme`}
+            title="Seleziona per assegnare più ordini allo stesso rider"
+            className="accent-[#2b7fd4]"
+          />
           <Link href={`/admin/ordini/${o.id}`} className="font-display text-sm font-extrabold text-navy hover:underline">
             {o.customer_name ?? "Cliente"}
           </Link>
