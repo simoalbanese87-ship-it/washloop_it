@@ -309,6 +309,7 @@ function RigaPersona({ p, includiProva, eliminabile }: { p: Persona; includiProv
         {p.tags_delivered_at ? (
           <form action={annullaTagConsegnati}>
             <input type="hidden" name="cliente_id" value={p.id} />
+            <input type="hidden" name="back" value={`/admin/etichette${includiProva ? "?prova=1" : ""}`} />
             <BottoneInvio className="font-display text-[11px] font-bold text-[#C0392B]/70 hover:underline">
               Annulla consegna
             </BottoneInvio>
@@ -316,6 +317,7 @@ function RigaPersona({ p, includiProva, eliminabile }: { p: Persona; includiProv
         ) : (
           <form action={segnaTagConsegnati} className="flex items-center gap-1.5">
             <input type="hidden" name="cliente_id" value={p.id} />
+            <input type="hidden" name="back" value={`/admin/etichette${includiProva ? "?prova=1" : ""}`} />
             <input
               type="number"
               name="qty"

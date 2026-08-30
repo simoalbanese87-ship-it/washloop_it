@@ -7,6 +7,18 @@ import { getCurrentProfile } from "@/lib/auth";
 
 const REV = "/admin/etichette";
 
+/** Dove tornare dopo l'azione. Chi ripulisce i profili di prova lavora con
+ *  `?prova=1` attivo: tornare senza farebbe sparire dalla vista proprio le
+ *  righe su cui sta lavorando. Solo percorsi interni all'area riservata. */
+function tornaA(formData: FormData): string {
+  const back = String(formData.get("back") ?? "").trim();
+  return /^\/admin\/[A-Za-z0-9/_-]*(\?[A-Za-z0-9_=&-]*)?$/.test(back) ? back : REV;
+}
+
+/** Aggiunge il messaggio all'indirizzo, rispettando la query che c'è già. */
+const con = (dove: string, chiave: "ok" | "warn", testo: string) =>
+  `${dove}${dove.includes("?") ? "&" : "?"}${chiave}=${encodeURIComponent(testo)}`;
+
 /** Segna che un cliente ha ricevuto materialmente i suoi tag QR.
  *
  *  Serve a sapere chi manca. Il codice ce l'hanno tutti dalla registrazione,
@@ -21,7 +33,8 @@ export async function segnaTagConsegnati(formData: FormData) {
 
   const clienteId = String(formData.get("cliente_id") ?? "");
   const qty = Math.min(20, Math.max(1, parseInt(String(formData.get("qty") ?? "2"), 10) || 2));
-  if (!clienteId) redirect(`${REV}?warn=${encodeURIComponent("Cliente mancante.")}`);
+  const dove = tornaA(formData);
+  if (!clienteId) redirect(con(dove, "warn", "Cliente mancante."));
 
   const svc = createServiceClient();
   const { error } = await svc
@@ -29,10 +42,10 @@ export async function segnaTagConsegnati(formData: FormData) {
     .update({ tags_delivered_at: new Date().toISOString(), tags_qty: qty, tags_delivered_by: me.id })
     .eq("id", clienteId)
     .eq("role", "customer");
-  if (error) redirect(`${REV}?warn=${encodeURIComponent(error.message)}`);
+  if (error) redirect(con(dove, "warn", error.message));
 
   revalidatePath(REV);
-  redirect(`${REV}?ok=${encodeURIComponent(`Segnati ${qty} tag come consegnati.`)}`);
+  redirect(con(dove, "ok", `Segnati ${qty} tag come consegnati.`));
 }
 
 /** Il rider segna di aver lasciato i tag, dalla scheda della tappa.
@@ -88,7 +101,8 @@ export async function annullaTagConsegnati(formData: FormData) {
   if (!me || me.role !== "admin") throw new Error("Solo admin");
 
   const clienteId = String(formData.get("cliente_id") ?? "");
-  if (!clienteId) redirect(`${REV}?warn=${encodeURIComponent("Cliente mancante.")}`);
+  const dove = tornaA(formData);
+  if (!clienteId) redirect(con(dove, "warn", "Cliente mancante."));
 
   const svc = createServiceClient();
   const { error } = await svc
@@ -96,8 +110,8 @@ export async function annullaTagConsegnati(formData: FormData) {
     .update({ tags_delivered_at: null, tags_qty: null, tags_delivered_by: null })
     .eq("id", clienteId)
     .eq("role", "customer");
-  if (error) redirect(`${REV}?warn=${encodeURIComponent(error.message)}`);
+  if (error) redirect(con(dove, "warn", error.message));
 
   revalidatePath(REV);
-  redirect(`${REV}?ok=${encodeURIComponent("Cliente rimesso tra quelli senza tag.")}`);
+  redirect(con(dove, "ok", "Cliente rimesso tra quelli senza tag."));
 }
