@@ -7,6 +7,7 @@ import { Logo } from "@/components/Logo";
 import { createOnboardingAddress } from "@/lib/actions/onboarding";
 import { startCheckout } from "@/lib/actions/billing";
 import { sendWelcomeIfNeeded } from "@/lib/actions/welcome";
+import { registraUtente, segnaConsenso } from "@/lib/registrazione";
 import { PasswordField } from "@/components/ui/PasswordField";
 import { ACCESS_MODE_LABEL } from "@/lib/orders";
 import { planRecap } from "@/lib/plan-copy";
@@ -55,17 +56,18 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
     setLoading(true); setError(null); setInfo(null);
     const supabase = createClient();
     const acceptedAt = new Date().toISOString();
-    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName, phone, terms_accepted_at: acceptedAt } } });
-    if (error) { setLoading(false); return setError(error.message); }
-    if (data.session && data.user) {
-      // Prova del consenso anche sul profilo (GDPR)
-      await supabase.from("profiles").update({ terms_accepted_at: acceptedAt }).eq("id", data.user.id);
-      // Benvenuto: parte una volta sola, la riga in DB fa da guardia.
-      void sendWelcomeIfNeeded();
-      setLoading(false); setStep(2); return;
-    }
-    setLoading(false);
-    setInfo("Account creato. Conferma l'email, poi accedi per completare.");
+    const esito = await registraUtente(supabase, {
+      email,
+      password,
+      meta: { full_name: fullName, phone, terms_accepted_at: acceptedAt },
+    });
+    if (!esito.ok) { setLoading(false); return setError(esito.errore); }
+    // Prova del consenso sul profilo (GDPR) e benvenuto: entrambi best-effort,
+    // fuori dalla strada che porta al passo successivo. Prima erano davanti, e
+    // un intoppo lasciava la persona ferma sul modulo con l'account già creato.
+    void segnaConsenso(supabase, esito.userId, acceptedAt);
+    void sendWelcomeIfNeeded();
+    setLoading(false); setStep(2);
   }
 
   async function doAddress() {

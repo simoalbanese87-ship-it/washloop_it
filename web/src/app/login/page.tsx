@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { requestPasswordReset } from "@/lib/actions/auth";
 import { sendWelcomeIfNeeded } from "@/lib/actions/welcome";
+import { registraUtente, segnaConsenso } from "@/lib/registrazione";
+import { messaggioAuth } from "@/lib/auth-messaggi";
 import { PasswordField } from "@/components/ui/PasswordField";
 import { Logo } from "@/components/Logo";
 
@@ -44,33 +46,31 @@ function LoginForm() {
         return setError("Devi accettare i Termini e la Privacy per continuare.");
       }
       const acceptedAt = new Date().toISOString();
-      const { data, error } = await supabase.auth.signUp({
+      const esito = await registraUtente(supabase, {
         email,
         password,
-        options: { data: { full_name: fullName, terms_accepted_at: acceptedAt } },
+        meta: { full_name: fullName, terms_accepted_at: acceptedAt },
       });
-      if (error) {
+      if (!esito.ok) {
         setLoading(false);
-        return setError(error.message);
+        // Chi ha già un account non deve rileggere lo stesso modulo: gli si
+        // apre direttamente l'accesso, con l'email già compilata.
+        if (esito.esisteGia) setMode("signin");
+        return setError(esito.errore);
       }
-      // Se la conferma email è disattivata, la sessione c'è subito → vai al checkout/app.
-      if (data.session && data.user) {
-        await supabase.from("profiles").update({ terms_accepted_at: acceptedAt }).eq("id", data.user.id);
-        // Benvenuto: parte una volta sola, la riga in DB fa da guardia.
-        void sendWelcomeIfNeeded();
-        setLoading(false);
-        router.push(dest);
-        router.refresh();
-      } else {
-        setLoading(false);
-        setInfo("Account creato. Se richiesto, conferma l'email e poi accedi.");
-      }
+      // Consenso e benvenuto non stanno sulla strada del reindirizzamento: un
+      // intoppo qui bloccava l'iscrizione a metà.
+      void segnaConsenso(supabase, esito.userId, acceptedAt);
+      void sendWelcomeIfNeeded();
+      setLoading(false);
+      router.push(dest);
+      router.refresh();
       return;
     }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
-    if (error) return setError(error.message);
+    if (error) return setError(messaggioAuth(error.message));
     router.push(dest);
     router.refresh();
   }
