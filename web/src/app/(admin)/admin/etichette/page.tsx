@@ -338,7 +338,7 @@ function RigaPersona({ p, includiProva, eliminabile }: { p: Persona; includiProv
             </summary>
             <form action={deleteCustomer} className="mt-1.5 flex items-center gap-2 rounded-[10px] border border-[#C0392B]/25 bg-white px-2.5 py-2">
               <input type="hidden" name="customer_id" value={p.id} />
-              <input type="hidden" name="back" value="/admin/etichette" />
+              <input type="hidden" name="back" value={`/admin/etichette${includiProva ? "?prova=1" : ""}`} />
               <span className="text-[11px] font-semibold text-navy">Cancella tutto di questa persona?</span>
               <BottoneInvio className="rounded-full bg-[#C0392B] px-3 py-1 font-display text-[11px] font-extrabold text-white">
                 Sì, elimina

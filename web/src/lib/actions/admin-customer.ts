@@ -330,9 +330,14 @@ export async function deleteCustomer(formData: FormData) {
   // Si elimina anche dalla pagina delle etichette, dove si ripulisce l'elenco
   // dai registrati che non sono mai diventati clienti: da lì rimandare alla
   // scheda di uno appena cancellato non avrebbe senso. Solo percorsi interni.
+  //
+  // La query fa parte del posto: si ripuliscono i profili di prova con
+  // `?prova=1` attivo, e tornare senza avrebbe fatto sparire dalla vista
+  // proprio le righe su cui si sta lavorando.
   const daDove = String(formData.get("back") ?? "").trim();
-  const backTo = /^\/admin\/[A-Za-z0-9/_-]*$/.test(daDove) ? daDove : `/admin/abbonati/${customerId}`;
-  const dopo = /^\/admin\/[A-Za-z0-9/_-]*$/.test(daDove) ? daDove : "/admin/abbonati";
+  const interno = /^\/admin\/[A-Za-z0-9/_-]*(\?[A-Za-z0-9_=&-]*)?$/.test(daDove);
+  const backTo = interno ? daDove : `/admin/abbonati/${customerId}`;
+  const dopo = interno ? daDove : "/admin/abbonati";
 
   // Le condizioni che impediscono l'eliminazione NON sono errori di sistema:
   // vengono mostrate come banner nella pagina cliente, senza pagina d'errore.
@@ -380,15 +385,15 @@ export async function deleteCustomer(formData: FormData) {
       }
     }
   }
-  if (block) redirect(`${backTo}?warn=${encodeURIComponent(block)}`);
+  if (block) redirect(`${backTo}${backTo.includes("?") ? "&" : "?"}warn=${encodeURIComponent(block)}`);
 
   // Elimina l'utente auth → cascade su profiles/addresses/subscriptions/customer_charges.
   const { error } = await svc.auth.admin.deleteUser(customerId);
-  if (error) redirect(`${backTo}?warn=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`${backTo}${backTo.includes("?") ? "&" : "?"}warn=${encodeURIComponent(error.message)}`);
 
   revalidatePath("/admin/abbonati");
   revalidatePath(dopo);
-  redirect(`${dopo}?ok=${encodeURIComponent("Lead eliminato.")}`);
+  redirect(`${dopo}${dopo.includes("?") ? "&" : "?"}ok=${encodeURIComponent("Lead eliminato.")}`);
 }
 
 // ---- Ritiri ricorrenti: l'admin vede/modifica gli orari indicati dal cliente ----
