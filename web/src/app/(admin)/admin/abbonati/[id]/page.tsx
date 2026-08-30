@@ -120,7 +120,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
         </form>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-3">
         {/* Abbonamento */}
         <Card>
           <h2 className="font-display text-base font-extrabold text-navy">Abbonamento</h2>
@@ -260,6 +260,35 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           </Card>
         ) : null}
 
+        {/* Soldi in tre numeri: la domanda «questo cliente ha pagato?» si
+            rispondeva solo scorrendo fino in fondo, fra addebiti, incassi e
+            capi speciali sparsi in tre riquadri diversi. */}
+        <Card>
+          <h2 className="font-display text-base font-extrabold text-navy">Soldi</h2>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-[14px] bg-ice px-2 py-3">
+              <div className="font-display text-lg font-black text-navy">{eur(totaleIncassatoCents)}</div>
+              <div className="mt-0.5 text-[11px] font-semibold leading-tight text-muted">Incassato</div>
+            </div>
+            <div className="rounded-[14px] bg-ice px-2 py-3">
+              <div className="font-display text-lg font-black text-navy">{eur(addebitatoCents - stornatoCents)}</div>
+              <div className="mt-0.5 text-[11px] font-semibold leading-tight text-muted">Addebiti netti</div>
+            </div>
+            <div className="rounded-[14px] bg-ice px-2 py-3">
+              <div className="font-display text-lg font-black text-navy">{capi.length}</div>
+              <div className="mt-0.5 text-[11px] font-semibold leading-tight text-muted">Capi extra</div>
+            </div>
+          </div>
+          <div className="mt-3 space-y-1 text-sm font-medium text-muted">
+            {stripeSub?.prossimoAddebito ? (
+              <div>Prossimo addebito: <span className="font-bold text-navy">{fmtDate(stripeSub.prossimoAddebito.data)}</span> · {eur(stripeSub.prossimoAddebito.importoCents)}</div>
+            ) : (
+              <div>Nessun addebito futuro programmato.</div>
+            )}
+            <div>Ordini: <span className="font-bold text-navy">{orders?.length ?? 0}</span> · ritiri ricorrenti attivi: <span className="font-bold text-navy">{(recurring ?? []).filter((r) => r.active).length}</span></div>
+          </div>
+        </Card>
+
         {/* Indirizzi */}
         <Card>
           <h2 className="font-display text-base font-extrabold text-navy">Indirizzi</h2>
@@ -306,8 +335,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
       </div>
 
       {/* Ritiro creato dall'amministrazione, per chi prenota al telefono */}
-      <Card className="mt-6">
-        <h2 className="font-display text-base font-extrabold text-navy">Crea un ritiro per il cliente</h2>
+      <Sezione titolo="Crea un ritiro per il cliente" nota="per chi prenota al telefono">
         <p className="mt-1 text-xs font-medium text-muted">
           Per chi prenota al telefono. Salta il controllo sull&apos;abbonamento — quello vale per il cliente in app, non per te —
           quindi funziona anche con un pagamento fallito in corso. L&apos;ordine resta marcato come creato dall&apos;amministrazione,
@@ -344,11 +372,10 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             <label className="text-xs font-bold text-muted sm:col-span-5">Note per il rider<input name="notes" placeholder="es. citofonare due volte" className={input} /></label>
           </form>
         )}
-      </Card>
+      </Sezione>
 
       {/* Ritiri ricorrenti — orari indicati dal cliente, modificabili dall'admin */}
-      <Card className="mt-6">
-        <h2 className="font-display text-base font-extrabold text-navy">Ritiri ricorrenti</h2>
+      <Sezione titolo="Ritiri ricorrenti" conteggio={(recurring ?? []).length}>
         <p className="mt-1 text-xs font-medium text-muted">Gli orari di ritiro settimanale del cliente e l&apos;orario di consegna preferito. Se li modifichi, la modifica resta <strong>in sospeso</strong> finché il cliente non la conferma in app (fino ad allora vale l&apos;orario attuale). Il cliente riceve email + notifica.</p>
 
         <div className="mt-4 space-y-3">
@@ -419,7 +446,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
         ) : (
           <p className="mt-3 text-xs font-medium text-muted">Aggiungi prima un indirizzo per creare un ritiro ricorrente.</p>
         )}
-      </Card>
+      </Sezione>
 
       {/* Storico pagamenti, riga per riga, direttamente da Stripe.
           Il registro locale `invoices` parte da agosto 2026 e i pagamenti
@@ -427,9 +454,8 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           e soprattutto mostra QUALE fattura è rimasta aperta — che è la domanda
           che ci si fa quando arriva la telefonata. */}
       {stripeSub && !stripeSub.errore && (
-        <Card className="mt-6">
+        <Sezione titolo="Storico pagamenti" conteggio={stripeSub.fatture.length} nota="da Stripe, riga per riga">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="font-display text-base font-extrabold text-navy">Storico pagamenti ({stripeSub.fatture.length})</h2>
             <span className="text-sm font-medium text-muted">
               {stripeSub.pagamentiRiusciti} riusciti · <strong className="text-navy">{eur(stripeSub.totalePagatoCents)}</strong> incassati
             </span>
@@ -471,13 +497,12 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               ))
             )}
           </div>
-        </Card>
+        </Sezione>
       )}
 
       {/* Addebiti / rimborsi personalizzati */}
-      <Card className="mt-6">
+      <Sezione titolo="Addebiti e storni" nota="extra fuori ordine, modifiche, crediti">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="font-display text-base font-extrabold text-navy">Addebiti e storni</h2>
           {(addebitatoCents > 0 || stornatoCents > 0) && (
             <span className="text-sm font-medium text-muted">
               {eur(addebitatoCents)} addebitati · {eur(stornatoCents)} stornati ·{" "}
@@ -538,15 +563,14 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             ))
           )}
         </div>
-      </Card>
+      </Sezione>
 
       {/* Incassi e ricevute. La tabella esisteva già e la scheda non la
           leggeva: per sapere se un cliente aveva pagato bisognava aprire
           Stripe. Si scrive "ricevuta": la fattura è l'eccezione, e si nomina
           solo dove esiste davvero. */}
-      <Card className="mt-6">
+      <Sezione titolo="Incassi e ricevute" conteggio={incassi.length}>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="font-display text-base font-extrabold text-navy">Incassi e ricevute ({incassi.length})</h2>
           <span className="font-display text-sm font-extrabold text-navy">{eur(totaleIncassatoCents)} incassati in tutto</span>
         </div>
         <div className="mt-3 divide-y divide-line">
@@ -571,12 +595,11 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             ))
           )}
         </div>
-      </Card>
+      </Sezione>
 
       {/* Capi fuori abbonamento: prima si vedevano solo entrando nel singolo ordine */}
       {capi.length > 0 && (
-        <Card className="mt-6">
-          <h2 className="font-display text-base font-extrabold text-navy">Capi fuori abbonamento ({capi.length})</h2>
+        <Sezione titolo="Capi fuori abbonamento" conteggio={capi.length}>
           <div className="mt-3 divide-y divide-line">
             {capi.map((c) => (
               <Link key={c.id} href={`/admin/ordini/${c.order_id}`} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm transition-colors hover:bg-ice">
@@ -592,12 +615,11 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               </Link>
             ))}
           </div>
-        </Card>
+        </Sezione>
       )}
 
       {/* Ordini */}
-      <Card className="mt-6">
-        <h2 className="font-display text-base font-extrabold text-navy">Ordini ({orders?.length ?? 0})</h2>
+      <Sezione titolo="Ordini" conteggio={orders?.length ?? 0}>
         <div className="mt-3 space-y-2">
           {(orders ?? []).length === 0 ? (
             <p className="text-sm font-medium text-muted">Nessun ordine.</p>
@@ -611,11 +633,10 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             ))
           )}
         </div>
-      </Card>
+      </Sezione>
 
       {/* Elimina lead / cliente */}
-      <Card className="mt-6 border-[#C0392B]/30">
-        <h2 className="font-display text-base font-extrabold text-[#C0392B]">Elimina lead</h2>
+      <Sezione titolo="Elimina cliente" nota="irreversibile">
         <p className="mt-1 text-xs font-medium text-muted">
           Rimuove definitivamente il cliente e tutti i suoi dati (profilo, indirizzi, abbonamento, addebiti e ordini chiusi). Operazione irreversibile.
           Non è possibile se ha un abbonamento attivo (disdicilo prima) o ordini in corso.
@@ -632,7 +653,46 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             </button>
           </form>
         </details>
-      </Card>
+      </Sezione>
     </>
+  );
+}
+
+/** Sezione richiudibile.
+ *
+ *  La scheda aveva undici riquadri impilati e si scorreva all'infinito: per
+ *  sapere se un cliente aveva pagato bisognava passare in mezzo agli indirizzi,
+ *  alle ricorrenze e agli addebiti. Ora sopra c'è tutto quello che serve a
+ *  rispondere «chi è, paga, cosa aspetta», e il resto sta qui dentro, a un
+ *  clic — con il numero già scritto nel titolo, così spesso non serve nemmeno
+ *  aprirlo. */
+function Sezione({
+  titolo,
+  conteggio,
+  nota,
+  apertaSubito = false,
+  children,
+}: {
+  titolo: string;
+  conteggio?: number | string;
+  nota?: string;
+  apertaSubito?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details open={apertaSubito} className="group mt-3 rounded-[18px] border border-line bg-white">
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-3.5">
+        <span className="font-display text-base font-extrabold text-navy">{titolo}</span>
+        {conteggio !== undefined && (
+          <span className="rounded-full bg-ice px-2.5 py-0.5 font-display text-xs font-extrabold text-navy/70">{conteggio}</span>
+        )}
+        {nota && <span className="truncate text-xs font-medium text-muted">{nota}</span>}
+        <span className="ml-auto font-display text-xs font-bold text-blue">
+          <span className="group-open:hidden">Apri</span>
+          <span className="hidden group-open:inline">Chiudi</span>
+        </span>
+      </summary>
+      <div className="border-t border-line px-5 py-4">{children}</div>
+    </details>
   );
 }

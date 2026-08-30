@@ -55,7 +55,10 @@ function confini() {
 const data = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString("it-IT", { timeZone: "Europe/Rome", day: "2-digit", month: "2-digit", year: "numeric" }) : "—";
 
-export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false): Promise<DettaglioMetrica> {
+/** `mese` in forma `2026-08`: serve al grafico della Home, dove ogni barra apre
+ *  l'elenco dei clienti di quel mese. Senza, si poteva vedere solo il mese in
+ *  corso e lo storico restava un numero solo. */
+export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false, mese?: string): Promise<DettaglioMetrica> {
   const svc = createServiceClient();
   const { monthStart } = confini();
 
@@ -85,17 +88,29 @@ export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false):
     }
 
     case "incassato-mese": {
-      const { data: righe } = await svc
+      const scelto = /^\d{4}-\d{2}$/.test(mese ?? "") ? mese! : null;
+      const [anno, m] = scelto ? scelto.split("-").map(Number) : [0, 0];
+      const dal = scelto ? new Date(Date.UTC(anno, m - 1, 1)).toISOString() : monthStart;
+      const al = scelto ? new Date(Date.UTC(anno, m, 1)).toISOString() : null;
+      const nomeMese = scelto
+        ? new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", month: "long", year: "numeric" }).format(new Date(Date.UTC(anno, m - 1, 1)))
+        : null;
+
+      let query = svc
         .from("invoices")
         .select("id, amount_cents, created_at, stato, fic_number, user_id, profiles(full_name, is_test)")
-        .gte("created_at", monthStart)
+        .gte("created_at", dal);
+      if (al) query = query.lt("created_at", al);
+      const { data: righe } = await query
         .order("created_at", { ascending: false })
         .returns<{ id: string; amount_cents: number; created_at: string; stato: string; fic_number: string | null; user_id: string | null; profiles: { full_name: string | null; is_test: boolean } | null }[]>();
 
       const utili = (righe ?? []).filter((r) => includiProva || !r.profiles?.is_test);
       return {
-        titolo: "Incassato questo mese",
-        spiegazione: "Pagamenti realmente arrivati su Stripe dal primo del mese. Ogni riga è un incasso registrato: questi sono soldi sul conto, non previsioni.",
+        titolo: nomeMese ? `Incassato a ${nomeMese}` : "Incassato questo mese",
+        spiegazione: nomeMese
+          ? `Pagamenti arrivati su Stripe in ${nomeMese}. Ogni riga è un incasso registrato: questi sono soldi sul conto, non previsioni.`
+          : "Pagamenti realmente arrivati su Stripe dal primo del mese. Ogni riga è un incasso registrato: questi sono soldi sul conto, non previsioni.",
         righe: utili.map((r) => ({
           etichetta: r.profiles?.full_name ?? "—",
           dettaglio: `${data(r.created_at)} · ${r.fic_number ? `fattura n. ${r.fic_number}` : "ricevuta"}`,

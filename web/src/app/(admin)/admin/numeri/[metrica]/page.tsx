@@ -18,14 +18,14 @@ export default async function DettaglioNumero({
   searchParams,
 }: {
   params: Promise<{ metrica: string }>;
-  searchParams: Promise<{ prova?: string }>;
+  searchParams: Promise<{ prova?: string; mese?: string }>;
 }) {
   const { metrica } = await params;
-  const { prova } = await searchParams;
+  const { prova, mese } = await searchParams;
   if (!isChiaveMetrica(metrica)) notFound();
 
   const includiProva = prova === "1";
-  const d = await righeMetrica(metrica, includiProva);
+  const d = await righeMetrica(metrica, includiProva, mese);
 
   return (
     <>

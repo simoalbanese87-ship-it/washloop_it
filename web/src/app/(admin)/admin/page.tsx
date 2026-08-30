@@ -4,6 +4,8 @@ import { StatTile } from "@/components/admin/StatTile";
 import { CustomersPanel } from "@/components/admin/CustomersPanel";
 import { createServiceClient } from "@/lib/supabase/server";
 import { daContattare } from "@/lib/persone";
+import { incassiMensili } from "@/lib/incassi-mensili";
+import { GraficoIncassi } from "@/components/admin/GraficoIncassi";
 import { revenueMetrics, laundryMetrics, subscriberMetrics, customersList } from "@/lib/admin-metrics";
 import { sendDigestNow } from "@/lib/actions/digest";
 import { eurCents } from "@/lib/format";
@@ -42,7 +44,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     return includiProva ? q : q.eq("profiles.is_test", false);
   };
 
-  const [daRichiamare, inRitardo, senzaRider, pagamentiKo, rev, laundry, subs, customers] = await Promise.all([
+  const [daRichiamare, inRitardo, senzaRider, pagamentiKo, rev, laundry, subs, customers, mesiIncassi] = await Promise.all([
     // Non una query sui soli `leads`: quella contava anche chi nel frattempo è
     // diventato cliente. `daContattare` passa dalla stessa deduplica di Persone,
     // così il numero e la pagina che apre dicono la stessa cosa.
@@ -56,6 +58,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     laundryMetrics(includiProva),
     subscriberMetrics(includiProva),
     customersList(includiProva),
+    incassiMensili(includiProva),
   ]);
 
   const blocchi: Blocco[] = [
@@ -134,6 +137,8 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
           <div className="mt-1.5 font-display text-sm font-extrabold text-navy">Incassato questo mese →</div>
           <div className="text-xs font-medium text-muted">Soldi realmente arrivati su Stripe · {eurCents(rev.incassatoAnnoCents)} da inizio anno</div>
         </Link>
+
+        <GraficoIncassi mesi={mesiIncassi} prova={includiProva} />
 
         <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-3">
           <NumeroCliccabile href={`/admin/numeri/ricorrente${includiProva ? "?prova=1" : ""}`} label="Ricorrente atteso" value={eurCents(rev.coreMrrCents)} sub="Abbonamenti attivi oggi" />
