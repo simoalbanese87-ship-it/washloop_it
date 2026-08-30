@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/server";
 import { notifyPromemoria } from "@/lib/notify";
 import { fmtSlot } from "@/lib/format";
 import { registraGuasto } from "@/lib/incidenti";
@@ -53,10 +53,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return NextResponse.json({ error: "supabase env mancante" }, { status: 500 });
-  const sb = createClient(url, key, { auth: { persistSession: false } });
+  // `createServiceClient()` e non un client costruito qui: la chiave nelle env
+  // contiene spazi e un a capo, e passata grezza fa fallire `Headers.set` prima
+  // ancora della richiesta. La libreria condivisa la ripulisce da sempre; questi
+  // due cron se la costruivano per conto loro ed erano gli unici a non farlo.
+  // Risultato: non hanno MAI funzionato — zero promemoria inviati su 11 ordini e
+  // zero ordini generati dalle ricorrenze attive — e si è scoperto solo quando
+  // il registro dei guasti ha iniziato a raccogliere gli errori.
+  const sb = createServiceClient();
 
   const { da, a } = domaniRoma();
 

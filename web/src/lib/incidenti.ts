@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { ripulisci } from "@/lib/segreti";
 
 /** Registra un guasto, perché `console.error` non lo legge nessuno.
  *
@@ -37,9 +38,13 @@ export async function registraGuasto(
   dettaglio?: Record<string, unknown>,
 ): Promise<void> {
   try {
-    const testo = (messaggio || "errore sconosciuto").slice(0, 500);
+    // Prima si ripulisce, poi si taglia: tagliare per primo spezzerebbe un
+    // segreto a metà lasciandone dentro un pezzo.
+    const testo = ripulisci(messaggio || "errore sconosciuto").slice(0, 500);
     if (troppoRavvicinato(`${area}|${testo}`)) return;
-    await createServiceClient().from("incidenti").insert({ area, messaggio: testo, dettaglio: dettaglio ?? null });
+    // Anche il dettaglio: ci finiscono oggetti che nessuno ha ispezionato.
+    const extra = dettaglio ? JSON.parse(ripulisci(JSON.stringify(dettaglio))) : null;
+    await createServiceClient().from("incidenti").insert({ area, messaggio: testo, dettaglio: extra });
   } catch (err) {
     // Ultima spiaggia: se non si riesce nemmeno a scrivere il guasto, resta il
     // log. Non si rilancia: vedi il commento in cima.
