@@ -189,7 +189,12 @@ export default async function CalendarioPage({
                         <span className={`font-display text-xs font-bold ${r.rider ? "text-navy" : "text-[#C0392B]"}`}>
                           {r.rider ?? "senza rider"}
                         </span>
-                        <span className="font-display text-[11px] font-bold text-muted">{ORDER_STATUS_LABEL[r.status]}</span>
+                        {/* Lo stato è dell'ORDINE, non di questa riga: senza dirlo,
+                            su una riga "riconsegna" si leggeva "Ritiro programmato"
+                            e sembrava un errore. */}
+                        <span className="font-display text-[11px] font-bold text-muted">
+                          ordine: {ORDER_STATUS_LABEL[r.status].toLowerCase()}
+                        </span>
                       </span>
                     </Link>
                   ))}
