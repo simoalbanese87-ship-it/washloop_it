@@ -8,8 +8,9 @@ import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomer
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { impersonate } from "@/lib/actions/impersonate";
+import { cancelOrder } from "@/lib/actions/orders";
 import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
-import { ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
+import { ORDER_STATUS_LABEL, ordineAperto, type OrderStatus } from "@/lib/orders";
 import { ATTESA_GIORNI } from "@/lib/dunning-piano";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -79,6 +80,20 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   const active = sub?.status === "active" || sub?.status === "trialing";
   const inSofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
+  const disdetto = sub?.status === "canceled";
+
+  // Cosa impedisce di eliminare il cliente. Va saputo PRIMA di premere il
+  // bottone rosso: si arrivava in fondo alla conferma «sei sicuro» per poi
+  // sbattere contro un avviso, senza sapere cosa sistemare.
+  const ordiniAperti = (orders ?? []).filter((o) => ordineAperto(o.status));
+  const bloccoElimina: string | null =
+    sub && ["active", "trialing", "past_due"].includes(sub.status)
+      ? "Ha un abbonamento ancora attivo: disdicilo qui sopra, così si ferma anche l'addebito su Stripe."
+      : ordiniAperti.length > 0
+        ? ordiniAperti.length === 1
+          ? "C'è un ordine ancora aperto. Annullalo qui sotto e poi si può eliminare."
+          : `Ci sono ${ordiniAperti.length} ordini ancora aperti. Annullali qui sotto e poi si può eliminare.`
+        : null;
   const solleciti = sub?.dunning_step ?? 0;
   const priceLabel =
     sub?.custom_price_cents === 0
@@ -228,7 +243,12 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                 ) : (
                   <form action={changeSubscription}><input type="hidden" name="sub_id" value={sub.id} /><input type="hidden" name="action" value="activate" /><Button type="submit" size="md">Segna come pagato / Attiva</Button></form>
                 )}
-                <form action={changeSubscription}><input type="hidden" name="sub_id" value={sub.id} /><input type="hidden" name="action" value="cancel" /><button type="submit" className="rounded-full border border-[#C0392B]/40 px-4 py-2 font-display text-sm font-bold text-[#C0392B]">Disdici</button></form>
+                {/* Niente "Disdici" su un abbonamento già disdetto: premerlo
+                    rispondeva "Abbonamento disdetto" e sembrava che la
+                    disdetta di prima non fosse mai avvenuta. */}
+                {!disdetto && (
+                  <form action={changeSubscription}><input type="hidden" name="sub_id" value={sub.id} /><input type="hidden" name="action" value="cancel" /><button type="submit" className="rounded-full border border-[#C0392B]/40 px-4 py-2 font-display text-sm font-bold text-[#C0392B]">Disdici</button></form>
+                )}
               </div>
             </>
           ) : (
@@ -625,17 +645,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             <p className="text-sm font-medium text-muted">Nessun ordine.</p>
           ) : (
             (orders ?? []).map((o) => (
-              <Link key={o.id} href={`/admin/ordini/${o.id}`} className="flex items-center justify-between gap-3 rounded-[12px] border border-line px-3 py-2 text-sm transition-colors hover:bg-ice">
-                <span className="font-bold text-navy">#{o.id.slice(0, 8)}</span>
-                {/* Data del RITIRO e stato in italiano: qui comparivano la data
-                    della prenotazione e la parola grezza del database
-                    («pickup_scheduled»), che non dicono niente a chi legge. */}
-                <span className="text-muted">
-                  {o.bags} {o.bags === 1 ? "sacco" : "sacchi"} ·{" "}
-                  {o.pickup_slot?.starts_at ? `ritiro ${fmtDate(o.pickup_slot.starts_at)}` : `prenotato ${fmtDate(o.created_at)}`}
-                </span>
-                <span className="font-display text-xs font-bold text-blue">{ORDER_STATUS_LABEL[o.status] ?? o.status}</span>
-              </Link>
+              <RigaOrdine key={o.id} o={o} customerId={id} />
             ))
           )}
         </div>
@@ -645,22 +655,75 @@ export default async function CustomerPage({ params, searchParams }: { params: P
       <Sezione titolo="Elimina cliente" nota="irreversibile">
         <p className="mt-1 text-xs font-medium text-muted">
           Rimuove definitivamente il cliente e tutti i suoi dati (profilo, indirizzi, abbonamento, addebiti e ordini chiusi). Operazione irreversibile.
-          Non è possibile se ha un abbonamento attivo (disdicilo prima) o ordini in corso.
         </p>
-        <details className="mt-3">
-          <summary className="inline-flex cursor-pointer rounded-full border border-[#C0392B]/40 px-4 py-2 font-display text-sm font-bold text-[#C0392B] transition-colors hover:bg-[#C0392B]/5">
-            Elimina definitivamente…
-          </summary>
-          <form action={deleteCustomer} className="mt-3 flex items-center gap-3">
-            <input type="hidden" name="customer_id" value={id} />
-            <span className="text-sm font-semibold text-navy">Sei sicuro? L&apos;azione non è annullabile.</span>
-            <button type="submit" className="rounded-full bg-[#C0392B] px-5 py-2 font-display text-sm font-extrabold text-white transition-opacity hover:opacity-90">
-              Sì, elimina
-            </button>
-          </form>
-        </details>
+        {bloccoElimina ? (
+          /* Il muro si mostra PRIMA, insieme a quello che serve per abbatterlo:
+             prima il bottone rosso c'era comunque, e la conferma «sei sicuro»
+             finiva su un avviso che diceva solo «annullali». */
+          <div className="mt-3 rounded-[14px] border border-[#C9881F]/30 bg-[#C9881F]/8 p-3">
+            <p className="font-display text-sm font-bold text-[#C9881F]">Non si può eliminare, per ora</p>
+            <p className="mt-1 text-xs font-semibold text-[#C9881F]">{bloccoElimina}</p>
+            {ordiniAperti.length > 0 && (
+              <div className="mt-2.5 space-y-2">
+                {ordiniAperti.map((o) => (
+                  <RigaOrdine key={o.id} o={o} customerId={id} />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <details className="mt-3">
+            <summary className="inline-flex cursor-pointer rounded-full border border-[#C0392B]/40 px-4 py-2 font-display text-sm font-bold text-[#C0392B] transition-colors hover:bg-[#C0392B]/5">
+              Elimina definitivamente…
+            </summary>
+            <form action={deleteCustomer} className="mt-3 flex items-center gap-3">
+              <input type="hidden" name="customer_id" value={id} />
+              <span className="text-sm font-semibold text-navy">Sei sicuro? L&apos;azione non è annullabile.</span>
+              <button type="submit" className="rounded-full bg-[#C0392B] px-5 py-2 font-display text-sm font-extrabold text-white transition-opacity hover:opacity-90">
+                Sì, elimina
+              </button>
+            </form>
+          </details>
+        )}
       </Sezione>
     </>
+  );
+}
+
+/** Una riga della lista ordini: chi è, quando passiamo, a che punto è.
+ *
+ *  Il bottone "Annulla" c'è solo sugli ordini ancora aperti, ed è quello che
+ *  mancava: un cliente con un ordine in ballo non si poteva eliminare, e per
+ *  chiudere quell'ordine bisognava sapere che si passa dal board. Da qui si fa
+ *  e si resta sulla scheda.
+ *
+ *  Il link non avvolge tutta la riga perché dentro c'è un form: un <form>
+ *  dentro un <a> non è HTML valido. */
+function RigaOrdine({ o, customerId }: { o: Ord; customerId: string }) {
+  const aperto = ordineAperto(o.status);
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[12px] border border-line bg-white px-3 py-2 text-sm">
+      <Link href={`/admin/ordini/${o.id}`} className="flex flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-0.5 transition-colors hover:text-blue">
+        <span className="font-bold text-navy">#{o.id.slice(0, 8)}</span>
+        {/* Data del RITIRO e stato in italiano: qui comparivano la data della
+            prenotazione e la parola grezza del database («pickup_scheduled»),
+            che non dicono niente a chi legge. */}
+        <span className="text-muted">
+          {o.bags} {o.bags === 1 ? "sacco" : "sacchi"} ·{" "}
+          {o.pickup_slot?.starts_at ? `ritiro ${fmtDate(o.pickup_slot.starts_at)}` : `prenotato ${fmtDate(o.created_at)}`}
+        </span>
+        <span className="font-display text-xs font-bold text-blue">{ORDER_STATUS_LABEL[o.status] ?? o.status}</span>
+      </Link>
+      {aperto && (
+        <form action={cancelOrder}>
+          <input type="hidden" name="order_id" value={o.id} />
+          <input type="hidden" name="back" value={`/admin/abbonati/${customerId}`} />
+          <button type="submit" className="shrink-0 rounded-full border border-[#C0392B]/40 px-3 py-1 font-display text-xs font-bold text-[#C0392B] transition-colors hover:bg-[#C0392B]/5">
+            Annulla
+          </button>
+        </form>
+      )}
+    </div>
   );
 }
 

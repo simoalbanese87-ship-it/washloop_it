@@ -48,6 +48,17 @@ export function statusIndex(s: OrderStatus): number {
   return ORDER_FLOW.indexOf(s);
 }
 
+/** Stati in cui su un ordine non c'è più niente da fare. Serve alle guardie
+ *  che impediscono di eliminare un cliente con lavoro ancora in ballo: la
+ *  regola stava scritta come stringa SQL dentro una query e come elenco a mano
+ *  nella pagina, e le due potevano scollarsi. */
+export const STATI_CHIUSI: OrderStatus[] = ["delivered", "completed", "cancelled"];
+
+/** Un ordine su cui qualcuno deve ancora fare qualcosa. */
+export function ordineAperto(s: OrderStatus): boolean {
+  return !STATI_CHIUSI.includes(s);
+}
+
 /** Stati in cui il sacco è fisicamente aperto sul banco della lavanderia: solo
  *  qui ha senso aggiungere capi speciali. Da "ready" in poi il sacco è chiuso e
  *  in attesa del rider. Elenco esplicito e non un confronto su `statusIndex`:

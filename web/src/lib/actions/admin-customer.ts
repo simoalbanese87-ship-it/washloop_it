@@ -10,7 +10,7 @@ import { creaClienteStripe } from "@/lib/stripe-customer";
 import { notifyNewCustomer, notifyRecurringChanged, notifyOrderStatus } from "@/lib/notify";
 import { zoneIdForCap } from "@/lib/zones";
 import { geocodeAddress } from "@/lib/geo";
-import { type OrderStatus } from "@/lib/orders";
+import { ORDER_STATUS_LABEL, STATI_CHIUSI, type OrderStatus } from "@/lib/orders";
 import { slotFullMessage } from "@/lib/slots";
 import { inviaSollecito } from "@/lib/dunning";
 import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
@@ -175,13 +175,20 @@ export async function changeSubscription(formData: FormData) {
   const svc = createServiceClient();
   const { data: sub } = await svc
     .from("subscriptions")
-    .select("id, user_id, stripe_subscription_id, manual, current_period_end")
+    .select("id, user_id, status, stripe_subscription_id, manual, current_period_end")
     .eq("id", subId)
-    .maybeSingle<{ id: string; user_id: string; stripe_subscription_id: string | null; manual: boolean; current_period_end: string | null }>();
+    .maybeSingle<{ id: string; user_id: string; status: string; stripe_subscription_id: string | null; manual: boolean; current_period_end: string | null }>();
   if (!sub) throw new Error("Abbonamento non trovato");
 
   const backTo = `/admin/abbonati/${sub.user_id}`;
   let warn: string | null = null;
+
+  // Disdire un abbonamento già disdetto rispondeva "Abbonamento disdetto",
+  // come se avesse fatto qualcosa: chi lo leggeva pensava che la disdetta di
+  // prima non fosse andata a buon fine. Qui non si tocca niente e lo si dice.
+  if (action === "cancel" && sub.status === "canceled") {
+    redirect(`${backTo}?warn=${encodeURIComponent("Questo abbonamento era già disdetto: non ho cambiato niente.")}`);
+  }
 
   const stripeId = sub.stripe_subscription_id;
   if (stripeId) {
@@ -343,12 +350,29 @@ export async function deleteCustomer(formData: FormData) {
     } else {
       // Blocca solo gli ordini IN CORSO (bucato in lavorazione). Gli ordini
       // chiusi (consegnati/completati/annullati) vengono rimossi in cascata.
-      const { count } = await svc
+      //
+      // Il messaggio elenca QUALI: prima diceva solo «completali o annullali»
+      // senza dire quali fossero né dove trovarli, e si finiva per riprovare
+      // a eliminare sbattendo ogni volta sullo stesso muro.
+      const { data: aperti } = await svc
         .from("orders")
-        .select("id", { count: "exact", head: true })
+        .select("id, status")
         .eq("customer_id", customerId)
-        .not("status", "in", "(delivered,completed,cancelled)");
-      if ((count ?? 0) > 0) block = "Cliente con ordini in corso: completali o annullali prima di eliminare.";
+        .not("status", "in", `(${STATI_CHIUSI.join(",")})`)
+        .order("created_at", { ascending: true })
+        .returns<{ id: string; status: OrderStatus }[]>();
+      const quanti = (aperti ?? []).length;
+      if (quanti > 0) {
+        const elenco = (aperti ?? [])
+          .slice(0, 3)
+          .map((o) => `#${o.id.slice(0, 8)} (${ORDER_STATUS_LABEL[o.status] ?? o.status})`)
+          .join(", ");
+        const resto = quanti > 3 ? ` e altri ${quanti - 3}` : "";
+        block =
+          quanti === 1
+            ? `C'è ancora un ordine aperto: ${elenco}. Annullalo dalla sezione "Ordini" della scheda, poi riprova.`
+            : `Ci sono ${quanti} ordini ancora aperti: ${elenco}${resto}. Annullali dalla sezione "Ordini" della scheda, poi riprova.`;
+      }
     }
   }
   if (block) redirect(`${backTo}?warn=${encodeURIComponent(block)}`);

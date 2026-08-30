@@ -327,15 +327,21 @@ export async function cancelOrder(formData: FormData) {
   const id = String(formData.get("order_id") ?? "");
   if (!id) throw new Error("Ordine mancante");
 
+  // Da dove è stato premuto il bottone: si annulla anche dalla scheda cliente,
+  // e da lì rispedire l'admin sul board gli farebbe perdere il posto. Solo
+  // percorsi interni all'area riservata, mai un indirizzo arrivato da fuori.
+  const backRaw = String(formData.get("back") ?? "").trim();
+  const tornaA = /^\/admin\/[A-Za-z0-9/_-]*$/.test(backRaw) ? backRaw : "/admin/ordini";
+
   const { data: ordine } = await supabase
     .from("orders")
     .select("status")
     .eq("id", id)
     .maybeSingle<{ status: OrderStatus }>();
-  if (!ordine) redirect(`/admin/ordini?warn=${encodeURIComponent("Ordine non trovato.")}`);
-  if (ordine!.status === "cancelled") redirect("/admin/ordini");
+  if (!ordine) redirect(`${tornaA}?warn=${encodeURIComponent("Ordine non trovato.")}`);
+  if (ordine!.status === "cancelled") redirect(`${tornaA}?ok=${encodeURIComponent("Questo ordine era già annullato.")}`);
   if (ordine!.status === "delivered" || ordine!.status === "completed") {
-    redirect(`/admin/ordini?warn=${encodeURIComponent("Un ordine già consegnato non si annulla: se c'è da rimediare, usa un rimborso dalla scheda cliente.")}`);
+    redirect(`${tornaA}?warn=${encodeURIComponent("Un ordine già consegnato non si annulla: se c'è da rimediare, usa un rimborso dalla scheda cliente.")}`);
   }
 
   const nota = String(formData.get("motivo") ?? "").trim();
@@ -354,7 +360,8 @@ export async function cancelOrder(formData: FormData) {
   revalidatePath(`/admin/ordini/${id}`);
   revalidatePath("/admin");
   revalidatePath("/courier");
-  redirect(`/admin/ordini?ok=${encodeURIComponent("Ordine annullato. Il cliente è stato avvisato.")}`);
+  revalidatePath(tornaA);
+  redirect(`${tornaA}?ok=${encodeURIComponent("Ordine annullato. Il cliente è stato avvisato.")}`);
 }
 
 /** Corriere: avanza stato + opzionale foto prova (già caricata su Storage).

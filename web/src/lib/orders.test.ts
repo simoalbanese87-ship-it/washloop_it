@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canTransition, ORDER_STATUS_LABEL, type OrderStatus } from "./orders.ts";
+import { canTransition, ordineAperto, ORDER_STATUS_LABEL, STATI_CHIUSI, type OrderStatus } from "./orders.ts";
 
 /** Primi test del progetto. Coprono la tabella delle transizioni, che è la cosa
  *  che prima non esisteva: chiunque poteva portare un ordine a qualunque stato.
@@ -56,4 +56,19 @@ test("ogni stato ha un'etichetta in italiano", () => {
   for (const s of stati) {
     assert.ok(ORDER_STATUS_LABEL[s], `manca l'etichetta per ${s}`);
   }
+});
+
+test("un ordine è aperto finché non è consegnato, completato o annullato", () => {
+  for (const s of ["requested", "pickup_scheduled", "washing", "ready", "delivery_scheduled", "delivery_failed"] as OrderStatus[]) {
+    assert.equal(ordineAperto(s), true, `${s} dovrebbe risultare aperto`);
+  }
+  for (const s of ["delivered", "completed", "cancelled"] as OrderStatus[]) {
+    assert.equal(ordineAperto(s), false, `${s} dovrebbe risultare chiuso`);
+  }
+});
+
+test("una consegna non riuscita resta aperta: c'è ancora da fare qualcosa", () => {
+  // Non sta in ORDER_FLOW, quindi è facile dimenticarsene: il bucato è ancora
+  // in giro e il cliente va richiamato.
+  assert.equal(STATI_CHIUSI.includes("delivery_failed"), false);
 });
