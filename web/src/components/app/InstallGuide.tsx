@@ -51,7 +51,7 @@ const ShareIcon = () => (
  *  quello che gli pare — e chi resta fuori dal caso previsto non deve trovare
  *  un vicolo cieco. Prima, da computer, l'unica cosa scritta era «apri
  *  washloop.it dal telefono»: vera, e inutile. */
-export function InstallGuide({ qr, url }: { qr?: string | null; url: string }) {
+export function InstallGuide({ url }: { url: string }) {
   const [platform, setPlatform] = useState<Platform>("desktop");
   const [standalone, setStandalone] = useState(false);
   const [perm, setPerm] = useState<Perm>("default");
@@ -115,7 +115,7 @@ export function InstallGuide({ qr, url }: { qr?: string | null; url: string }) {
             <p className="mt-3 text-sm font-medium text-muted">
               Sei al computer. L&apos;app si installa <b>dal telefono</b>: il modo più veloce è inquadrare questo codice.
             </p>
-            <DaComputer qr={qr} url={url} />
+            <DaComputer url={url} />
             <div className="mt-5 border-t border-line pt-4">
               <p className="font-display text-sm font-extrabold text-navy">Poi, sul telefono, fai così:</p>
               <div className="mt-3 space-y-4">
@@ -226,7 +226,7 @@ export function InstallGuide({ qr, url }: { qr?: string | null; url: string }) {
 }
 
 /** Il codice da inquadrare, più le vie di scampo per chi non ci riesce. */
-function DaComputer({ qr, url }: { qr?: string | null; url: string }) {
+function DaComputer({ url }: { url: string }) {
   const [copiato, setCopiato] = useState(false);
   const pulito = url.replace(/^https?:\/\//, "");
 
@@ -242,15 +242,17 @@ function DaComputer({ qr, url }: { qr?: string | null; url: string }) {
 
   return (
     <div className="mt-4 flex flex-col items-center gap-4 rounded-[16px] bg-ice p-5 sm:flex-row sm:items-center">
-      {qr ? (
-        // `<img>` e non `next/image`: la sorgente è un'immagine incorporata
-        // (data URL) generata al volo, non un file da ottimizzare. Con
-        // `next/image` la pagina restava bloccata sulla schermata di attesa —
-        // il contenuto c'era ma nascosto, perché l'idratazione non arrivava in
-        // fondo. È lo stesso modo con cui il QR viene mostrato nel profilo.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={qr} alt={`Codice QR per aprire ${pulito} sul telefono`} width={168} height={168} className="h-[168px] w-[168px] flex-none rounded-[12px] bg-white p-2" />
-      ) : null}
+      {/* Immagine servita da un indirizzo suo, non incorporata nella pagina:
+          vedi il commento in `api/qr-installa`. `<img>` semplice come per il QR
+          del profilo e delle etichette. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/api/qr-installa"
+        alt={`Codice QR per aprire ${pulito} sul telefono`}
+        width={168}
+        height={168}
+        className="h-[168px] w-[168px] flex-none rounded-[12px] bg-white p-2"
+      />
       <div className="min-w-0 text-center sm:text-left">
         <p className="font-display text-sm font-extrabold text-navy">Apri la fotocamera del telefono e inquadra il codice</p>
         <p className="mt-1 text-sm font-medium text-muted">
