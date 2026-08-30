@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
 
 const VAPID = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
@@ -244,7 +243,13 @@ function DaComputer({ qr, url }: { qr?: string | null; url: string }) {
   return (
     <div className="mt-4 flex flex-col items-center gap-4 rounded-[16px] bg-ice p-5 sm:flex-row sm:items-center">
       {qr ? (
-        <Image src={qr} alt={`Codice QR per aprire ${pulito} sul telefono`} width={168} height={168} className="flex-none rounded-[12px] bg-white p-2" unoptimized />
+        // `<img>` e non `next/image`: la sorgente è un'immagine incorporata
+        // (data URL) generata al volo, non un file da ottimizzare. Con
+        // `next/image` la pagina restava bloccata sulla schermata di attesa —
+        // il contenuto c'era ma nascosto, perché l'idratazione non arrivava in
+        // fondo. È lo stesso modo con cui il QR viene mostrato nel profilo.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={qr} alt={`Codice QR per aprire ${pulito} sul telefono`} width={168} height={168} className="h-[168px] w-[168px] flex-none rounded-[12px] bg-white p-2" />
       ) : null}
       <div className="min-w-0 text-center sm:text-left">
         <p className="font-display text-sm font-extrabold text-navy">Apri la fotocamera del telefono e inquadra il codice</p>
