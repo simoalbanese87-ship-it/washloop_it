@@ -127,6 +127,21 @@ export async function createCustomSubscriptionLink(
       subscription_data: { metadata: { supabase_user_id: customerId, custom_price_cents: String(amount) } },
     });
     if (!session.url) return { error: "Stripe non ha restituito un link" };
+
+    // La proposta si registra: senza, il link viveva solo finché la pagina
+    // restava aperta e la scheda del cliente non diceva più niente di lui.
+    const me = await getCurrentProfile();
+    await svc.from("subscription_offers").insert({
+      user_id: customerId,
+      description,
+      amount_cents: amount,
+      checkout_url: session.url,
+      checkout_session_id: session.id,
+      expires_at: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+      created_by: me?.id ?? null,
+    });
+    revalidatePath(`/admin/abbonati/${customerId}`);
+
     return { url: session.url };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Errore nella creazione del link" };

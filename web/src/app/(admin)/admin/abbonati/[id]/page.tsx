@@ -10,7 +10,7 @@ import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { impersonate } from "@/lib/actions/impersonate";
 import { cancelOrder } from "@/lib/actions/orders";
 import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
-import { ORDER_STATUS_LABEL, ordineAperto, type OrderStatus } from "@/lib/orders";
+import { ACCESS_MODE_LABEL, ORDER_STATUS_LABEL, ordineAperto, type AccessMode, type OrderStatus } from "@/lib/orders";
 import { ATTESA_GIORNI } from "@/lib/dunning-piano";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -21,7 +21,16 @@ type Prof = { id: string; full_name: string | null; phone: string | null; client
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
 type Sub = { id: string; status: string; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number } | null };
-type Addr = { id: string; label: string | null; street: string };
+type Addr = {
+  id: string; label: string | null; street: string; cap: string | null; civico: string | null;
+  intercom: string | null; floor: string | null; notes: string | null;
+  access_mode: AccessMode | null; access_note: string | null; concierge_hours: string | null;
+  lat: number | null; lng: number | null;
+};
+type Offerta = {
+  id: string; description: string; amount_cents: number;
+  checkout_url: string; expires_at: string | null; created_at: string;
+};
 type Ord = { id: string; status: OrderStatus; created_at: string; bags: number; pickup_slot: { starts_at: string } | null };
 type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; created_at: string };
 type Slot = { id: string; starts_at: string; ends_at: string; kind: string };
@@ -51,14 +60,15 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
   if (!profile) notFound();
 
-  const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }] = await Promise.all([
+  const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: offerta }] = await Promise.all([
     svc.auth.admin.getUserById(id),
     svc.from("subscriptions").select("id, status, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
-    svc.from("addresses").select("id, label, street").eq("user_id", id).returns<Addr[]>(),
+    svc.from("addresses").select("id, label, street, cap, civico, intercom, floor, notes, access_mode, access_note, concierge_hours, lat, lng").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
     svc.from("recurring_pickups").select("id, weekday, hhmm, bags, active, needs_confirmation, delivery_hhmm, address_id, addresses(label), pending_weekday, pending_hhmm, pending_bags, pending_delivery_hhmm").eq("customer_id", id).order("created_at", { ascending: false }).returns<Rec[]>(),
     svc.from("slots").select("id, starts_at, ends_at, kind").gte("starts_at", new Date().toISOString()).order("starts_at").limit(60).returns<Slot[]>(),
+    svc.from("subscription_offers").select("id, description, amount_cents, checkout_url, expires_at, created_at").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Offerta>(),
   ]);
   const email = userRes?.user?.email ?? "—";
 
@@ -81,6 +91,9 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const active = sub?.status === "active" || sub?.status === "trialing";
   const inSofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
   const disdetto = sub?.status === "canceled";
+  // Le sessioni di Checkout scadono: un link morto mandato al cliente è peggio
+  // che nessun link, quindi si dice invece di mostrarlo come se fosse buono.
+  const linkScaduto = !!offerta?.expires_at && new Date(offerta.expires_at) < new Date();
 
   // Cosa impedisce di eliminare il cliente. Va saputo PRIMA di premere il
   // bottone rosso: si arrivava in fondo alla conferma «sei sicuro» per poi
@@ -254,6 +267,33 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           ) : (
             <p className="mt-3 text-sm font-medium text-muted">Nessun abbonamento.</p>
           )}
+
+          {/* Proposta in attesa: c'è un link di pagamento in mano al cliente e
+              nessun abbonamento attivo. Prima di questo riquadro, chi aveva
+              ricevuto un'offerta e non aveva ancora pagato era indistinguibile
+              da chi non era mai stato contattato. */}
+          {!active && offerta && (
+            <div className="mt-4 rounded-[16px] border border-[#C9881F]/35 bg-[#C9881F]/8 p-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="font-display text-sm font-extrabold text-[#C9881F]">In attesa di pagamento</h3>
+                <span className="font-display text-sm font-black text-[#C9881F]">{eur(offerta.amount_cents)}/mese</span>
+              </div>
+              <p className="mt-1 text-xs font-semibold text-[#C9881F]">
+                {offerta.description} · link inviato il {fmtDate(offerta.created_at)}
+                {linkScaduto
+                  ? " · il link è scaduto, generane uno nuovo qui sotto"
+                  : offerta.expires_at
+                    ? ` · valido fino al ${fmtDateTime(offerta.expires_at)}`
+                    : ""}
+              </p>
+              {!linkScaduto && (
+                <div className="mt-2 break-all rounded-[10px] bg-white px-2.5 py-1.5 text-[11px] font-medium text-navy">
+                  {offerta.checkout_url}
+                </div>
+              )}
+            </div>
+          )}
+
           {!active && <CustomSubscriptionForm customerId={id} />}
         </Card>
 
@@ -319,11 +359,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                 e in app trova solo un avviso al posto della prenotazione.
               </p>
             ) : (
-              (addresses ?? []).map((a) => (
-                <div key={a.id} className="rounded-[12px] border border-line bg-ice px-3 py-2 text-sm">
-                  <span className="font-bold text-navy">{a.label ?? "Indirizzo"}</span> <span className="text-muted">· {a.street}</span>
-                </div>
-              ))
+              (addresses ?? []).map((a) => <SchedaIndirizzo key={a.id} a={a} />)
             )}
           </div>
 
@@ -687,6 +723,70 @@ export default async function CustomerPage({ params, searchParams }: { params: P
         )}
       </Sezione>
     </>
+  );
+}
+
+/** Un indirizzo con dentro tutto quello che serve per arrivare alla porta.
+ *
+ *  Mostrava solo etichetta e via. Ma quando il rider chiama perché il portone
+ *  non si apre, chi risponde deve poter leggere da qui il citofono, il piano,
+ *  come si entra e la nota lasciata dal cliente — senza chiamare il cliente
+ *  per farselo ridire. I campi ci sono sempre stati, semplicemente non li
+ *  guardava nessuno.
+ *
+ *  Le voci mancanti si dicono («nessuna nota», «piano non indicato») invece di
+ *  sparire: una riga assente si legge come «non l'ho cercata», una riga che
+ *  dice «manca» si legge come «lo sappiamo, va chiesto». */
+function SchedaIndirizzo({ a }: { a: Addr }) {
+  const vuoto = <span className="font-normal italic text-muted/70">non indicato</span>;
+  return (
+    <div className="rounded-[12px] border border-line bg-ice px-3 py-2.5 text-sm">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-bold text-navy">{a.label ?? "Indirizzo"}</span>
+        <span className="text-muted">· {a.street}</span>
+      </div>
+
+      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+        <div>
+          <dt className="font-bold uppercase tracking-wide text-navy/40">Come si entra</dt>
+          <dd className="font-semibold text-navy">
+            {a.access_mode ? ACCESS_MODE_LABEL[a.access_mode] : vuoto}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-bold uppercase tracking-wide text-navy/40">Citofono</dt>
+          <dd className="font-semibold text-navy">{a.intercom || vuoto}</dd>
+        </div>
+        <div>
+          <dt className="font-bold uppercase tracking-wide text-navy/40">Piano</dt>
+          <dd className="font-semibold text-navy">{a.floor || vuoto}</dd>
+        </div>
+        <div>
+          <dt className="font-bold uppercase tracking-wide text-navy/40">Portineria</dt>
+          <dd className="font-semibold text-navy">
+            {a.concierge_hours || (a.access_mode === "concierge" ? vuoto : <span className="font-normal text-muted/70">nessuna</span>)}
+          </dd>
+        </div>
+        <div className="col-span-2">
+          <dt className="font-bold uppercase tracking-wide text-navy/40">Nota per entrare</dt>
+          <dd className="font-semibold text-navy">{a.access_note || vuoto}</dd>
+        </div>
+        {a.notes && (
+          <div className="col-span-2">
+            <dt className="font-bold uppercase tracking-wide text-navy/40">Nota del cliente</dt>
+            <dd className="font-semibold text-navy">{a.notes}</dd>
+          </div>
+        )}
+      </dl>
+
+      {/* Senza coordinate l'indirizzo non entra in nessuna zona e l'ordine non
+          si assegna da solo: è un guasto operativo, non un dettaglio. */}
+      {a.lat == null || a.lng == null ? (
+        <p className="mt-2 rounded-[8px] bg-[#C9881F]/12 px-2 py-1 text-[11px] font-bold text-[#C9881F]">
+          Senza coordinate: non finisce in nessuna zona. Usa &ldquo;Geocodifica indirizzi mancanti&rdquo; in Catalogo.
+        </p>
+      ) : null}
+    </div>
   );
 }
 
