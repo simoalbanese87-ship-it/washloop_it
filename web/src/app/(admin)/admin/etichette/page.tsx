@@ -1,7 +1,7 @@
 import Link from "next/link";
 import QRCode from "qrcode";
 import { Card, PageTitle } from "@/components/app/AppShell";
-import { BagTag } from "@/components/admin/BagTag";
+import { EtichettaSacco } from "@/components/admin/EtichettaSacco";
 import { PrintButton } from "@/components/app/PrintButton";
 import { createServiceClient } from "@/lib/supabase/server";
 import { segnaTagConsegnati, annullaTagConsegnati } from "@/lib/actions/tags";
@@ -20,10 +20,12 @@ type Riga = {
   tags_qty: number | null;
   is_test: boolean | null;
   created_at: string;
-  subscriptions: { status: string; current_period_end: string | null; created_at: string }[] | null;
+  subscriptions:
+    | { status: string; current_period_end: string | null; created_at: string; manual: boolean | null; plans: { name: string } | null }[]
+    | null;
 };
 
-type Persona = Riga & { stadio: Stadio };
+type Persona = Riga & { stadio: Stadio; abbonamento: string };
 
 /** Stampa e gestione dei tag QR per i sacchi.
  *
@@ -60,7 +62,7 @@ export default async function EtichettePage({
   const svc = createServiceClient();
   const { data: righe } = await svc
     .from("profiles")
-    .select("id, full_name, client_code, tags_delivered_at, tags_qty, is_test, created_at, subscriptions(status, current_period_end, created_at)")
+    .select("id, full_name, client_code, tags_delivered_at, tags_qty, is_test, created_at, subscriptions(status, current_period_end, created_at, manual, plans(name))")
     .eq("role", "customer")
     .not("client_code", "is", null)
     .order("created_at", { ascending: false })
@@ -72,7 +74,11 @@ export default async function EtichettePage({
       // L'ultima subscription: la stessa regola di /admin/persone, così un
       // cliente non risulta attivo di là e lead di qua.
       const ultima = [...(r.subscriptions ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
-      return { ...r, stadio: stadioDaSubscription(ultima) };
+      // Il piano com'è scritto sull'etichetta. Un abbonamento concordato a mano
+      // non ha un piano di listino: si scrive "Personalizzato" invece di
+      // lasciare la riga vuota sul cartellino.
+      const abbonamento = ultima?.plans?.name ?? (ultima?.manual ? "Personalizzato" : "—");
+      return { ...r, stadio: stadioDaSubscription(ultima), abbonamento };
     });
 
   const quantiDiProva = (righe ?? []).filter((r) => r.is_test).length;
@@ -92,11 +98,14 @@ export default async function EtichettePage({
     c === "tutti" ? clienti : c === "mancanti" ? mancanti : c ? persone.filter((p) => p.id === c) : [];
 
   // Un QR per persona scelta, generato qui: `qrcode` gira solo lato server.
-  const tags: { code: string; qr: string }[] = [];
+  // Il QR è più grande di prima (l'etichetta è 15 cm): a 320 px sgranava.
+  const tags: { code: string; qr: string; nome: string; abbonamento: string }[] = [];
   for (const cl of scelti) {
     if (!cl.client_code) continue;
-    const qr = await QRCode.toDataURL(cl.client_code, { margin: 1, width: 320 });
-    for (let i = 0; i < copie; i++) tags.push({ code: cl.client_code, qr });
+    const qr = await QRCode.toDataURL(cl.client_code, { margin: 1, width: 600 });
+    for (let i = 0; i < copie; i++) {
+      tags.push({ code: cl.client_code, qr, nome: cl.full_name ?? "—", abbonamento: cl.abbonamento });
+    }
   }
 
   if (tags.length > 0) {
@@ -104,11 +113,17 @@ export default async function EtichettePage({
       <div>
         {/* In stampa spariscono navigazione e comandi, e i tag non vengono
             spezzati a metà tra due pagine. */}
-        <style>{`@media print {
+        {/* Le etichette vanno in una tasca da 15 × 6 cm: la stampa deve uscire
+            in scala 1:1. Margini stretti e nessun adattamento alla pagina —
+            se il browser rimpicciolisce per far stare tutto, l'etichetta non
+            entra più nel porta-etichette. Ricordarsi di stampare al 100%. */}
+        <style>{`@page { size: A4 portrait; margin: 8mm; }
+        @media print {
           header, nav, .no-print { display: none !important; }
           body { background: #fff !important; }
           main { padding: 0 !important; }
           .tag { break-inside: avoid; page-break-inside: avoid; }
+          .foglio { gap: 4mm !important; }
         }`}</style>
 
         <div className="no-print mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -124,14 +139,21 @@ export default async function EtichettePage({
         </div>
 
         <div className="no-print mb-5 rounded-[14px] border border-line bg-ice px-4 py-3 text-sm font-medium text-muted">
-          Stampa su carta adesiva A4 e applica un tag per sacco. Dopo averli consegnati, torna all&apos;elenco e
-          segnali come consegnati: è l&apos;unico modo per sapere poi chi manca. Sul tag non compaiono nome,
-          indirizzo, telefono né la lavanderia — al banco deve arrivare solo il codice.
+          Ogni etichetta misura <strong>15 × 6 cm</strong>, la misura del porta-etichette: stampa su A4 al
+          <strong> 100%</strong>, senza &ldquo;adatta alla pagina&rdquo;, altrimenti esce più piccola e non entra.
+          Su un foglio ne stanno quattro. Dopo averle consegnate, torna all&apos;elenco e segnale come consegnate:
+          è l&apos;unico modo per sapere poi chi manca.
         </div>
 
-        <div className="flex flex-wrap gap-4">
+        <div className="foglio flex flex-col items-start gap-4">
           {tags.map((t, i) => (
-            <BagTag key={`${t.code}-${i}`} clientCode={t.code} qrDataUrl={t.qr} />
+            <EtichettaSacco
+              key={`${t.code}-${i}`}
+              clientCode={t.code}
+              qrDataUrl={t.qr}
+              nome={t.nome}
+              abbonamento={t.abbonamento}
+            />
           ))}
         </div>
       </div>
