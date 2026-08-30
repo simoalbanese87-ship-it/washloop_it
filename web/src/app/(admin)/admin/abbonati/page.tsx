@@ -3,7 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { impersonate, createDemoCustomer } from "@/lib/actions/impersonate";
-import { createCustomer } from "@/lib/actions/admin-customer";
+import { createCustomer, deleteCustomer } from "@/lib/actions/admin-customer";
 import { fmtDate } from "@/lib/format";
 
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
@@ -26,6 +26,10 @@ const STATUS_LABEL: Record<string, string> = {
   unpaid: "Non pagato", canceled: "Disdetto", paused: "In pausa",
   incomplete: "Da attivare", pending: "Pending (lead)",
 };
+/** Stati in cui l'eliminazione verrebbe comunque rifiutata: prima va disdetto
+ *  l'abbonamento, altrimenti l'addebito su Stripe continuerebbe. */
+const ATTIVI_PER_ELIMINA = ["active", "trialing", "past_due"];
+
 const tone = (s: string) =>
   s === "active" || s === "trialing" ? "bg-[#1F8A5B]/15 text-[#1F8A5B]"
     : s === "past_due" || s === "unpaid" ? "bg-[#C0392B]/12 text-[#C0392B]"
@@ -134,12 +138,37 @@ export default async function AbbonatiPage({ searchParams }: { searchParams: Pro
               <div className="text-sm font-medium text-muted">
                 {r.current_period_end ? fmtDate(r.current_period_end) : "—"}
               </div>
-              <form action={impersonate}>
-                <input type="hidden" name="user_id" value={r.user_id} />
-                <button type="submit" className="rounded-full border border-line px-3 py-1.5 font-display text-xs font-extrabold text-blue transition-colors hover:bg-ice">
-                  Accedi come →
-                </button>
-              </form>
+              <div className="flex items-center justify-end gap-2">
+                <form action={impersonate}>
+                  <input type="hidden" name="user_id" value={r.user_id} />
+                  <button type="submit" className="rounded-full border border-line px-3 py-1.5 font-display text-xs font-extrabold text-blue transition-colors hover:bg-ice">
+                    Accedi come →
+                  </button>
+                </form>
+                {/* Eliminare un lead richiedeva di entrare nella sua scheda e
+                    scendere in fondo. Qui la lista è piena di registrazioni mai
+                    diventate niente, ed è il posto naturale per toglierle.
+                    Il bottone non compare per chi ha un abbonamento in corso:
+                    lì l'eliminazione verrebbe rifiutata, e va disdetto prima. */}
+                {!ATTIVI_PER_ELIMINA.includes(r.status) && (
+                  <details className="relative">
+                    <summary className="cursor-pointer list-none rounded-full border border-[#C0392B]/30 px-3 py-1.5 font-display text-xs font-extrabold text-[#C0392B] transition-colors hover:bg-[#C0392B]/5">
+                      Elimina
+                    </summary>
+                    <form
+                      action={deleteCustomer}
+                      className="absolute right-0 z-10 mt-1.5 flex items-center gap-2 whitespace-nowrap rounded-[12px] border border-[#C0392B]/25 bg-white px-3 py-2 shadow-lg"
+                    >
+                      <input type="hidden" name="customer_id" value={r.user_id} />
+                      <input type="hidden" name="back" value="/admin/abbonati" />
+                      <span className="text-xs font-semibold text-navy">Cancellare {r.name}?</span>
+                      <button type="submit" className="rounded-full bg-[#C0392B] px-3 py-1 font-display text-xs font-extrabold text-white">
+                        Sì, elimina
+                      </button>
+                    </form>
+                  </details>
+                )}
+              </div>
             </div>
           ))}
         </div>
