@@ -78,6 +78,7 @@ export function OrdersBoard({
   laundries,
   zones,
   filtroIniziale,
+  adesso,
 }: {
   orders: BoardOrder[];
   couriers: Opt[];
@@ -85,9 +86,15 @@ export function OrdersBoard({
   zones: Opt[];
   /** Arriva dai riquadri della Home: apre il board già filtrato. */
   filtroIniziale?: "ritardo" | "da_assegnare";
+  /** L'istante del render lato server. Serve perché il primo disegno del board
+   *  sia già filtrato: partendo da zero si vedeva per un attimo il board senza
+   *  filtro di periodo — «5 da ritirare» che un istante dopo diventavano 0 —
+   *  e sembrava che gli ordini sparissero. È una prop, quindi server e client
+   *  disegnano lo stesso identico primo render. */
+  adesso: number;
 }) {
   const router = useRouter();
-  const [now, setNow] = useState(0);
+  const [now, setNow] = useState(adesso);
   const [q, setQ] = useState("");
   const [zone, setZone] = useState("");
   const [laundry, setLaundry] = useState("");
@@ -121,8 +128,8 @@ export function OrdersBoard({
 
   const lateOf = (o: BoardOrder) => now > 0 && isLate(o, now);
 
-  // `now` parte a 0 e si popola dopo l'idratazione: finché è 0 il filtro per
-  // periodo resta inattivo, altrimenti il server renderebbe un board vuoto.
+  // `now` arriva già valorizzato dal server e si aggiorna ogni minuto dopo
+  // l'idratazione: il filtro per periodo è attivo fin dal primo disegno.
   const oggi = now ? giornoRoma(new Date(now).toISOString()) : "";
   const fineSettimana = now ? giornoRoma(new Date(now + 6 * 86_400_000).toISOString()) : "";
 
