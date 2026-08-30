@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { messaggioAuth } from "@/lib/auth-messaggi";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
 import { PasswordField } from "@/components/ui/PasswordField";
@@ -10,7 +10,6 @@ const input =
   "h-[54px] w-full rounded-[18px] border-2 border-white/15 bg-white/[0.08] px-4 text-base font-semibold text-white placeholder:font-medium placeholder:text-white/45 outline-none transition-colors focus:border-cyan focus:bg-white/[0.12]";
 
 export default function ResetPage() {
-  const router = useRouter();
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,12 +22,13 @@ export default function ResetPage() {
     const supabase = createClient();
     const { error } = await supabase.auth.updateUser({ password });
     setLoading(false);
-    if (error) return setError(error.message);
+    if (error) return setError(messaggioAuth(error.message));
     setDone(true);
-    setTimeout(() => {
-      router.push("/app");
-      router.refresh();
-    }, 1200);
+    // Navigazione vera e non `router.push` + `router.refresh()`: quella coppia
+    // lasciava la persona ferma sulla pagina, con la password già cambiata e la
+    // sensazione che non fosse successo niente. Stesso difetto trovato sul
+    // modulo di registrazione, stessa cura.
+    setTimeout(() => window.location.assign("/app"), 1200);
   }
 
   return (
