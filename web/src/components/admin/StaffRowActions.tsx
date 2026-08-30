@@ -5,9 +5,14 @@ import { resetStaffPassword, deleteStaff, updateStaffEmail } from "@/lib/actions
 
 /** Azioni per un membro staff: cambia email di accesso, reinvia credenziali,
  *  elimina (con conferma). Il cambio email serve a intestare a una persona vera
- *  un account nato come `*.test@` senza toccarne la password. */
+ *  un account nato come `*.test@` senza toccarne la password.
+ *
+ *  La conferma dell'eliminazione è in pagina e non un `confirm()` del browser:
+ *  è la stessa forma usata nella scheda cliente, dice il nome di chi si sta
+ *  cancellando invece di una finestrella grigia, e non blocca la pagina. */
 export function StaffRowActions({ id, name, email }: { id: string; name: string; email?: string }) {
   const [apri, setApri] = useState(false);
+  const [chiedo, setChiedo] = useState(false);
 
   if (apri) {
     return (
@@ -36,10 +41,22 @@ export function StaffRowActions({ id, name, email }: { id: string; name: string;
         <input type="hidden" name="id" value={id} />
         <button type="submit" className="font-display text-[11px] font-bold text-blue hover:underline">Reinvia accesso</button>
       </form>
-      <form action={deleteStaff} onSubmit={(e) => { if (!confirm(`Eliminare l'accesso di "${name}"? Irreversibile.`)) e.preventDefault(); }}>
-        <input type="hidden" name="id" value={id} />
-        <button type="submit" className="font-display text-[11px] font-bold text-[#C0392B] hover:underline">Elimina</button>
-      </form>
+      {chiedo ? (
+        <form action={deleteStaff} className="flex items-center gap-2 rounded-[10px] border border-[#C0392B]/25 px-2.5 py-1.5">
+          <input type="hidden" name="id" value={id} />
+          <span className="text-[11px] font-semibold text-navy">Elimini l&apos;accesso di {name}?</span>
+          <button type="submit" className="rounded-full bg-[#C0392B] px-2.5 py-1 font-display text-[11px] font-extrabold text-white">
+            Sì, elimina
+          </button>
+          <button type="button" onClick={() => setChiedo(false)} className="font-display text-[11px] font-bold text-muted hover:underline">
+            No
+          </button>
+        </form>
+      ) : (
+        <button type="button" onClick={() => setChiedo(true)} className="font-display text-[11px] font-bold text-[#C0392B] hover:underline">
+          Elimina
+        </button>
+      )}
     </div>
   );
 }
