@@ -9,7 +9,7 @@ import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionFor
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { impersonate } from "@/lib/actions/impersonate";
 import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
-import type { OrderStatus } from "@/lib/orders";
+import { ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { ATTESA_GIORNI } from "@/lib/dunning-piano";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -21,7 +21,7 @@ type Prof = { id: string; full_name: string | null; phone: string | null; client
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
 type Sub = { id: string; status: string; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number } | null };
 type Addr = { id: string; label: string | null; street: string };
-type Ord = { id: string; status: OrderStatus; created_at: string; bags: number };
+type Ord = { id: string; status: OrderStatus; created_at: string; bags: number; pickup_slot: { starts_at: string } | null };
 type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; created_at: string };
 type Slot = { id: string; starts_at: string; ends_at: string; kind: string };
 
@@ -54,7 +54,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     svc.auth.admin.getUserById(id),
     svc.from("subscriptions").select("id, status, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street").eq("user_id", id).returns<Addr[]>(),
-    svc.from("orders").select("id, status, created_at, bags").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
+    svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
     svc.from("recurring_pickups").select("id, weekday, hhmm, bags, active, needs_confirmation, delivery_hhmm, address_id, addresses(label), pending_weekday, pending_hhmm, pending_bags, pending_delivery_hhmm").eq("customer_id", id).order("created_at", { ascending: false }).returns<Rec[]>(),
     svc.from("slots").select("id, starts_at, ends_at, kind").gte("starts_at", new Date().toISOString()).order("starts_at").limit(60).returns<Slot[]>(),
@@ -627,8 +627,14 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             (orders ?? []).map((o) => (
               <Link key={o.id} href={`/admin/ordini/${o.id}`} className="flex items-center justify-between gap-3 rounded-[12px] border border-line px-3 py-2 text-sm transition-colors hover:bg-ice">
                 <span className="font-bold text-navy">#{o.id.slice(0, 8)}</span>
-                <span className="text-muted">{o.bags} {o.bags === 1 ? "sacco" : "sacchi"} · {fmtDate(o.created_at)}</span>
-                <span className="font-display text-xs font-bold text-blue">{o.status}</span>
+                {/* Data del RITIRO e stato in italiano: qui comparivano la data
+                    della prenotazione e la parola grezza del database
+                    («pickup_scheduled»), che non dicono niente a chi legge. */}
+                <span className="text-muted">
+                  {o.bags} {o.bags === 1 ? "sacco" : "sacchi"} ·{" "}
+                  {o.pickup_slot?.starts_at ? `ritiro ${fmtDate(o.pickup_slot.starts_at)}` : `prenotato ${fmtDate(o.created_at)}`}
+                </span>
+                <span className="font-display text-xs font-bold text-blue">{ORDER_STATUS_LABEL[o.status] ?? o.status}</span>
               </Link>
             ))
           )}
