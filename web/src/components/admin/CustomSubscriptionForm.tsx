@@ -42,7 +42,11 @@ export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
       <p className="mt-1 text-xs font-medium text-muted">
         Importo mensile a piacere. Genera un link di pagamento da inviare al cliente: paga, salva la carta e si rinnova da solo ogni mese.
       </p>
-      <form onSubmit={submit} className="mt-3 grid gap-2 sm:grid-cols-[2fr_1fr_auto] sm:items-end">
+      {/* Campi uno sotto l'altro: questo riquadro vive nella colonna stretta
+          della scheda cliente, e su tre colonne l'importo diventava un campo
+          da trenta pixel con dentro solo le frecce, impossibile da usare
+          e da leggere. */}
+      <form onSubmit={submit} className="mt-3 grid gap-2">
         <label className="text-xs font-bold text-muted">Descrizione (facoltativa)
           <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="es. Abbonamento su misura" className={input} />
         </label>
@@ -52,7 +56,7 @@ export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
         <button
           type="submit"
           disabled={loading}
-          className="rounded-full bg-gradient-to-br from-blue to-cyan px-5 py-2 font-display text-sm font-extrabold text-white disabled:opacity-60"
+          className="mt-1 rounded-full bg-gradient-to-br from-blue to-cyan px-5 py-2 font-display text-sm font-extrabold text-white disabled:opacity-60"
         >
           {loading ? "Genero…" : "Genera link →"}
         </button>
