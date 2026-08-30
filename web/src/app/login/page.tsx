@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { requestPasswordReset } from "@/lib/actions/auth";
 import { sendWelcomeIfNeeded } from "@/lib/actions/welcome";
@@ -16,8 +16,23 @@ type Mode = "signin" | "signup";
 const input =
   "h-[54px] w-full rounded-[18px] border-2 border-white/15 bg-white/[0.08] px-4 text-base font-semibold text-white placeholder:font-medium placeholder:text-white/45 outline-none transition-colors focus:border-cyan focus:bg-white/[0.12]";
 
+/** Dopo l'autenticazione si cambia pagina con una navigazione vera del browser,
+ *  non con il router di Next.
+ *
+ *  Con `router.push(dest)` seguito da `router.refresh()` la pagina non si
+ *  muoveva: l'account veniva creato, la sessione pure, nessun errore in console
+ *  — e si restava fermi sul modulo. Verificato tre volte di fila sul sito in
+ *  produzione. Il refresh subito dopo il push annulla la navigazione appena
+ *  cominciata.
+ *
+ *  Qui non serve una transizione morbida: è il momento in cui cambia chi sei.
+ *  Un caricamento pieno fa ripartire il server con il cookie di sessione nuovo,
+ *  senza stati intermedi da tenere in piedi, e non può fallire in silenzio. */
+function vaiA(destinazione: string) {
+  window.location.assign(destinazione);
+}
+
 function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
   // Piano scelto sulla home (Attiva → iscrizione → pay) e destinazione post-auth.
   const planCode = params.get("plan");
@@ -62,17 +77,16 @@ function LoginForm() {
       // intoppo qui bloccava l'iscrizione a metà.
       void segnaConsenso(supabase, esito.userId, acceptedAt);
       void sendWelcomeIfNeeded();
-      setLoading(false);
-      router.push(dest);
-      router.refresh();
+      vaiA(dest);
       return;
     }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) return setError(messaggioAuth(error.message));
-    router.push(dest);
-    router.refresh();
+    if (error) {
+      setLoading(false);
+      return setError(messaggioAuth(error.message));
+    }
+    vaiA(dest);
   }
 
   async function forgotPassword() {
