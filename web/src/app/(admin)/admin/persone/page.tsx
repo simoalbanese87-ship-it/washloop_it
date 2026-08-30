@@ -5,7 +5,7 @@ import { importaFunnelSeServe } from "@/lib/funnel-import";
 import { fmtDate, eurCents } from "@/lib/format";
 import { LeadStatusSelect } from "@/components/admin/LeadStatusSelect";
 import { LeadActions } from "@/components/admin/LeadActions";
-import { isContactStatus, type ContactStatus } from "@/lib/lead-status";
+import { CONTACT_STATUS_LABEL, isContactStatus, type ContactStatus } from "@/lib/lead-status";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,7 @@ const uno = (v: string | string[] | undefined): string | undefined =>
 export default async function PersonePage({
   searchParams,
 }: {
-  searchParams: Promise<{ stadio?: string | string[]; q?: string | string[]; prova?: string | string[]; ok?: string | string[]; warn?: string | string[] }>;
+  searchParams: Promise<{ stadio?: string | string[]; contatto?: string | string[]; q?: string | string[]; prova?: string | string[]; ok?: string | string[]; warn?: string | string[] }>;
 }) {
   const sp = await searchParams;
   const q = uno(sp.q);
@@ -36,6 +36,10 @@ export default async function PersonePage({
   // ignora e si vedono tutti.
   const stadioGrezzo = uno(sp.stadio);
   const stadio = (STADI as readonly string[]).includes(stadioGrezzo ?? "") ? (stadioGrezzo as Stadio) : undefined;
+  // Stato del contatto: ci si arriva dalla home ("Da contattare"), e senza
+  // questo filtro quel numero aprirebbe una lista che non lo rispetta.
+  const contattoGrezzo = uno(sp.contatto);
+  const contatto = isContactStatus(contattoGrezzo ?? "") ? (contattoGrezzo as ContactStatus) : undefined;
   const includiProva = prova === "1";
   const needle = (q ?? "").toLowerCase();
 
@@ -50,16 +54,19 @@ export default async function PersonePage({
   // compariva nessuno. Ora i conteggi sono sempre quelli di ciò che si vede.
   const cerca = (p: (typeof tutte)[number]) =>
     !needle || `${p.nome} ${p.email ?? ""} ${p.telefono ?? ""} ${p.clientCode ?? ""}`.toLowerCase().includes(needle);
-  const base = tutte.filter(cerca);
+  // Lo stato non impostato vale "da contattare": è così che lo mostra la riga,
+  // e un filtro che lo escludesse direbbe zero su una lista piena.
+  const statoDi = (p: (typeof tutte)[number]) => (isContactStatus(p.statoContatto ?? "") ? p.statoContatto : "da_contattare");
+  const base = tutte.filter((p) => cerca(p) && (!contatto || statoDi(p) === contatto));
   const lista = stadio ? base.filter((p) => p.stadio === stadio) : base;
 
   const conta = (s: Stadio) => base.filter((p) => p.stadio === s).length;
   const ricorrente = base.reduce((t, p) => t + p.valoreMensileCents, 0);
-  const qui = `/admin/persone${stadio || q || prova ? `?${new URLSearchParams(Object.entries({ stadio, q, prova }).filter(([, v]) => v) as [string, string][])}` : ""}`;
+  const qui = `/admin/persone${stadio || contatto || q || prova ? `?${new URLSearchParams(Object.entries({ stadio, contatto, q, prova }).filter(([, v]) => v) as [string, string][])}` : ""}`;
 
   const qs = (patch: Record<string, string | undefined>) => {
     const u = new URLSearchParams();
-    for (const [k, v] of Object.entries({ stadio, q, prova, ...patch })) if (v) u.set(k, v);
+    for (const [k, v] of Object.entries({ stadio, contatto, q, prova, ...patch })) if (v) u.set(k, v);
     return u.toString() ? `?${u}` : "";
   };
 
@@ -118,6 +125,14 @@ export default async function PersonePage({
           </Link>
         </form>
 
+        {contatto && (
+          <p className="mt-2 text-xs font-medium text-muted">
+            Filtrato per stato del contatto: <strong>{CONTACT_STATUS_LABEL[contatto]}</strong>.{" "}
+            <Link href={`/admin/persone${qs({ contatto: undefined })}`} className="font-display font-bold text-blue hover:underline">
+              Togli il filtro
+            </Link>
+          </p>
+        )}
         {q && (
           <p className="mt-2 text-xs font-medium text-muted">
             I conteggi qui sopra sono quelli della ricerca «{q}».{" "}

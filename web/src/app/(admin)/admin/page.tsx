@@ -3,6 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatTile } from "@/components/admin/StatTile";
 import { CustomersPanel } from "@/components/admin/CustomersPanel";
 import { createServiceClient } from "@/lib/supabase/server";
+import { daContattare } from "@/lib/persone";
 import { revenueMetrics, laundryMetrics, subscriberMetrics, customersList } from "@/lib/admin-metrics";
 import { sendDigestNow } from "@/lib/actions/digest";
 import { eurCents } from "@/lib/format";
@@ -41,8 +42,11 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     return includiProva ? q : q.eq("profiles.is_test", false);
   };
 
-  const [daContattare, inRitardo, senzaRider, pagamentiKo, rev, laundry, subs, customers] = await Promise.all([
-    svc.from("leads").select("id", { count: "exact", head: true }).eq("contact_status", "da_contattare"),
+  const [daRichiamare, inRitardo, senzaRider, pagamentiKo, rev, laundry, subs, customers] = await Promise.all([
+    // Non una query sui soli `leads`: quella contava anche chi nel frattempo è
+    // diventato cliente. `daContattare` passa dalla stessa deduplica di Persone,
+    // così il numero e la pagina che apre dicono la stessa cosa.
+    daContattare(includiProva),
     // Ritardo = doveva essere pronto e non lo è ancora. Stessa regola del board
     // ordini (`isLate`), qui applicata dal database invece che nel browser.
     ordiniVeri().lt("eta_ready_at", oraIso),
@@ -57,9 +61,9 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
   const blocchi: Blocco[] = [
     {
       label: "Da contattare",
-      n: daContattare.count ?? 0,
+      n: daRichiamare.length,
       sub: "contatti senza risposta",
-      href: "/admin/contatti?stato=da_contattare",
+      href: "/admin/persone?stadio=lead&contatto=da_contattare",
       tono: "text-[#C9881F]",
     },
     {

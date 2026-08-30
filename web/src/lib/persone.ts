@@ -168,3 +168,16 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
   persone.sort((a, b) => (a.creatoIl < b.creatoIl ? 1 : -1));
   return persone;
 }
+
+/** Chi è davvero da richiamare: un lead, con lo stato del contatto ancora
+ *  aperto. Stato non impostato conta come "da contattare", perché è così che lo
+ *  mostra la lista.
+ *
+ *  Passa dalla stessa deduplica dell'elenco e non da una query sui soli `leads`:
+ *  la dashboard contava cinque persone da contattare, e due erano già clienti —
+ *  uno di loro un abbonato attivo e pagante. Chiedeva di rincorrere gente che
+ *  avevamo già. */
+export async function daContattare(includiProva = false): Promise<Persona[]> {
+  const tutte = await elencoPersone(includiProva);
+  return tutte.filter((p) => p.stadio === "lead" && (p.statoContatto == null || p.statoContatto === "da_contattare"));
+}
