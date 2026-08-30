@@ -3,9 +3,14 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { DashboardCustomer } from "@/lib/admin-metrics";
-import { DeleteUserButton } from "./DeleteUserButton";
 
-/** Elenco clienti (abbonati attivi) con ricerca e elimina. */
+/** Elenco clienti (abbonati attivi) con ricerca.
+ *
+ *  Niente "Elimina" qui: questo pannello mostra solo chi ha l'abbonamento in
+ *  corso, e per quelli l'eliminazione viene rifiutata comunque — prima va
+ *  disdetto, altrimenti l'addebito su Stripe continua. Era un bottone rosso
+ *  che non poteva funzionare mai. Si passa dalla scheda del cliente, dove il
+ *  motivo è scritto insieme a cosa fare. */
 
 const STATUS_LABEL: Record<string, string> = { active: "Attivo", trialing: "In prova" };
 
@@ -53,7 +58,6 @@ export function CustomersPanel({ customers }: { customers: DashboardCustomer[] }
                   <span>Cliente dal {fmtDate(c.since)}</span>
                 </div>
               </Link>
-              <DeleteUserButton id={c.id} name={c.name} />
             </div>
           ))}
         </div>

@@ -129,7 +129,7 @@ export function LeadsPanel({ leads, leadError, readOnly = false }: { leads: Dash
                 {!readOnly && (
                   <div className="flex flex-none items-center gap-3">
                     {l.href && <Link href={l.href} className="font-display text-xs font-bold text-blue hover:underline">Apri →</Link>}
-                    {siteId && <DeleteUserButton id={siteId} name={l.name} />}
+                    {siteId && <DeleteUserButton id={siteId} name={l.name} back="/admin" />}
                     {landingId && <LeadActions leadId={landingId} name={l.name} back="/admin" />}
                   </div>
                 )}
