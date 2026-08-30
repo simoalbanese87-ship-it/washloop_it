@@ -6,6 +6,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
 import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra } from "@/lib/actions/admin-customer";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
+import { LinkOfferta } from "@/components/admin/LinkOfferta";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { impersonate } from "@/lib/actions/impersonate";
 import { cancelOrder } from "@/lib/actions/orders";
@@ -286,11 +287,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                     ? ` · valido fino al ${fmtDateTime(offerta.expires_at)}`
                     : ""}
               </p>
-              {!linkScaduto && (
-                <div className="mt-2 break-all rounded-[10px] bg-white px-2.5 py-1.5 text-[11px] font-medium text-navy">
-                  {offerta.checkout_url}
-                </div>
-              )}
+              {!linkScaduto && <LinkOfferta url={offerta.checkout_url} />}
             </div>
           )}
 
