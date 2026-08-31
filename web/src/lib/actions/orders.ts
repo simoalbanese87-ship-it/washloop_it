@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { haversineKm } from "@/lib/route";
-import { canTransition, transitionError } from "@/lib/orders";
+import { canTransition, transitionError, statusIndex } from "@/lib/orders";
 import type { OrderStatus, ScanResult, RiderLivePos } from "@/lib/orders";
 import { romeLocalToISO, romeWeekday, romeHHMM } from "@/lib/format";
 import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
@@ -244,16 +244,39 @@ export async function scheduleDelivery(formData: FormData) {
   if (!id || !delivery_slot_id) throw new Error("Ordine e fascia di consegna obbligatori");
 
   const supabase = await createClient();
-  const { error } = await supabase
+
+  // Fissare la fascia di riconsegna NON vuol dire che il bucato sia pronto.
+  //
+  // Prima questa azione forzava sempre lo stato a "consegna programmata": su un
+  // sacco ancora a casa del cliente lo catapultava avanti di quattro passaggi,
+  // saltando ritiro, lavanderia e lavaggio. Il guaio non era estetico — lo
+  // scanner del rider deduce dallo stato se sta ritirando o consegnando: alla
+  // tappa successiva avrebbe registrato una CONSEGNA di un sacco mai ritirato,
+  // e al cliente sarebbe arrivato "bucato consegnato" mentre glielo portavano
+  // via. Successo davvero, sull'ordine di una cliente vera.
+  //
+  // La fascia si salva sempre — anche in anticipo, ed è il caso normale visto
+  // che il cliente la sceglie già in prenotazione. Lo stato avanza solo quando
+  // il bucato è davvero pronto.
+  const { data: prima } = await supabase
     .from("orders")
-    .update({ delivery_slot_id, status: "delivery_scheduled" as OrderStatus })
-    .eq("id", id);
+    .select("status")
+    .eq("id", id)
+    .maybeSingle<{ status: OrderStatus }>();
+  const pronto = prima ? statusIndex(prima.status) >= statusIndex("ready") : false;
+
+  const patch: Record<string, unknown> = { delivery_slot_id };
+  if (pronto) patch.status = "delivery_scheduled" as OrderStatus;
+
+  const { error } = await supabase.from("orders").update(patch).eq("id", id);
   if (error) {
     // Slot pieno (lo blocca un trigger in DB): messaggio in pagina, non schermata d'errore.
     redirect(`/admin/ordini/${id}?err=${encodeURIComponent(slotFullMessage(error) ?? "Impossibile fissare questa fascia. Riprova.")}`);
   }
 
-  await notifyOrderStatus(id, "delivery_scheduled");
+  // Si avvisa il cliente solo se la consegna è davvero programmata: dirgli
+  // "arriviamo" quando il sacco è ancora a casa sua sarebbe incomprensibile.
+  if (pronto) await notifyOrderStatus(id, "delivery_scheduled");
   revalidatePath(`/admin/ordini/${id}`);
   revalidatePath("/admin/ordini");
   revalidatePath(`/app/ordini/${id}`);
