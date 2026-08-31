@@ -118,6 +118,14 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
           ) : (
             <>
               <p className="mt-1 text-sm font-medium text-muted">Aggiungi i capi fuori listino base ricevuti: l&apos;addebito al cliente è automatico.</p>
+              {/* La regola delle camicie non era scritta da nessuna parte lato
+                  lavanderia: chi apre il sacco non poteva sapere quante fossero
+                  incluse, quindi o le contava tutte o non ne contava nessuna.
+                  Va detta qui, davanti al modulo con cui si contano. */}
+              <p className="mt-2 rounded-[12px] bg-[#C9881F]/10 px-3 py-2 text-sm font-semibold text-[#C9881F]">
+                Camicie: le prime <strong>3 per sacco</strong> sono comprese nell&apos;abbonamento e non si aggiungono.
+                Conta solo quelle in più — dalla quarta in poi, una riga per ciascuna.
+              </p>
               <div className="mt-4">
                 <AddSpecialForm orderId={order.order_id} items={listino ?? []} />
               </div>
