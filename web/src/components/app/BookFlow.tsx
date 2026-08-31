@@ -346,6 +346,12 @@ export function BookFlow({
             <div className="text-sm">
               <div className="font-display font-extrabold text-navy">Nessun acquisto adesso</div>
               <div className="mt-0.5 font-medium text-muted">Metti i capi speciali in un sacco separato dal bucato: li riconosciamo, li trattiamo e li addebitiamo in automatico a fine mese.</div>
+              {/* La regola delle camicie era scritta solo sul sito e nelle FAQ,
+                  cioè dove si decide se abbonarsi — non qui, dove si decide
+                  cosa mettere nel sacco. È il momento in cui serve saperla. */}
+              <div className="mt-2 rounded-[12px] bg-white/70 px-3 py-2 font-semibold text-navy">
+                Nel sacco del bucato ci stanno fino a <strong>3 camicie</strong>: dalla quarta in poi si contano a listino.
+              </div>
             </div>
           </div>
 
@@ -378,7 +384,7 @@ export function BookFlow({
               </div>
             );
           })}
-          <p className="text-center text-xs font-medium text-muted">Prezzi IVA inclusa · addebito automatico a fine mese in base ai capi lasciati nel sacco.</p>
+          <p className="text-center text-xs font-medium text-muted">Prezzi IVA inclusa · addebito automatico a fine mese in base ai capi lasciati nel sacco · fino a 3 camicie incluse nel sacco.</p>
         </div>
       )}
 
