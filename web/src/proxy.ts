@@ -26,9 +26,21 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Una sessione vecchia non è un guasto: è una persona che torna dopo giorni.
+  //
+  // `getUser()` LANCIA quando il refresh token è scaduto o è stato revocato
+  // (`AuthApiError: Invalid Refresh Token`), e senza questo try l'eccezione
+  // usciva dal proxy: al posto della pagina di accesso il cliente si trovava
+  // davanti una schermata di errore, e pensava che il sito fosse rotto.
+  // È già successo a tre persone.
+  let user = null;
+  let sessioneMarcia = false;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch {
+    sessioneMarcia = true;
+  }
 
   const path = request.nextUrl.pathname;
   const needsAuth = PROTECTED.some((p) => path === p || path.startsWith(p + "/"));
@@ -37,7 +49,15 @@ export async function proxy(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", path);
-    return NextResponse.redirect(url);
+    const redirect = NextResponse.redirect(url);
+    // I cookie di una sessione morta vanno buttati, altrimenti l'errore si
+    // ripresenta a ogni richiesta e la persona resta in un giro chiuso.
+    if (sessioneMarcia) {
+      for (const c of request.cookies.getAll()) {
+        if (c.name.startsWith("sb-")) redirect.cookies.delete(c.name);
+      }
+    }
+    return redirect;
   }
 
   return response;
