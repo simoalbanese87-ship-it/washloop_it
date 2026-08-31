@@ -515,7 +515,9 @@ export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<
   if (!order) {
     return {
       ok: false,
-      error: `${prof.full_name ?? clientCode} ha ${attivi.length} ordini aperti nel tuo giro. Apri la tappa giusta e usa "Scansiona" da lì.`,
+      // Dire "apri la tappa giusta" non basta: chi legge è in strada col
+      // telefono in mano e non sa dove sia. Si dice dove guardare.
+      error: `${prof.full_name ?? clientCode} ha ${attivi.length} passaggi nel tuo giro: da qui non so quale sacco hai in mano. Scorri in basso fino a "Ritiri" o "Consegne", apri la scheda di ${prof.full_name ?? clientCode} e usa "Scansiona le borse" lì dentro.`,
     };
   }
 
