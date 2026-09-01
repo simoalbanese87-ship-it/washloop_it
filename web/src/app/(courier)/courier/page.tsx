@@ -6,7 +6,7 @@ import { RiderMapLoader } from "@/components/app/RiderMapLoader";
 import type { Stop, Depot } from "@/components/app/RiderMap";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
-import { fmtSlot, fineGiornataRoma } from "@/lib/format";
+import { fmtSlot, entroOggiRoma } from "@/lib/format";
 import { optimizeOrder } from "@/lib/route";
 import type { OrderStatus, AccessMode } from "@/lib/orders";
 
@@ -77,11 +77,7 @@ export default async function CourierToday() {
   // di ieri mai chiuso — restano: vanno recuperate, non nascoste. Chi non ha
   // ancora una fascia (riconsegna da programmare) resta a vista per lo stesso
   // motivo.
-  const fineOggi = fineGiornataRoma();
-  const rows = tutte.filter((r) => {
-    const s = slotOf(r)?.starts_at;
-    return !s || s <= fineOggi;
-  });
+  const rows = tutte.filter((r) => entroOggiRoma(slotOf(r)?.starts_at));
   const piuAvanti = tutte.length - rows.length;
 
   // Deposito = hub logistico interno (tabella depots). Solo lato rider, mai al cliente.

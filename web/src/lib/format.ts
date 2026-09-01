@@ -114,11 +114,25 @@ export function toRomeInputValue(iso: string | null): string {
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
-/** Fine della giornata odierna in ora di Roma, come ISO UTC.
+/** Fine della giornata odierna in ora di Roma, in millisecondi.
  *
  *  Serve a tagliare "oggi" da "in futuro" senza dipendere dal fuso del server:
  *  su Vercel `new Date()` è UTC, e per due ore ogni notte il giorno italiano e
- *  quello UTC non coincidono. */
-export function fineGiornataRoma(now: Date = new Date()): string {
-  return romeLocalToISO(`${romeDayKey(now)}T23:59`) ?? now.toISOString();
+ *  quello UTC non coincidono.
+ *
+ *  Torna un numero e non una stringa di proposito: il confronto va fatto tra
+ *  istanti. PostgREST scrive i timestamp come `2026-09-01T07:00:00+00:00`,
+ *  `toISOString()` come `2026-09-01T21:59:00.000Z`, e confrontare quelle due
+ *  forme come testo funziona per caso finché non smette. */
+export function fineGiornataRomaMs(now: Date = new Date()): number {
+  const iso = romeLocalToISO(`${romeDayKey(now)}T23:59`);
+  return iso ? Date.parse(iso) : now.getTime();
+}
+
+/** `true` se l'istante cade oggi o prima, in ora di Roma. Un valore assente
+ *  conta come "sì": una fermata senza fascia non va nascosta. */
+export function entroOggiRoma(iso: string | null | undefined, now: Date = new Date()): boolean {
+  if (!iso) return true;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) || t <= fineGiornataRomaMs(now);
 }

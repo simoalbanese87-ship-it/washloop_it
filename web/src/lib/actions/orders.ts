@@ -8,7 +8,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { haversineKm } from "@/lib/route";
 import { canTransition, transitionError, statusIndex } from "@/lib/orders";
 import type { OrderStatus, ScanResult, RiderLivePos } from "@/lib/orders";
-import { romeLocalToISO, romeWeekday, romeHHMM, fineGiornataRoma, fmtDayShort } from "@/lib/format";
+import { romeLocalToISO, romeWeekday, romeHHMM, entroOggiRoma, fmtDayShort } from "@/lib/format";
 import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
 import { registraSacchiLavanderia } from "@/lib/laundry-payout";
 import { slotFullMessage } from "@/lib/slots";
@@ -536,11 +536,7 @@ export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<
   // scansionare il sacco di oggi sul ritiro del 23 settembre — e quel ritiro
   // finiva in lavanderia con la data sbagliata, mentre quello vero restava
   // aperto. Successo davvero il 01/09/2026 su due sacchi.
-  const fineOggi = fineGiornataRoma();
-  const attivi = tutti.filter((o) => {
-    const s = inizioFermata(o);
-    return !s || s <= fineOggi;
-  });
+  const attivi = tutti.filter((o) => entroOggiRoma(inizioFermata(o)));
   if (attivi.length === 0) {
     const prossima = tutti.map(inizioFermata).filter(Boolean).sort()[0];
     return {
