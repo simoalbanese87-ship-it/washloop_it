@@ -20,6 +20,9 @@ export type PartnerOrder = {
   fragrance: string | null;
   status: OrderStatus;
   eta_ready_at: string | null;
+  /** Quante segnalazioni sui capi ha questo ordine. Zero nella stragrande
+   *  maggioranza dei casi: il pallino rosso deve voler dire qualcosa. */
+  segnalazioni?: number;
 };
 
 const COLUMNS: { key: string; title: string; status: OrderStatus }[] = [
@@ -71,6 +74,14 @@ function DraggableCard({ o }: { o: PartnerOrder }) {
             {o.client_code ?? "—"}
           </Link>
           <div className="flex items-center gap-2">
+            {!!o.segnalazioni && (
+              <span
+                title="Segnalazioni sui capi"
+                className="rounded-full bg-[#C0392B]/12 px-2.5 py-1 font-display text-[10px] font-extrabold uppercase tracking-wider text-[#C0392B]"
+              >
+                {o.segnalazioni} segnal.
+              </span>
+            )}
             <span className="rounded-full bg-ice px-2.5 py-1 font-display text-[10px] font-extrabold uppercase tracking-wider text-blue">
               {o.bags} {o.bags === 1 ? "sacco" : "sacchi"}
             </span>
