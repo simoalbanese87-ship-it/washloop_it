@@ -44,7 +44,17 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     return includiProva ? q : q.eq("profiles.is_test", false);
   };
 
-  const [daRichiamare, inRitardo, senzaRider, pagamentiKo, rev, laundry, subs, customers, mesiIncassi] = await Promise.all([
+  // Segnalazioni della lavanderia ancora aperte. Stesso `!inner` degli ordini:
+  // senza, quelle sui profili di prova resterebbero nel conteggio per sempre.
+  const segnalazioniAperte = () => {
+    const q = svc
+      .from("order_issues")
+      .select("id, orders!inner(profiles!orders_customer_id_fkey!inner(is_test))", { count: "exact", head: true })
+      .is("resolved_at", null);
+    return includiProva ? q : q.eq("orders.profiles.is_test", false);
+  };
+
+  const [daRichiamare, inRitardo, senzaRider, pagamentiKo, segnalazioni, rev, laundry, subs, customers, mesiIncassi] = await Promise.all([
     // Non una query sui soli `leads`: quella contava anche chi nel frattempo è
     // diventato cliente. `daContattare` passa dalla stessa deduplica di Persone,
     // così il numero e la pagina che apre dicono la stessa cosa.
@@ -54,6 +64,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     ordiniVeri().lt("eta_ready_at", oraIso),
     ordiniVeri().is("courier_id", null),
     abbonamentiVeri(),
+    segnalazioniAperte(),
     revenueMetrics(includiProva),
     laundryMetrics(includiProva),
     subscriberMetrics(includiProva),
@@ -62,6 +73,15 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
   ]);
 
   const blocchi: Blocco[] = [
+    {
+      // Primo riquadro perché è l'unica voce che riguarda la roba delle persone
+      // e non un numero: un capo rovinato non aspetta il turno.
+      label: "Segnalazioni capi",
+      n: segnalazioni.count ?? 0,
+      sub: "dalla lavanderia, da gestire",
+      href: "/admin/segnalazioni",
+      tono: "text-[#C0392B]",
+    },
     {
       label: "Da contattare",
       n: daRichiamare.length,
@@ -105,7 +125,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
         sub={daFare === 0 ? "Nessuna cosa aperta: sotto trovi i numeri del mese." : `${daFare} cose richiedono un intervento.`}
       />
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {blocchi.map((b) => (
           <Link
             key={b.label}

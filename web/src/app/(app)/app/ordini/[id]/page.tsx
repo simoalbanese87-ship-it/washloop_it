@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { OrderTimeline } from "@/components/app/OrderTimeline";
 import { LiveRider } from "@/components/app/LiveRider";
 import { StatusBadge } from "@/components/app/StatusBadge";
-import { createClient } from "@/lib/supabase/server";
+import { SegnalazioneRiga, type Segnalazione } from "@/components/app/SegnalazioneRiga";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { signedProofUrl, statusIndex, ORDER_STATUS_LABEL, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
 import { fmtDate, fmtFull } from "@/lib/format";
 import { spostaRitiro, clienteDisdiceRitiro } from "@/lib/actions/orders";
@@ -59,6 +60,22 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
     .eq("order_id", id)
     .order("created_at")
     .returns<Item[]>();
+
+  // Segnalazioni della lavanderia. La policy lascia passare al cliente solo
+  // quelle pubblicate: i danni in lavorazione arrivano qui dopo che l'ops ha
+  // deciso cosa proporre, non nel momento in cui la lavanderia se ne accorge.
+  const { data: issues } = await supabase
+    .from("order_issues")
+    .select("id, kind, capo, testo, photo_url, created_at, published_at, resolved_at, resolution")
+    .eq("order_id", id)
+    .not("published_at", "is", null)
+    .order("created_at", { ascending: false })
+    .returns<Segnalazione[]>();
+  // Le foto stanno in un bucket privato e si firmano lato server.
+  const svcFoto = createServiceClient();
+  const segnalazioni = await Promise.all(
+    (issues ?? []).map(async (s) => ({ ...s, fotoUrl: await signedProofUrl(svcFoto, s.photo_url) })),
+  );
 
   // Il bucket è privato: ogni foto diventa un link firmato a scadenza breve.
   const itemsFirmati = await Promise.all(
@@ -228,6 +245,28 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
               </p>
             </>
           )}
+        </section>
+      )}
+
+      {/* Segnalazioni della lavanderia. Sopra i capi e sopra tutto il resto:
+          se c'è qualcosa che non va con la roba, è la prima cosa da leggere,
+          non una nota in fondo alla pagina. */}
+      {segnalazioni.length > 0 && (
+        <section className="rounded-[18px] border border-line bg-white p-5">
+          <div className="font-display text-sm font-extrabold text-navy">
+            Dalla lavanderia ({segnalazioni.length})
+          </div>
+          <p className="mt-1 text-xs font-medium text-muted">
+            Chi ha aperto il tuo sacco ha trovato qualcosa che devi sapere.
+          </p>
+          <div className="mt-4 space-y-3">
+            {segnalazioni.map((s) => (
+              <SegnalazioneRiga key={s.id} s={s} fotoUrl={s.fotoUrl} perCliente />
+            ))}
+          </div>
+          <p className="mt-3 text-xs font-medium text-muted">
+            Non ti sembra giusto? Scrivici a info@washloop.it citando questo ritiro: guardiamo insieme.
+          </p>
         </section>
       )}
 

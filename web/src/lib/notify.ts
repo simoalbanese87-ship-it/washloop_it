@@ -6,6 +6,12 @@ import { LEGAL } from "@/lib/legal";
 import { sendPush } from "@/lib/push";
 import { fmtFull, fmtSlot, WEEKDAY_IT } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
+import {
+  SEGNALAZIONE_AL_CLIENTE,
+  SEGNALAZIONE_LABEL,
+  avvisaSubitoIlCliente,
+  type TipoSegnalazione,
+} from "@/lib/segnalazioni";
 
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it").replace(/\s+/g, "");
 
@@ -376,5 +382,113 @@ export async function notifyNewCustomer(input: {
     await sendMail({ to: input.to, subject: "Il tuo account WashLoop è attivo 🧺", html });
   } catch (err) {
     console.error(`[notify] notifyNewCustomer(${input.to}) fallita:`, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Segnalazioni della lavanderia sui capi.
+
+type SegnalazioneNotificabile = {
+  id: string;
+  order_id: string;
+  kind: TipoSegnalazione;
+  capo: string | null;
+  testo: string;
+  customer_id: string | null;
+};
+
+async function leggiSegnalazione(
+  svc: ReturnType<typeof createServiceClient>,
+  issueId: string,
+): Promise<SegnalazioneNotificabile | null> {
+  const { data } = await svc
+    .from("order_issues")
+    .select("id, order_id, kind, capo, testo, orders(customer_id)")
+    .eq("id", issueId)
+    .maybeSingle<{
+      id: string; order_id: string; kind: TipoSegnalazione; capo: string | null; testo: string;
+      orders: { customer_id: string | null } | { customer_id: string | null }[] | null;
+    }>();
+  if (!data) return null;
+  // L'embed PostgREST arriva come array anche su relazione uno-a-uno.
+  const rel = Array.isArray(data.orders) ? data.orders[0] : data.orders;
+  return { ...data, customer_id: rel?.customer_id ?? null };
+}
+
+/** Avvisa il CLIENTE di una segnalazione (email + push). Da chiamare solo quando
+ *  la segnalazione è pubblicata: sui danni succede dopo, quando l'ops ha deciso
+ *  cosa proporre. Best-effort: non lancia mai. */
+export async function notifySegnalazioneCliente(issueId: string) {
+  try {
+    const svc = createServiceClient();
+    const s = await leggiSegnalazione(svc, issueId);
+    if (!s?.customer_id) return;
+
+    const capo = s.capo?.trim() || "Un capo del tuo sacco";
+    const titolo = SEGNALAZIONE_LABEL[s.kind];
+    const contesto = SEGNALAZIONE_AL_CLIENTE[s.kind];
+
+    const email = await userEmail(svc, s.customer_id);
+    if (email) {
+      const html = renderEmail({
+        title: titolo,
+        // Prima cosa è successo, poi le parole esatte della lavanderia: il
+        // cliente deve poter distinguere il nostro riassunto dal referto.
+        body:
+          `<strong>${capo}</strong><br/>${contesto}` +
+          `<br/><br/><em>La lavanderia scrive:</em><br/>“${s.testo}”`,
+        emoji: s.kind === "danno" ? "🛠️" : "👕",
+        preheader: `${titolo} — ${capo}`,
+        cta: { label: "Vedi il ritiro", href: `${site()}/app/ordini/${s.order_id}` },
+      });
+      await sendMail({ to: email, subject: `${titolo} · ${capo}`, html });
+    }
+    await sendPush(s.customer_id, { title: titolo, body: `${capo} — ${contesto}`, url: `/app/ordini/${s.order_id}` });
+  } catch (err) {
+    console.error(`[notify] notifySegnalazioneCliente(${issueId}) fallita:`, err);
+  }
+}
+
+/** Avvisa l'OPS che è arrivata una segnalazione. Sempre, per tutti e tre i tipi
+ *  e prima ancora che il cliente ne sappia niente: sui danni siamo noi a dover
+ *  decidere cosa proporre, e se non lo sappiamo non decide nessuno.
+ *
+ *  Va a tutti gli account admin: nessun indirizzo da configurare, e se domani
+ *  se ne aggiunge uno riceve senza che nessuno tocchi le variabili d'ambiente. */
+export async function notifySegnalazioneOps(issueId: string) {
+  try {
+    const svc = createServiceClient();
+    const s = await leggiSegnalazione(svc, issueId);
+    if (!s) return;
+
+    const capo = s.capo?.trim() || "capo non indicato";
+    const titolo = SEGNALAZIONE_LABEL[s.kind];
+    const daPubblicare = !avvisaSubitoIlCliente(s.kind);
+
+    const { data: admins } = await svc.from("profiles").select("id").eq("role", "admin");
+    for (const a of admins ?? []) {
+      const email = await userEmail(svc, a.id);
+      if (email) {
+        const html = renderEmail({
+          title: `Segnalazione lavanderia: ${titolo}`,
+          body:
+            `<strong>${capo}</strong> — ordine #${s.order_id.slice(0, 8)}<br/>“${s.testo}”` +
+            (daPubblicare
+              ? `<br/><br/><strong>Il cliente non è stato avvisato.</strong> È un danno in lavorazione: decidi cosa proporgli, poi pubblica la segnalazione dalla scheda dell'ordine.`
+              : `<br/><br/>Il cliente è già stato avvisato.`),
+          emoji: s.kind === "danno" ? "🚨" : "👕",
+          preheader: `${titolo} — ${capo}`,
+          cta: { label: "Apri l'ordine", href: `${site()}/admin/ordini/${s.order_id}` },
+        });
+        await sendMail({ to: email, subject: `${daPubblicare ? "DA GESTIRE · " : ""}${titolo} · ${capo}`, html });
+      }
+      await sendPush(a.id, {
+        title: `${daPubblicare ? "Da gestire: " : ""}${titolo}`,
+        body: `${capo} — ${s.testo.slice(0, 90)}`,
+        url: `/admin/ordini/${s.order_id}`,
+      });
+    }
+  } catch (err) {
+    console.error(`[notify] notifySegnalazioneOps(${issueId}) fallita:`, err);
   }
 }

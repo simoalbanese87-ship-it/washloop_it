@@ -4,10 +4,14 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { AddSpecialForm, type ListItem } from "@/components/app/AddSpecialForm";
+import { SegnalazioneForm } from "@/components/app/SegnalazioneForm";
+import { SegnalazioneRiga, type Segnalazione } from "@/components/app/SegnalazioneRiga";
 import { createClient } from "@/lib/supabase/server";
 import { advanceStatus, removeSpecial } from "@/lib/actions/partner";
-import { LAVORAZIONE_APERTA, type OrderStatus } from "@/lib/orders";
+import { LAVORAZIONE_APERTA, signedProofUrl, type OrderStatus } from "@/lib/orders";
+import { SEGNALABILE } from "@/lib/segnalazioni";
 import { fmtFull } from "@/lib/format";
+import { createServiceClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +48,7 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
   const { orderId } = await params;
   const supabase = await createClient();
 
-  const [{ data: order }, { data: specials }, { data: listino }] = await Promise.all([
+  const [{ data: order }, { data: specials }, { data: listino }, { data: issues }] = await Promise.all([
     supabase
       .from("partner_orders")
       .select("order_id, client_code, bags, service, fragrance, status, eta_ready_at, created_at")
@@ -62,6 +66,12 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
       .order("category_sort", { ascending: true })
       .order("sort", { ascending: true })
       .returns<ListItem[]>(),
+    supabase
+      .from("order_issues")
+      .select("id, kind, capo, testo, photo_url, created_at, published_at, resolved_at, resolution")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: false })
+      .returns<Segnalazione[]>(),
   ]);
 
   if (!order) notFound();
@@ -72,6 +82,16 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
   const lavorazioneChiusa = !LAVORAZIONE_APERTA.includes(order.status);
   const items = specials ?? [];
   const totComp = items.reduce((s, i) => s + i.comp_lav_cents * i.qty, 0);
+
+  // Il bucket delle foto è privato: le URL si firmano qui, lato server. Si usa
+  // il service client di proposito — chi guarda ha già superato il controllo
+  // sull'ordine due righe più su, e la firma non deve dipendere dai permessi
+  // di lettura dello storage.
+  const svc = createServiceClient();
+  const segnalazioni = await Promise.all(
+    (issues ?? []).map(async (s) => ({ ...s, fotoUrl: await signedProofUrl(svc, s.photo_url) })),
+  );
+  const puoSegnalare = SEGNALABILE.includes(order.status);
 
   return (
     <>
@@ -171,6 +191,36 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
           )}
         </Card>
       </div>
+
+      {/* Segnalazioni: capi macchiati, rovinati, o rovinati da noi.
+          Sta sotto e a tutta larghezza perché non è una cosa che si fa a ogni
+          ordine — ma quando serve serve tutto lo spazio, e non deve essere
+          nascosta dentro un menu. */}
+      <Card className="mt-6">
+        <h2 className="font-display text-lg font-extrabold text-navy">Segnalazioni sui capi</h2>
+        <p className="mt-1 text-sm font-medium text-muted">
+          Un capo arrivato già macchiato o strappato, una macchia che non è venuta via, o un capo rovinato in
+          lavorazione. Non è un addebito: per i capi in più c&apos;è il riquadro qui sopra.
+        </p>
+
+        {segnalazioni.length > 0 && (
+          <div className="mt-4 space-y-3">
+            {segnalazioni.map((s) => (
+              <SegnalazioneRiga key={s.id} s={s} fotoUrl={s.fotoUrl} />
+            ))}
+          </div>
+        )}
+
+        <div className="mt-5 border-t border-line pt-5">
+          {puoSegnalare ? (
+            <SegnalazioneForm orderId={order.order_id} />
+          ) : (
+            <p className="text-sm font-medium text-muted">
+              Questo ordine non è più in lavorazione da voi: per segnalare qualcosa scrivete a ops.
+            </p>
+          )}
+        </div>
+      </Card>
     </>
   );
 }

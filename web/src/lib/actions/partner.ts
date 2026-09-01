@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
-import { notifyOrderStatus, notifySpecialAdded } from "@/lib/notify";
+import { notifyOrderStatus, notifySpecialAdded, notifySegnalazioneCliente, notifySegnalazioneOps } from "@/lib/notify";
 import { chargeSpecialById } from "@/lib/billing-specials";
 import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
+import { SEGNALABILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione } from "@/lib/segnalazioni";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
 const PARTNER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -209,4 +210,74 @@ export async function removeSpecial(formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePath(`/laundry/${orderId}`);
+}
+
+/** La lavanderia segnala un capo: trovato già rovinato, macchia non rimossa,
+ *  o danno fatto da loro.
+ *
+ *  L'azione ritorna un messaggio invece di lanciare: un `throw` dentro una form
+ *  action diventa la schermata di errore di Next, e chi sta scrivendo perde il
+ *  testo e la foto appena caricata. Stessa scelta già fatta per il rider. */
+export async function addIssue(_prev: { error?: string; ok?: string } | null, formData: FormData) {
+  let profile;
+  try {
+    profile = await requirePartner();
+  } catch {
+    return { error: "Sessione scaduta: ricarica la pagina e rientra." };
+  }
+
+  const orderId = String(formData.get("order_id") ?? "");
+  const kind = String(formData.get("kind") ?? "");
+  const capo = String(formData.get("capo") ?? "").trim();
+  const testo = String(formData.get("testo") ?? "").trim();
+  const photo = String(formData.get("photo_url") ?? "").trim() || null;
+
+  if (!isTipoSegnalazione(kind)) return { error: "Scegli di che tipo di segnalazione si tratta." };
+  if (!testo) return { error: "Scrivi cosa hai trovato: senza descrizione la segnalazione non serve a nessuno." };
+  if (fotoObbligatoria(kind) && !photo) {
+    return { error: "Per un danno in lavorazione la foto è obbligatoria: fra un mese è l'unica cosa che resta." };
+  }
+
+  let order;
+  try {
+    order = await assertOrderInLaundry(orderId, profile.laundry_id!);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Ordine non trovato" };
+  }
+  if (!SEGNALABILE.includes(order.status)) {
+    return { error: "Questo ordine non è più in lavorazione da voi: per segnalare qualcosa scrivete a ops." };
+  }
+
+  // I danni non partono da soli verso il cliente: li pubblica l'ops insieme a
+  // cosa gli propone. Gli altri due sì, appena scritti.
+  const subito = avvisaSubitoIlCliente(kind);
+
+  const svc = createServiceClient();
+  const { data: inserita, error } = await svc
+    .from("order_issues")
+    .insert({
+      order_id: orderId,
+      kind,
+      capo: capo || null,
+      testo,
+      photo_url: photo,
+      created_by: profile.id,
+      published_at: subito ? new Date().toISOString() : null,
+    })
+    .select("id")
+    .single<{ id: string }>();
+  if (error || !inserita) return { error: error?.message ?? "Segnalazione non salvata" };
+
+  // Ops sempre, cliente solo se la segnalazione è già pubblica.
+  await notifySegnalazioneOps(inserita.id);
+  if (subito) await notifySegnalazioneCliente(inserita.id);
+
+  revalidatePath(`/laundry/${orderId}`);
+  revalidatePath(`/admin/ordini/${orderId}`);
+  revalidatePath(`/app/ordini/${orderId}`);
+  return {
+    ok: subito
+      ? "Segnalazione inviata. Il cliente è stato avvisato."
+      : "Segnalazione inviata a WashLoop. Al cliente ci pensiamo noi: non riceve niente finché non abbiamo deciso come sistemarla.",
+  };
 }

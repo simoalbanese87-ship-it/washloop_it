@@ -8,6 +8,8 @@ import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
 import { DeleteOrderButton } from "@/components/admin/DeleteOrderButton";
 import { chargeOrderSpecials, refundOrderSpecial, addSpecialAdmin } from "@/lib/actions/charge";
 import { AdminItems, type Item } from "@/components/app/AdminItems";
+import { SegnalazioneRiga, type Segnalazione } from "@/components/app/SegnalazioneRiga";
+import { pubblicaSegnalazione, chiudiSegnalazione } from "@/lib/actions/segnalazioni";
 import { signedProofUrl } from "@/lib/orders";
 import { AddSpecialForm, type ListItem } from "@/components/app/AddSpecialForm";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
@@ -48,7 +50,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   const { err } = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }, { data: items }] = await Promise.all([
+  const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }, { data: items }, { data: issues }] = await Promise.all([
     supabase
       .from("orders")
       .select("id, status, bags, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, pickup_slot_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at)")
@@ -58,6 +60,12 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
     supabase.from("profiles").select("id, full_name").eq("role", "courier").returns<Person[]>(),
     supabase.from("laundries").select("id, name").eq("active", true).returns<Laundry[]>(),
     supabase.from("order_items").select("id, kind, status, photo_url").eq("order_id", id).order("created_at").returns<Item[]>(),
+    supabase
+      .from("order_issues")
+      .select("id, kind, capo, testo, photo_url, created_at, published_at, resolved_at, resolution")
+      .eq("order_id", id)
+      .order("created_at", { ascending: false })
+      .returns<Segnalazione[]>(),
   ]);
 
   // Fasce di riconsegna selezionabili: future e, se l'ordine ha gia' una
@@ -96,6 +104,10 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   const itemsFirmati = await Promise.all(
     (items ?? []).map(async (it) => ({ ...it, photo_url: await signedProofUrl(supabase, it.photo_url) })),
   );
+  const segnalazioni = await Promise.all(
+    (issues ?? []).map(async (sg) => ({ ...sg, fotoUrl: await signedProofUrl(supabase, sg.photo_url) })),
+  );
+  const daAvvisare = segnalazioni.filter((sg) => !sg.published_at).length;
 
   const { data: specials } = await supabase
     .from("order_specials")
@@ -358,6 +370,64 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
             <DeleteOrderButton id={order.id} code={`#${order.id.slice(0, 8)}`} />
           )}
         </div>
+
+        {/* Segnalazioni della lavanderia.
+            I danni in lavorazione arrivano qui SENZA essere stati comunicati al
+            cliente: la lavanderia li scrive, noi decidiamo cosa proporre e poi
+            pubblichiamo. Finché il bottone «Avvisa il cliente» è lì, lui non sa
+            niente — quindi la card lo dice a chiare lettere invece di mostrare
+            una spunta ambigua. */}
+        <Card>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-display text-sm font-extrabold text-navy">Segnalazioni della lavanderia</span>
+            {daAvvisare > 0 && (
+              <span className="rounded-full bg-[#C0392B]/12 px-2.5 py-1 font-display text-xs font-bold text-[#C0392B]">
+                {daAvvisare} da comunicare al cliente
+              </span>
+            )}
+          </div>
+
+          {segnalazioni.length === 0 ? (
+            <p className="mt-3 text-sm font-medium text-muted">Nessuna segnalazione su questo ordine.</p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {segnalazioni.map((sg) => (
+                <SegnalazioneRiga key={sg.id} s={sg} fotoUrl={sg.fotoUrl}>
+                  <div className="mt-3 space-y-2 border-t border-line/70 pt-3">
+                    {!sg.published_at && (
+                      <form action={pubblicaSegnalazione}>
+                        <input type="hidden" name="issue_id" value={sg.id} />
+                        <input type="hidden" name="order_id" value={order.id} />
+                        <p className="mb-2 text-xs font-medium text-muted">
+                          Prima di premere: decidi cosa proponi (rimborso, rilavaggio, sostituzione) e scrivilo al
+                          cliente. Da qui parte solo l&apos;avviso con il testo della lavanderia.
+                        </p>
+                        <button type="submit" className="font-display text-sm font-extrabold text-blue hover:underline">
+                          Avvisa il cliente →
+                        </button>
+                      </form>
+                    )}
+                    {!sg.resolved_at && (
+                      <form action={chiudiSegnalazione} className="flex flex-wrap items-center gap-2">
+                        <input type="hidden" name="issue_id" value={sg.id} />
+                        <input type="hidden" name="order_id" value={order.id} />
+                        <input
+                          name="resolution"
+                          maxLength={200}
+                          placeholder="Come è finita (es. rimborsata la camicia, €35)"
+                          className="min-w-0 flex-1 rounded-[10px] border border-line bg-white px-3 py-2 text-sm font-medium text-navy outline-none focus:border-blue"
+                        />
+                        <button type="submit" className="font-display text-sm font-bold text-navy/70 hover:text-navy">
+                          Chiudi
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                </SegnalazioneRiga>
+              ))}
+            </div>
+          )}
+        </Card>
 
         {/* Timeline eventi */}
         <Card>
