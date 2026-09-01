@@ -62,11 +62,25 @@ export async function GET(req: Request) {
     if (turnaround === 0) continue; // abbonamento non attivo → niente generazione
 
     for (const slot of matches) {
+      // Doppione = stessa PERSONA nella stessa fascia, non stessa ricorrenza.
+      //
+      // Il controllo guardava `recurring_id`, e bastava un ritiro prenotato a
+      // mano per non essere visto: il 1° settembre Saverio si era prenotato da
+      // solo per le 09:00 del martedì, il cron alle 08:04 non ha riconosciuto
+      // quell'ordine come suo e gliene ha creato un secondo nella stessa fascia.
+      // Due ritiri per la stessa persona alla stessa ora, uno dei quali non lo
+      // farà mai nessuno — e intanto occupa un posto nello slot.
+      //
+      // Nessuno ha due ritiri contemporanei, quindi la chiave giusta è
+      // cliente + fascia. Copre anche il caso opposto: ricorrenza rifatta da
+      // capo (nuovo `recurring_id`) sulla stessa fascia di prima.
       const { data: existing } = await sb
         .from("orders")
         .select("id")
-        .eq("recurring_id", rec.id)
+        .eq("customer_id", rec.customer_id)
         .eq("pickup_slot_id", slot.id)
+        .neq("status", "cancelled")
+        .limit(1)
         .maybeSingle();
       if (existing) continue;
 
