@@ -113,3 +113,12 @@ export function toRomeInputValue(iso: string | null): string {
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
+
+/** Fine della giornata odierna in ora di Roma, come ISO UTC.
+ *
+ *  Serve a tagliare "oggi" da "in futuro" senza dipendere dal fuso del server:
+ *  su Vercel `new Date()` è UTC, e per due ore ogni notte il giorno italiano e
+ *  quello UTC non coincidono. */
+export function fineGiornataRoma(now: Date = new Date()): string {
+  return romeLocalToISO(`${romeDayKey(now)}T23:59`) ?? now.toISOString();
+}

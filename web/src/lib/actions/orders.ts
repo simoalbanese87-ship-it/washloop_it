@@ -8,7 +8,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { haversineKm } from "@/lib/route";
 import { canTransition, transitionError, statusIndex } from "@/lib/orders";
 import type { OrderStatus, ScanResult, RiderLivePos } from "@/lib/orders";
-import { romeLocalToISO, romeWeekday, romeHHMM } from "@/lib/format";
+import { romeLocalToISO, romeWeekday, romeHHMM, fineGiornataRoma, fmtDayShort } from "@/lib/format";
 import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
 import { registraSacchiLavanderia } from "@/lib/laundry-payout";
 import { slotFullMessage } from "@/lib/slots";
@@ -478,6 +478,21 @@ export async function riderLivePosition(orderId: string): Promise<RiderLivePos> 
  *  stato dell'ordine: RITIRO (pickup_scheduled) o CONSEGNA (delivery_scheduled/
  *  out_for_delivery). Ogni scan al ritiro crea un pacco univoco (token); alla
  *  consegna marca il prossimo pacco. A completamento avanza lo stato + notifica. */
+type OrdineDaScansionare = {
+  id: string;
+  status: OrderStatus;
+  bags: number;
+  created_at: string;
+  pickup_slot: { starts_at: string } | null;
+  delivery_slot: { starts_at: string } | null;
+};
+
+/** Inizio della fascia che riguarda questo passaggio: il ritiro se l'ordine è
+ *  ancora da ritirare, altrimenti la riconsegna. Null se non è ancora fissata. */
+function inizioFermata(o: OrdineDaScansionare): string | null {
+  return (o.status === "pickup_scheduled" ? o.pickup_slot?.starts_at : o.delivery_slot?.starts_at) ?? null;
+}
+
 export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<ScanResult> {
   const me = await getCurrentProfile();
   if (!me || me.role !== "courier") return { ok: false, error: "Solo rider" };
@@ -494,15 +509,35 @@ export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<
 
   const { data: orders } = await svc
     .from("orders")
-    .select("id, status, bags, created_at")
+    .select(
+      "id, status, bags, created_at, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at)",
+    )
     .eq("customer_id", prof.id)
     .eq("courier_id", me.id)
     .in("status", ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"])
     .order("created_at", { ascending: true })
-    .returns<{ id: string; status: OrderStatus; bags: number; created_at: string }[]>();
+    .returns<OrdineDaScansionare[]>();
 
-  const attivi = orders ?? [];
-  if (attivi.length === 0) return { ok: false, error: "Nessun ordine attivo per questo cliente nel tuo giro" };
+  const tutti = orders ?? [];
+  if (tutti.length === 0) return { ok: false, error: "Nessun ordine attivo per questo cliente nel tuo giro" };
+
+  // Solo le fermate di oggi (e quelle arretrate). Un abbonato ha in calendario
+  // i ritiri di settimane a venire: senza questo taglio il rider poteva
+  // scansionare il sacco di oggi sul ritiro del 23 settembre — e quel ritiro
+  // finiva in lavanderia con la data sbagliata, mentre quello vero restava
+  // aperto. Successo davvero il 01/09/2026 su due sacchi.
+  const fineOggi = fineGiornataRoma();
+  const attivi = tutti.filter((o) => {
+    const s = inizioFermata(o);
+    return !s || s <= fineOggi;
+  });
+  if (attivi.length === 0) {
+    const prossima = tutti.map(inizioFermata).filter(Boolean).sort()[0];
+    return {
+      ok: false,
+      error: `${prof.full_name ?? clientCode} oggi non è nel tuo giro${prossima ? `: il prossimo passaggio è ${fmtDayShort(prossima)}` : ""}.`,
+    };
+  }
 
   // Il QR porta il codice CLIENTE, non quello dell'ordine: con un abbonato che
   // ha insieme una consegna aperta e un ritiro nuovo — il caso normale del

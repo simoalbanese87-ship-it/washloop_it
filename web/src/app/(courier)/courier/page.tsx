@@ -6,7 +6,7 @@ import { RiderMapLoader } from "@/components/app/RiderMapLoader";
 import type { Stop, Depot } from "@/components/app/RiderMap";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
-import { fmtSlot } from "@/lib/format";
+import { fmtSlot, fineGiornataRoma } from "@/lib/format";
 import { optimizeOrder } from "@/lib/route";
 import type { OrderStatus, AccessMode } from "@/lib/orders";
 
@@ -60,9 +60,29 @@ export default async function CourierToday() {
     supabase.from("depots").select("lat, lng").eq("active", true).limit(1).maybeSingle<{ lat: number | null; lng: number | null }>(),
   ]);
 
-  const rows = data ?? [];
+  const tutte = data ?? [];
   const kindOf = (r: Row): "pickup" | "delivery" => (r.status === "pickup_scheduled" ? "pickup" : "delivery");
   const slotOf = (r: Row) => (kindOf(r) === "pickup" ? r.pickup_slot : r.delivery_slot);
+
+  // Il giro è di OGGI, e finora questa pagina non lo era: mostrava ogni fermata
+  // aperta del rider, compresi i ritiri fissati fra due o tre settimane. Con un
+  // abbonato che ha già in calendario i ritiri di tutto il mese, il rider si
+  // trovava tre schede identiche — stesso nome, stesso indirizzo, «1 busta» —
+  // e nessun modo di sapere quale fosse quella del giorno. È successo il primo
+  // giorno di lavoro vero: due sacchi sono stati registrati sui ritiri del 9 e
+  // del 23 settembre, e in lavanderia sono comparse lavorazioni con «pronto
+  // entro» a fine mese.
+  //
+  // Passa il taglio chi ha la fascia entro stasera. Le fermate arretrate — slot
+  // di ieri mai chiuso — restano: vanno recuperate, non nascoste. Chi non ha
+  // ancora una fascia (riconsegna da programmare) resta a vista per lo stesso
+  // motivo.
+  const fineOggi = fineGiornataRoma();
+  const rows = tutte.filter((r) => {
+    const s = slotOf(r)?.starts_at;
+    return !s || s <= fineOggi;
+  });
+  const piuAvanti = tutte.length - rows.length;
 
   // Deposito = hub logistico interno (tabella depots). Solo lato rider, mai al cliente.
   const depot: Depot = depotRow?.lat != null && depotRow?.lng != null ? { lat: depotRow.lat, lng: depotRow.lng } : null;
@@ -96,7 +116,11 @@ export default async function CourierToday() {
 
   return (
     <>
-      <PageTitle kicker="Il tuo giro" title="Oggi" sub={`${pickups.length} ritiri · ${deliveries.length} consegne`} />
+      <PageTitle
+        kicker="Il tuo giro"
+        title="Oggi"
+        sub={`${pickups.length} ritiri · ${deliveries.length} consegne${piuAvanti > 0 ? ` · ${piuAvanti} ${piuAvanti === 1 ? "fermata" : "fermate"} nei prossimi giorni, non ${piuAvanti === 1 ? "è" : "sono"} da fare oggi` : ""}`}
+      />
 
       <div className="mb-4"><RiderScanner /></div>
       <div className="mb-6"><RiderLocationPinger /></div>

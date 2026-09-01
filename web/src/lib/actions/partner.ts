@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus, notifySpecialAdded } from "@/lib/notify";
 import { chargeSpecialById } from "@/lib/billing-specials";
@@ -52,6 +52,27 @@ async function requirePartner() {
   return profile;
 }
 
+/** Scrive lo stato dell'ordine. Da chiamare SOLO dopo `assertOrderInLaundry`.
+ *
+ *  Scrive con il service role, e non con la sessione della lavanderia, per una
+ *  ragione precisa: il partner ha una policy di UPDATE su `orders`, ma non ne
+ *  ha nessuna di SELECT — legge tramite la vista `partner_orders`. In
+ *  PostgreSQL un `update … where id = …` deve prima *leggere* la riga, e in
+ *  quella lettura valgono le policy di SELECT: senza, la `where` non trova
+ *  niente. L'UPDATE andava quindi a buon fine su zero righe, senza errore.
+ *  Da fuori si vedeva solo un bottone «Segna arrivato» che non faceva nulla:
+ *  la pagina si ricaricava identica, e il primo giorno di lavoro vero la
+ *  lavanderia non poteva far avanzare nessun sacco.
+ *
+ *  Il permesso non viene aggirato, viene solo spostato di due righe più su:
+ *  `requirePartner()` controlla il ruolo e `assertOrderInLaundry()` controlla
+ *  che l'ordine sia di quella lavanderia, entrambi prima di arrivare qui. */
+async function scriviStato(orderId: string, status: OrderStatus): Promise<{ error: string | null }> {
+  const svc = createServiceClient();
+  const { error } = await svc.from("orders").update({ status }).eq("id", orderId);
+  return { error: error?.message ?? null };
+}
+
 /** Verifica (via service role) che l'ordine appartenga alla lavanderia del partner. */
 async function assertOrderInLaundry(orderId: string, laundryId: string) {
   const svc = createServiceClient();
@@ -70,10 +91,8 @@ export async function advanceStatus(formData: FormData) {
   const next = PARTNER_TRANSITIONS[order.status];
   if (!next) throw new Error(`Transizione non consentita da "${order.status}"`);
 
-  // Update via client RLS (policy "orders partner update" filtra su my_laundry_id()).
-  const supabase = await createClient();
-  const { error } = await supabase.from("orders").update({ status: next }).eq("id", orderId);
-  if (error) throw new Error(error.message);
+  const { error } = await scriviStato(orderId, next);
+  if (error) throw new Error(error);
 
   const daNotificare = next === "ready" ? await programmaRiconsegnaSeScelta(orderId) : next;
   await notifyOrderStatus(orderId, daNotificare);
@@ -93,9 +112,8 @@ export async function setPartnerStatus(orderId: string, status: string) {
   const order = await assertOrderInLaundry(orderId, profile.laundry_id!);
   if (order.status === status) return;
 
-  const supabase = await createClient(); // RLS: solo ordini della propria lavanderia
-  const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
-  if (error) throw new Error(error.message);
+  const { error } = await scriviStato(orderId, status as OrderStatus);
+  if (error) throw new Error(error);
 
   if (statusIndex(status as OrderStatus) > statusIndex(order.status)) {
     const daNotificare = status === "ready" ? await programmaRiconsegnaSeScelta(orderId) : (status as OrderStatus);
