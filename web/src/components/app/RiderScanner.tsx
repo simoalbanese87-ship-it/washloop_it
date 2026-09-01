@@ -61,7 +61,7 @@ export function RiderScanner({
               tone: "ok",
               title: `${modeLabel} · borsa ${res.seq} di ${res.total}`,
               sub: res.done
-                ? `${res.client} — tutte registrate ✓`
+                ? `${res.client} — tutte registrate ✓. Se ha un'altra borsa, tocca «Un'altra borsa».`
                 : `${res.client} — metti via questa borsa, poi tocca «Borsa successiva»`,
               done: res.done,
             });
@@ -170,13 +170,26 @@ export function RiderScanner({
                     Riprova
                   </button>
                 )}
+                {/* Anche a conteggio raggiunto si può registrare una borsa in più:
+                    i sacchi dichiarati in prenotazione sono una stima di giorni
+                    prima, e chi ne aveva detto uno può averne due sul
+                    pianerottolo. Senza questo pulsante il rider doveva chiudere
+                    e riaprire lo scanner — e finiva comunque contro un rifiuto. */}
                 {feedback.done && (
-                  <button
-                    onClick={() => setOpen(false)}
-                    className="flex-1 rounded-full bg-white px-5 py-3 font-display text-base font-extrabold text-navy"
-                  >
-                    Fine
-                  </button>
+                  <>
+                    <button
+                      onClick={riprendi}
+                      className="flex-1 rounded-full border-2 border-white/70 px-5 py-3 font-display text-base font-extrabold text-white"
+                    >
+                      Un&apos;altra borsa
+                    </button>
+                    <button
+                      onClick={() => setOpen(false)}
+                      className="flex-1 rounded-full bg-white px-5 py-3 font-display text-base font-extrabold text-navy"
+                    >
+                      Fine
+                    </button>
+                  </>
                 )}
               </div>
             </div>

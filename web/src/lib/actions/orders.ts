@@ -487,10 +487,20 @@ type OrdineDaScansionare = {
   delivery_slot: { starts_at: string } | null;
 };
 
-/** Inizio della fascia che riguarda questo passaggio: il ritiro se l'ordine è
- *  ancora da ritirare, altrimenti la riconsegna. Null se non è ancora fissata. */
+/** Stati in cui una scansione è un RITIRO.
+ *
+ *  `picked_up` è compreso, e non è un dettaglio: appena viene registrata
+ *  l'ultima borsa attesa l'ordine passa a `picked_up`, e senza questo lo
+ *  scanner non lo trovava più. Chi aveva dichiarato un sacco e ne consegnava
+ *  due si sentiva rispondere «nessun ordine attivo per questo cliente» sul
+ *  secondo — successo il primo giorno, a fabia marconi. */
+const RITIRO_IN_CORSO: OrderStatus[] = ["pickup_scheduled", "picked_up"];
+
+/** Inizio della fascia che riguarda questo passaggio: il ritiro se il sacco è
+ *  ancora da prendere, altrimenti la riconsegna. Null se non è ancora fissata. */
 function inizioFermata(o: OrdineDaScansionare): string | null {
-  return (o.status === "pickup_scheduled" ? o.pickup_slot?.starts_at : o.delivery_slot?.starts_at) ?? null;
+  const ritiro = RITIRO_IN_CORSO.includes(o.status);
+  return (ritiro ? o.pickup_slot?.starts_at : o.delivery_slot?.starts_at) ?? null;
 }
 
 export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<ScanResult> {
@@ -514,7 +524,7 @@ export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<
     )
     .eq("customer_id", prof.id)
     .eq("courier_id", me.id)
-    .in("status", ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"])
+    .in("status", [...RITIRO_IN_CORSO, "delivery_scheduled", "out_for_delivery"])
     .order("created_at", { ascending: true })
     .returns<OrdineDaScansionare[]>();
 
@@ -557,7 +567,7 @@ export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<
   }
 
   const client = prof.full_name ?? clientCode;
-  const mode: "pickup" | "delivery" = order.status === "pickup_scheduled" ? "pickup" : "delivery";
+  const mode: "pickup" | "delivery" = RITIRO_IN_CORSO.includes(order.status) ? "pickup" : "delivery";
 
   const { data: bagsRows } = await svc
     .from("order_bags")
@@ -568,8 +578,18 @@ export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<
   const list = bagsRows ?? [];
 
   if (mode === "pickup") {
-    const total = order.bags ?? 1;
-    if (list.length >= total) return { ok: false, error: `Tutti i ${total} pacchi già ritirati per ${client}` };
+    // `bags` è quanti sacchi il cliente ha DICHIARATO in prenotazione, ed è una
+    // stima fatta giorni prima: chi ne aveva previsto uno può benissimo averne
+    // due sul pianerottolo. Finora il numero dichiarato faceva da tetto e il
+    // sacco in più veniva rifiutato — con il rider davanti alla porta, in mano
+    // una borsa che il sistema diceva di non poter esistere.
+    //
+    // Comanda quello che c'è davvero: la scansione in più si accetta e il
+    // conteggio dell'ordine si allinea (conta anche per il compenso alla
+    // lavanderia, che si calcola sui sacchi). Non è una porta aperta ai
+    // doppioni: dopo ogni lettura lo scanner si ferma e riparte solo se il
+    // rider tocca il pulsante, quindi ogni borsa in più è un gesto voluto.
+    const dichiarati = order.bags ?? 1;
     const seq = list.length + 1;
     const token = `WLB-${crypto.randomBytes(5).toString("hex")}`;
     const { error } = await svc.from("order_bags").insert({
@@ -577,8 +597,15 @@ export async function scanBag(clientCodeRaw: string, orderId?: string): Promise<
       pickup_scanned_at: new Date().toISOString(), pickup_by: me.id,
     });
     if (error) return { ok: false, error: error.message };
-    const done = seq >= total;
-    if (done) {
+
+    const total = Math.max(dichiarati, seq);
+    if (seq > dichiarati) await svc.from("orders").update({ bags: seq }).eq("id", order.id);
+
+    // L'ordine passa a "ritirato" quando è coperto il numero atteso, e una sola
+    // volta: se è già in `picked_up` questa è una borsa aggiuntiva e il cliente
+    // ha già avuto la sua notifica.
+    const done = seq >= dichiarati;
+    if (done && order.status === "pickup_scheduled") {
       await svc.from("orders").update({ status: "picked_up" }).eq("id", order.id);
       await notifyOrderStatus(order.id, "picked_up");
     }
