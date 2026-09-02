@@ -88,6 +88,15 @@ export const SEGNALABILE: string[] = [
  *  punto la conversazione la fa una persona, non un modulo. */
 export const RITARDI_PROPONIBILI = [1, 2, 3] as const;
 
+/** Stati in cui ha senso dichiarare che serve più tempo: il sacco è ancora
+ *  fisicamente in lavanderia. Segnalare si può anche dopo — un danno salta
+ *  fuori pure a consegna avvenuta — ma chiedere tempo no: se il sacco è sul
+ *  furgone, spostare la fascia vorrebbe dire disdire una consegna già partita.
+ *
+ *  Più largo di `LAVORAZIONE_APERTA` di una casella: un sacco segnato pronto è
+ *  ancora sullo scaffale, e accorgersi lì che un capo non va è normale. */
+export const RITARDO_DICHIARABILE: string[] = ["picked_up", "at_laundry", "washing", "ready"];
+
 export type RitardoGiorni = (typeof RITARDI_PROPONIBILI)[number];
 
 export function isRitardoValido(n: number): n is RitardoGiorni {

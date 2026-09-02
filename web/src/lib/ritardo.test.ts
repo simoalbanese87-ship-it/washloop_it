@@ -99,3 +99,12 @@ test("nuovaEta non accorcia mai la scadenza dell'ordine", () => {
   assert.equal(nuovaEta("2026-09-05T07:00:00+00:00", "2026-09-03T07:00:00+00:00"), "2026-09-05T07:00:00+00:00");
   assert.equal(nuovaEta(null, "2026-09-03T07:00:00+00:00"), "2026-09-03T07:00:00+00:00");
 });
+
+test("ordine senza riconsegna prenotata: la regola sceglierebbe, ma non è lei a decidere", () => {
+  // `scegliRiconsegna` risponde comunque, perché è una funzione pura e non sa
+  // niente del prodotto. La decisione di NON assegnare d'ufficio una fascia a
+  // chi non ne aveva una sta in `riprogramma.ts`, prima di chiamarla: qui si
+  // fissa solo che la funzione resti pura e prevedibile.
+  const r = scegliRiconsegna("2026-09-05T10:00:00+00:00", null, [], [f("mer9", MERCOLEDI_9)]);
+  assert.deepEqual(r, { esito: "spostata", slotId: "mer9" });
+});

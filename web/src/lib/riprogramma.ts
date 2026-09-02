@@ -63,6 +63,12 @@ export async function riprogrammaPerRitardo(
     return { esito: "resta", slotId: null, slotPrecedente: null, quandoNuova: null };
   }
 
+  // Ordine senza riconsegna prenotata: la fascia la sceglie l'ops, come è
+  // sempre stato. Qui si è solo allungata la scadenza, e l'ops la vedrà
+  // aggiornata quando programmerà — che è tutto quello che serviva. Assegnarne
+  // una d'ufficio darebbe al cliente un appuntamento che non ha mai chiesto.
+  if (!attuale) return { esito: "resta", slotId: null, slotPrecedente: null, quandoNuova: null };
+
   // --- Il mondo: cosa il cliente ha già in calendario, e cosa è libero. ---
 
   // Consegne di ALTRI ordini dello stesso cliente. Accodarsi a una di queste

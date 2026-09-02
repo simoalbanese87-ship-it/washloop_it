@@ -6,7 +6,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus, notifySpecialAdded, notifySegnalazioneCliente, notifySegnalazioneOps } from "@/lib/notify";
 import { chargeSpecialById } from "@/lib/billing-specials";
 import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
-import { SEGNALABILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione, isRitardoValido, prontoFra } from "@/lib/segnalazioni";
+import { SEGNALABILE, RITARDO_DICHIARABILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione, isRitardoValido, prontoFra } from "@/lib/segnalazioni";
 import { riprogrammaPerRitardo } from "@/lib/riprogramma";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
@@ -272,6 +272,12 @@ export async function addIssue(_prev: { error?: string; ok?: string } | null, fo
 
   // Ritardo dichiarato, facoltativo: «per questo capo mi servono N giorni».
   const giorniRaw = Number(formData.get("ritardo_giorni") ?? 0);
+  if (isRitardoValido(giorniRaw) && !RITARDO_DICHIARABILE.includes(order.status)) {
+    return {
+      error:
+        "Questo sacco non è più in lavanderia: la consegna è già programmata o partita, e da qui non si sposta. Scrivete a WashLoop.",
+    };
+  }
   const prontoStimato = isRitardoValido(giorniRaw) ? prontoFra(giorniRaw) : null;
 
   const svc = createServiceClient();
