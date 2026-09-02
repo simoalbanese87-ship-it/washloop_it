@@ -7,6 +7,7 @@ import { sendPush } from "@/lib/push";
 import { fmtFull, fmtSlot, WEEKDAY_IT } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
 import {
+  PROMESSA_TRATTENUTO,
   SEGNALAZIONE_AL_CLIENTE,
   SEGNALAZIONE_LABEL,
   avvisaSubitoIlCliente,
@@ -395,8 +396,8 @@ type SegnalazioneNotificabile = {
   capo: string | null;
   testo: string;
   customer_id: string | null;
-  /** Valorizzato solo se il ritardo ha spostato la riconsegna. */
-  spostamento: { da: string | null; a: string } | null;
+  /** Il capo è rimasto in lavanderia e torna con la riconsegna dopo. */
+  trattenuto: boolean;
 };
 
 async function leggiSegnalazione(
@@ -405,32 +406,17 @@ async function leggiSegnalazione(
 ): Promise<SegnalazioneNotificabile | null> {
   const { data } = await svc
     .from("order_issues")
-    .select("id, order_id, kind, capo, testo, riconsegna_a, riconsegna_da, orders(customer_id)")
+    .select("id, order_id, kind, capo, testo, trattenuto_at, orders(customer_id)")
     .eq("id", issueId)
     .maybeSingle<{
       id: string; order_id: string; kind: TipoSegnalazione; capo: string | null; testo: string;
-      riconsegna_a: string | null; riconsegna_da: string | null;
+      trattenuto_at: string | null;
       orders: { customer_id: string | null } | { customer_id: string | null }[] | null;
     }>();
   if (!data) return null;
   // L'embed PostgREST arriva come array anche su relazione uno-a-uno.
   const rel = Array.isArray(data.orders) ? data.orders[0] : data.orders;
-
-  // Le due fasce si leggono a parte: servono solo quando c'è stato uno
-  // spostamento, cioè quasi mai, e non vale la pena appesantire ogni notifica.
-  let spostamento: { da: string | null; a: string } | null = null;
-  if (data.riconsegna_a) {
-    const { data: fasce } = await svc
-      .from("slots")
-      .select("id, starts_at, ends_at")
-      .in("id", [data.riconsegna_a, data.riconsegna_da].filter(Boolean) as string[])
-      .returns<{ id: string; starts_at: string; ends_at: string }[]>();
-    const a = (fasce ?? []).find((f) => f.id === data.riconsegna_a);
-    const da = (fasce ?? []).find((f) => f.id === data.riconsegna_da);
-    if (a) spostamento = { da: da ? fmtSlot(da.starts_at, da.ends_at) : null, a: fmtSlot(a.starts_at, a.ends_at) };
-  }
-
-  return { ...data, customer_id: rel?.customer_id ?? null, spostamento };
+  return { ...data, customer_id: rel?.customer_id ?? null, trattenuto: !!data.trattenuto_at };
 }
 
 /** Avvisa il CLIENTE di una segnalazione (email + push). Da chiamare solo quando
@@ -457,19 +443,16 @@ export async function notifySegnalazioneCliente(issueId: string) {
         body:
           `<strong>${capo}</strong><br/>${contesto}` +
           `<br/><br/><em>La lavanderia scrive:</em><br/>“${s.testo}”` +
-          (s.spostamento
-            ? `<br/><br/><strong>Per questo il tuo bucato arriva ${s.spostamento.a}</strong>` +
-              (s.spostamento.da ? `, invece di ${s.spostamento.da}.` : ".")
-            : ""),
+          (s.trattenuto ? `<br/><br/><strong>${PROMESSA_TRATTENUTO}</strong>` : ""),
         emoji: s.kind === "danno" ? "🛠️" : "👕",
-        preheader: s.spostamento ? `${titolo} — arriva ${s.spostamento.a}` : `${titolo} — ${capo}`,
+        preheader: `${titolo} — ${capo}`,
         cta: { label: "Vedi il ritiro", href: `${site()}/app/ordini/${s.order_id}` },
       });
-      await sendMail({ to: email, subject: s.spostamento ? `${titolo} · nuova data di consegna` : `${titolo} · ${capo}`, html });
+      await sendMail({ to: email, subject: `${titolo} · ${capo}`, html });
     }
     await sendPush(s.customer_id, {
       title: titolo,
-      body: s.spostamento ? `${capo} — il bucato arriva ${s.spostamento.a}` : `${capo} — ${contesto}`,
+      body: s.trattenuto ? `${capo} — resta in lavorazione, torna con la prossima riconsegna` : `${capo} — ${contesto}`,
       url: `/app/ordini/${s.order_id}`,
     });
   } catch (err) {
@@ -501,9 +484,7 @@ export async function notifySegnalazioneOps(issueId: string) {
           title: `Segnalazione lavanderia: ${titolo}`,
           body:
             `<strong>${capo}</strong> — ordine #${s.order_id.slice(0, 8)}<br/>“${s.testo}”` +
-            (s.spostamento
-              ? `<br/><br/>Riconsegna spostata${s.spostamento.da ? ` da ${s.spostamento.da}` : ""} a <strong>${s.spostamento.a}</strong>.`
-              : "") +
+            (s.trattenuto ? `<br/><br/><strong>Il capo resta in lavanderia</strong> e tornerà con la prossima riconsegna del cliente.` : "") +
             (daPubblicare
               ? `<br/><br/><strong>Il cliente non è stato avvisato.</strong> È un danno in lavorazione: decidi cosa proporgli, poi pubblica la segnalazione dalla scheda dell'ordine.`
               : `<br/><br/>Il cliente è già stato avvisato.`),

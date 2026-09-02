@@ -3,7 +3,6 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { SegnalazioneRiga, type Segnalazione } from "@/components/app/SegnalazioneRiga";
 import { createServiceClient } from "@/lib/supabase/server";
 import { signedProofUrl } from "@/lib/orders";
-import { etichetteFasce } from "@/lib/riprogramma";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +35,7 @@ export default async function SegnalazioniAperte({
   let q = svc
     .from("order_issues")
     .select(
-      "id, order_id, kind, capo, testo, photo_url, created_at, published_at, resolved_at, resolution, pronto_stimato, riconsegna_da, riconsegna_a, orders!inner(status, profiles!orders_customer_id_fkey!inner(full_name, client_code, is_test))",
+      "id, order_id, kind, capo, testo, photo_url, created_at, published_at, resolved_at, resolution, trattenuto_at, restituito_at, orders!inner(status, profiles!orders_customer_id_fkey!inner(full_name, client_code, is_test))",
     )
     .order("created_at", { ascending: false })
     .limit(100);
@@ -44,14 +43,8 @@ export default async function SegnalazioniAperte({
   if (!includiProva) q = q.eq("orders.profiles.is_test", false);
 
   const { data } = await q.returns<Riga[]>();
-  const fasce = await etichetteFasce(svc, (data ?? []).flatMap((r) => [r.riconsegna_da, r.riconsegna_a]));
   const righe = await Promise.all(
-    (data ?? []).map(async (r) => ({
-      ...r,
-      fotoUrl: await signedProofUrl(svc, r.photo_url),
-      riconsegnaDa: r.riconsegna_da ? (fasce.get(r.riconsegna_da) ?? null) : null,
-      riconsegnaA: r.riconsegna_a ? (fasce.get(r.riconsegna_a) ?? null) : null,
-    })),
+    (data ?? []).map(async (r) => ({ ...r, fotoUrl: await signedProofUrl(svc, r.photo_url) })),
   );
 
   // Da comunicare prima di tutto, poi il resto per data.

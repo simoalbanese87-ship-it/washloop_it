@@ -5,7 +5,6 @@ import { LiveRider } from "@/components/app/LiveRider";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { SegnalazioneRiga, type Segnalazione } from "@/components/app/SegnalazioneRiga";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { etichetteFasce } from "@/lib/riprogramma";
 import { signedProofUrl, statusIndex, ORDER_STATUS_LABEL, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
 import { fmtDate, fmtFull } from "@/lib/format";
 import { spostaRitiro, clienteDisdiceRitiro } from "@/lib/actions/orders";
@@ -67,21 +66,15 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
   // deciso cosa proporre, non nel momento in cui la lavanderia se ne accorge.
   const { data: issues } = await supabase
     .from("order_issues")
-    .select("id, kind, capo, testo, photo_url, created_at, published_at, resolved_at, resolution, pronto_stimato, riconsegna_da, riconsegna_a")
+    .select("id, kind, capo, testo, photo_url, created_at, published_at, resolved_at, resolution, trattenuto_at, restituito_at")
     .eq("order_id", id)
     .not("published_at", "is", null)
     .order("created_at", { ascending: false })
     .returns<Segnalazione[]>();
   // Le foto stanno in un bucket privato e si firmano lato server.
   const svcFoto = createServiceClient();
-  const fasceSegn = await etichetteFasce(svcFoto, (issues ?? []).flatMap((s) => [s.riconsegna_da, s.riconsegna_a]));
   const segnalazioni = await Promise.all(
-    (issues ?? []).map(async (s) => ({
-      ...s,
-      fotoUrl: await signedProofUrl(svcFoto, s.photo_url),
-      riconsegnaDa: s.riconsegna_da ? (fasceSegn.get(s.riconsegna_da) ?? null) : null,
-      riconsegnaA: s.riconsegna_a ? (fasceSegn.get(s.riconsegna_a) ?? null) : null,
-    })),
+    (issues ?? []).map(async (s) => ({ ...s, fotoUrl: await signedProofUrl(svcFoto, s.photo_url) })),
   );
 
   // Il bucket è privato: ogni foto diventa un link firmato a scadenza breve.

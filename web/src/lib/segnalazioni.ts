@@ -78,44 +78,17 @@ export const SEGNALABILE: string[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Capi che richiedono più tempo.
+// Capi che restano in lavanderia.
 
-/** Di quanto la lavanderia può far slittare un capo, in giorni.
+/** Stati in cui la lavanderia può trattenere un capo: il sacco è ancora suo.
  *
- *  Non sono opzioni libere ma tre scelte secche: chi le usa ha il capo in una
- *  mano e il telefono nell'altra, e un selettore di data si sbaglia. Tre giorni
- *  è il tetto perché oltre non è più un trattamento, è un problema — e a quel
- *  punto la conversazione la fa una persona, non un modulo. */
-export const RITARDI_PROPONIBILI = [1, 2, 3] as const;
+ *  Fino a «pronto» compreso — accorgersi sullo scaffale che una macchia non è
+ *  venuta via è normale. Dopo no: il sacco è già chiuso o sul furgone, e a quel
+ *  punto togliere un capo vorrebbe dire fermare un rider per strada. */
+export const TRATTENIBILE: string[] = ["picked_up", "at_laundry", "washing", "ready"];
 
-/** Stati in cui ha senso dichiarare che serve più tempo: il sacco è ancora
- *  fisicamente in lavanderia. Segnalare si può anche dopo — un danno salta
- *  fuori pure a consegna avvenuta — ma chiedere tempo no: se il sacco è sul
- *  furgone, spostare la fascia vorrebbe dire disdire una consegna già partita.
- *
- *  Più largo di `LAVORAZIONE_APERTA` di una casella: un sacco segnato pronto è
- *  ancora sullo scaffale, e accorgersi lì che un capo non va è normale. */
-export const RITARDO_DICHIARABILE: string[] = ["picked_up", "at_laundry", "washing", "ready"];
-
-export type RitardoGiorni = (typeof RITARDI_PROPONIBILI)[number];
-
-export function isRitardoValido(n: number): n is RitardoGiorni {
-  return (RITARDI_PROPONIBILI as readonly number[]).includes(n);
-}
-
-/** Quanto in là si cerca una fascia di riconsegna dopo che il capo è pronto.
- *
- *  Stesso spirito di `FINESTRA_GIORNI` in `riconsegna.ts`: senza un tetto, una
- *  cliente si è ritrovata la riconsegna a cinque settimane. Qui il rischio è lo
- *  stesso al contrario — pur di trovare una fascia, spedire il bucato in un
- *  futuro che nessuno ricorda. */
-export const RITARDO_MASSIMO_GIORNI = 10;
-
-/** La data in cui un capo sarà pronto, dato un ritardo in giorni.
- *
- *  Si parte da adesso e non dall'ETA dell'ordine: la lavanderia sta guardando
- *  il capo ORA, e «mi servono due giorni» vuol dire due giorni da adesso, non
- *  due giorni da una scadenza che è già passata. */
-export function prontoFra(giorni: number, adesso: Date = new Date()): string {
-  return new Date(adesso.getTime() + giorni * 86_400_000).toISOString();
-}
+/** Cosa succede quando la lavanderia trattiene un capo. Una frase sola, la
+ *  stessa ovunque — nel modulo, nell'email, nella pagina del cliente — perché
+ *  è una promessa e le promesse non si riformulano ogni volta. */
+export const PROMESSA_TRATTENUTO =
+  "Il resto del bucato arriva quando previsto. Questo capo resta in lavorazione e torna con la prossima riconsegna.";

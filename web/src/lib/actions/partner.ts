@@ -6,8 +6,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus, notifySpecialAdded, notifySegnalazioneCliente, notifySegnalazioneOps } from "@/lib/notify";
 import { chargeSpecialById } from "@/lib/billing-specials";
 import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
-import { SEGNALABILE, RITARDO_DICHIARABILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione, isRitardoValido, prontoFra } from "@/lib/segnalazioni";
-import { riprogrammaPerRitardo } from "@/lib/riprogramma";
+import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione } from "@/lib/segnalazioni";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
 const PARTNER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -39,18 +38,14 @@ async function programmaRiconsegnaSeScelta(orderId: string): Promise<OrderStatus
   // La fascia prenotata può essere già passata: il bucato era in ritardo, o è
   // rimasto fermo. Promuovere lo stesso vorrebbe dire scrivere al cliente
   // «riconsegna programmata venerdì 4» di sabato — una data morta, che nessun
-  // rider può rispettare. Si cerca la prima fascia utile con la stessa regola
-  // dei ritardi dichiarati, e solo dopo si programma.
+  // rider può rispettare. Meglio fermo su «pronto», dove l'ops lo vede e
+  // riprogramma con il cliente: una fascia nuova scelta da sola sarebbe un
+  // appuntamento che nessuno ha preso.
   const rel = data.delivery_slot;
   const fascia = Array.isArray(rel) ? rel[0] : rel;
   if (fascia && Date.parse(fascia.starts_at) < Date.now()) {
-    const esito = await riprogrammaPerRitardo(orderId, new Date().toISOString());
-    if (esito.esito !== "spostata") {
-      // Nessuna fascia: meglio fermo su `ready`, dove l'ops lo vede, che
-      // programmato su un giorno che non esiste più.
-      console.error(`[partner] fascia di riconsegna scaduta e nessuna alternativa per ${orderId}`);
-      return "ready";
-    }
+    console.error(`[partner] fascia di riconsegna già passata su ${orderId}: resta su "ready" per l'ops`);
+    return "ready";
   }
 
   const { error } = await svc.from("orders").update({ status: "delivery_scheduled" }).eq("id", orderId);
@@ -270,15 +265,16 @@ export async function addIssue(_prev: { error?: string; ok?: string } | null, fo
   // cosa gli propone. Gli altri due sì, appena scritti.
   const subito = avvisaSubitoIlCliente(kind);
 
-  // Ritardo dichiarato, facoltativo: «per questo capo mi servono N giorni».
-  const giorniRaw = Number(formData.get("ritardo_giorni") ?? 0);
-  if (isRitardoValido(giorniRaw) && !RITARDO_DICHIARABILE.includes(order.status)) {
+  // «Questo capo resta qui»: non sposta niente e non calcola niente. Il sacco
+  // parte alla data promessa, il capo aspetta la riconsegna dopo. L'unica cosa
+  // che il sistema deve fare è ricordarsene — un capo trattenuto e dimenticato
+  // è molto peggio di un capo consegnato macchiato.
+  const trattiene = String(formData.get("trattenuto") ?? "") === "1";
+  if (trattiene && !TRATTENIBILE.includes(order.status)) {
     return {
-      error:
-        "Questo sacco non è più in lavanderia: la consegna è già programmata o partita, e da qui non si sposta. Scrivete a WashLoop.",
+      error: "Questo sacco non è più da voi: la consegna è già programmata o partita, e il capo non si può trattenere.",
     };
   }
-  const prontoStimato = isRitardoValido(giorniRaw) ? prontoFra(giorniRaw) : null;
 
   const svc = createServiceClient();
   const { data: inserita, error } = await svc
@@ -291,25 +287,11 @@ export async function addIssue(_prev: { error?: string; ok?: string } | null, fo
       photo_url: photo,
       created_by: profile.id,
       published_at: subito ? new Date().toISOString() : null,
-      pronto_stimato: prontoStimato,
+      trattenuto_at: trattiene ? new Date().toISOString() : null,
     })
     .select("id")
     .single<{ id: string }>();
   if (error || !inserita) return { error: error?.message ?? "Segnalazione non salvata" };
-
-  // Il ritardo si applica PRIMA di avvisare chiunque: il cliente deve ricevere
-  // la macchia e la data nuova nello stesso messaggio, non due volte la stessa
-  // notizia. Per questo la riprogrammazione non notifica di suo.
-  let esitoRitardo: Awaited<ReturnType<typeof riprogrammaPerRitardo>> | null = null;
-  if (prontoStimato) {
-    esitoRitardo = await riprogrammaPerRitardo(orderId, prontoStimato);
-    if (esitoRitardo.esito === "spostata") {
-      await svc
-        .from("order_issues")
-        .update({ riconsegna_da: esitoRitardo.slotPrecedente, riconsegna_a: esitoRitardo.slotId })
-        .eq("id", inserita.id);
-    }
-  }
 
   // Ops sempre, cliente solo se la segnalazione è già pubblica.
   await notifySegnalazioneOps(inserita.id);
@@ -320,17 +302,9 @@ export async function addIssue(_prev: { error?: string; ok?: string } | null, fo
   revalidatePath(`/admin/ordini/${orderId}`);
   revalidatePath(`/app/ordini/${orderId}`);
 
-  // Il messaggio dice cosa è successo davvero, non «fatto». Chi ha appena
-  // chiesto due giorni in più deve sapere se la consegna del cliente è saltata
-  // o no, perché è l'unica cosa che cambia il suo lavoro di domani.
-  const coda =
-    esitoRitardo?.esito === "spostata"
-      ? " La riconsegna è stata spostata e il cliente lo sa."
-      : esitoRitardo?.esito === "nessuna_fascia"
-        ? " Attenzione: non c'era nessuna fascia libera per la riconsegna. Ci pensa WashLoop, non fate altro."
-        : esitoRitardo
-          ? " La riconsegna prevista regge lo stesso: nessun cambio di data."
-          : "";
+  const coda = trattiene
+    ? " Il capo resta da voi: mettetelo da parte, tornerà con la prossima riconsegna di questo cliente."
+    : "";
 
   return {
     ok:
@@ -338,4 +312,28 @@ export async function addIssue(_prev: { error?: string; ok?: string } | null, fo
         ? "Segnalazione inviata. Il cliente è stato avvisato."
         : "Segnalazione inviata a WashLoop. Al cliente ci pensiamo noi: non riceve niente finché non abbiamo deciso come sistemarla.") + coda,
   };
+}
+
+/** La lavanderia segna che il capo trattenuto è stato messo nel sacco.
+ *
+ *  È l'unico modo in cui un capo esce dalla lista dei trattenuti, e per questo
+ *  lo preme chi lo ha in mano — non l'ops da un pannello, che non lo vede. */
+export async function segnaRestituito(formData: FormData) {
+  const profile = await requirePartner();
+  const issueId = String(formData.get("issue_id") ?? "");
+  const orderId = String(formData.get("order_id") ?? "");
+  if (!issueId) return;
+  await assertOrderInLaundry(orderId, profile.laundry_id!);
+
+  const svc = createServiceClient();
+  const { error } = await svc
+    .from("order_issues")
+    .update({ restituito_at: new Date().toISOString(), restituito_da: profile.id })
+    .eq("id", issueId)
+    .is("restituito_at", null);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/laundry");
+  revalidatePath(`/laundry/${orderId}`);
+  revalidatePath("/admin/segnalazioni");
 }

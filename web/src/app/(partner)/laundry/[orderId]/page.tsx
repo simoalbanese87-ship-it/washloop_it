@@ -12,7 +12,6 @@ import { LAVORAZIONE_APERTA, signedProofUrl, type OrderStatus } from "@/lib/orde
 import { SEGNALABILE } from "@/lib/segnalazioni";
 import { fmtFull } from "@/lib/format";
 import { createServiceClient } from "@/lib/supabase/server";
-import { etichetteFasce } from "@/lib/riprogramma";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +68,7 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
       .returns<ListItem[]>(),
     supabase
       .from("order_issues")
-      .select("id, kind, capo, testo, photo_url, created_at, published_at, resolved_at, resolution, pronto_stimato, riconsegna_da, riconsegna_a")
+      .select("id, kind, capo, testo, photo_url, created_at, published_at, resolved_at, resolution, trattenuto_at, restituito_at")
       .eq("order_id", orderId)
       .order("created_at", { ascending: false })
       .returns<Segnalazione[]>(),
@@ -89,14 +88,8 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
   // sull'ordine due righe più su, e la firma non deve dipendere dai permessi
   // di lettura dello storage.
   const svc = createServiceClient();
-  const fasce = await etichetteFasce(svc, (issues ?? []).flatMap((s) => [s.riconsegna_da, s.riconsegna_a]));
   const segnalazioni = await Promise.all(
-    (issues ?? []).map(async (s) => ({
-      ...s,
-      fotoUrl: await signedProofUrl(svc, s.photo_url),
-      riconsegnaDa: s.riconsegna_da ? (fasce.get(s.riconsegna_da) ?? null) : null,
-      riconsegnaA: s.riconsegna_a ? (fasce.get(s.riconsegna_a) ?? null) : null,
-    })),
+    (issues ?? []).map(async (s) => ({ ...s, fotoUrl: await signedProofUrl(svc, s.photo_url) })),
   );
   const puoSegnalare = SEGNALABILE.includes(order.status);
 
