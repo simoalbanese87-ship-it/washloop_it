@@ -16,6 +16,14 @@ export type Segnalazione = {
   published_at: string | null;
   resolved_at: string | null;
   resolution: string | null;
+  pronto_stimato: string | null;
+  /** Gli id delle due fasce, come arrivano dal database. */
+  riconsegna_da: string | null;
+  riconsegna_a: string | null;
+  /** Le stesse due fasce già scritte in italiano. Le risolve la pagina con
+   *  `etichetteFasce`: la riga da sola non può leggere la tabella degli slot. */
+  riconsegnaDa?: string | null;
+  riconsegnaA?: string | null;
 };
 
 const COLORE: Record<"neutro" | "attenzione" | "grave", { bordo: string; testo: string; sfondo: string }> = {
@@ -60,6 +68,21 @@ export function SegnalazioneRiga({
         </>
       ) : (
         <p className="mt-1 text-sm font-medium text-navy/80">{s.testo}</p>
+      )}
+
+      {/* Lo spostamento della riconsegna. Non è un dettaglio in coda: quando
+          c'è, è la parte del messaggio che cambia la giornata a qualcuno. */}
+      {s.riconsegnaA && (
+        <p className="mt-2 rounded-[10px] bg-white/70 px-3 py-2 text-sm font-semibold text-navy">
+          {perCliente ? "Per questo il tuo bucato arriva " : "Riconsegna spostata a "}
+          <strong>{s.riconsegnaA}</strong>
+          {s.riconsegnaDa ? `, invece di ${s.riconsegnaDa}.` : "."}
+        </p>
+      )}
+      {!s.riconsegnaA && s.pronto_stimato && !perCliente && (
+        <p className="mt-2 text-xs font-bold text-muted">
+          La lavanderia ha chiesto più tempo (pronto entro {fmtFull(s.pronto_stimato)}), la riconsegna prevista reggeva.
+        </p>
       )}
 
       {fotoUrl && (

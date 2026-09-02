@@ -6,7 +6,8 @@ import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus, notifySpecialAdded, notifySegnalazioneCliente, notifySegnalazioneOps } from "@/lib/notify";
 import { chargeSpecialById } from "@/lib/billing-specials";
 import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
-import { SEGNALABILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione } from "@/lib/segnalazioni";
+import { SEGNALABILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione, isRitardoValido, prontoFra } from "@/lib/segnalazioni";
+import { riprogrammaPerRitardo } from "@/lib/riprogramma";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
 const PARTNER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -30,10 +31,27 @@ async function programmaRiconsegnaSeScelta(orderId: string): Promise<OrderStatus
   const svc = createServiceClient();
   const { data } = await svc
     .from("orders")
-    .select("delivery_slot_id")
+    .select("delivery_slot_id, delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at)")
     .eq("id", orderId)
-    .maybeSingle<{ delivery_slot_id: string | null }>();
+    .maybeSingle<{ delivery_slot_id: string | null; delivery_slot: { starts_at: string } | { starts_at: string }[] | null }>();
   if (!data?.delivery_slot_id) return "ready";
+
+  // La fascia prenotata può essere già passata: il bucato era in ritardo, o è
+  // rimasto fermo. Promuovere lo stesso vorrebbe dire scrivere al cliente
+  // «riconsegna programmata venerdì 4» di sabato — una data morta, che nessun
+  // rider può rispettare. Si cerca la prima fascia utile con la stessa regola
+  // dei ritardi dichiarati, e solo dopo si programma.
+  const rel = data.delivery_slot;
+  const fascia = Array.isArray(rel) ? rel[0] : rel;
+  if (fascia && Date.parse(fascia.starts_at) < Date.now()) {
+    const esito = await riprogrammaPerRitardo(orderId, new Date().toISOString());
+    if (esito.esito !== "spostata") {
+      // Nessuna fascia: meglio fermo su `ready`, dove l'ops lo vede, che
+      // programmato su un giorno che non esiste più.
+      console.error(`[partner] fascia di riconsegna scaduta e nessuna alternativa per ${orderId}`);
+      return "ready";
+    }
+  }
 
   const { error } = await svc.from("orders").update({ status: "delivery_scheduled" }).eq("id", orderId);
   if (error) {
@@ -252,6 +270,10 @@ export async function addIssue(_prev: { error?: string; ok?: string } | null, fo
   // cosa gli propone. Gli altri due sì, appena scritti.
   const subito = avvisaSubitoIlCliente(kind);
 
+  // Ritardo dichiarato, facoltativo: «per questo capo mi servono N giorni».
+  const giorniRaw = Number(formData.get("ritardo_giorni") ?? 0);
+  const prontoStimato = isRitardoValido(giorniRaw) ? prontoFra(giorniRaw) : null;
+
   const svc = createServiceClient();
   const { data: inserita, error } = await svc
     .from("order_issues")
@@ -263,21 +285,51 @@ export async function addIssue(_prev: { error?: string; ok?: string } | null, fo
       photo_url: photo,
       created_by: profile.id,
       published_at: subito ? new Date().toISOString() : null,
+      pronto_stimato: prontoStimato,
     })
     .select("id")
     .single<{ id: string }>();
   if (error || !inserita) return { error: error?.message ?? "Segnalazione non salvata" };
+
+  // Il ritardo si applica PRIMA di avvisare chiunque: il cliente deve ricevere
+  // la macchia e la data nuova nello stesso messaggio, non due volte la stessa
+  // notizia. Per questo la riprogrammazione non notifica di suo.
+  let esitoRitardo: Awaited<ReturnType<typeof riprogrammaPerRitardo>> | null = null;
+  if (prontoStimato) {
+    esitoRitardo = await riprogrammaPerRitardo(orderId, prontoStimato);
+    if (esitoRitardo.esito === "spostata") {
+      await svc
+        .from("order_issues")
+        .update({ riconsegna_da: esitoRitardo.slotPrecedente, riconsegna_a: esitoRitardo.slotId })
+        .eq("id", inserita.id);
+    }
+  }
 
   // Ops sempre, cliente solo se la segnalazione è già pubblica.
   await notifySegnalazioneOps(inserita.id);
   if (subito) await notifySegnalazioneCliente(inserita.id);
 
   revalidatePath(`/laundry/${orderId}`);
+  revalidatePath("/laundry");
   revalidatePath(`/admin/ordini/${orderId}`);
   revalidatePath(`/app/ordini/${orderId}`);
+
+  // Il messaggio dice cosa è successo davvero, non «fatto». Chi ha appena
+  // chiesto due giorni in più deve sapere se la consegna del cliente è saltata
+  // o no, perché è l'unica cosa che cambia il suo lavoro di domani.
+  const coda =
+    esitoRitardo?.esito === "spostata"
+      ? " La riconsegna è stata spostata e il cliente lo sa."
+      : esitoRitardo?.esito === "nessuna_fascia"
+        ? " Attenzione: non c'era nessuna fascia libera per la riconsegna. Ci pensa WashLoop, non fate altro."
+        : esitoRitardo
+          ? " La riconsegna prevista regge lo stesso: nessun cambio di data."
+          : "";
+
   return {
-    ok: subito
-      ? "Segnalazione inviata. Il cliente è stato avvisato."
-      : "Segnalazione inviata a WashLoop. Al cliente ci pensiamo noi: non riceve niente finché non abbiamo deciso come sistemarla.",
+    ok:
+      (subito
+        ? "Segnalazione inviata. Il cliente è stato avvisato."
+        : "Segnalazione inviata a WashLoop. Al cliente ci pensiamo noi: non riceve niente finché non abbiamo deciso come sistemarla.") + coda,
   };
 }

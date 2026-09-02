@@ -76,3 +76,37 @@ export const SEGNALABILE: string[] = [
   "delivery_scheduled",
   "out_for_delivery",
 ];
+
+// ---------------------------------------------------------------------------
+// Capi che richiedono più tempo.
+
+/** Di quanto la lavanderia può far slittare un capo, in giorni.
+ *
+ *  Non sono opzioni libere ma tre scelte secche: chi le usa ha il capo in una
+ *  mano e il telefono nell'altra, e un selettore di data si sbaglia. Tre giorni
+ *  è il tetto perché oltre non è più un trattamento, è un problema — e a quel
+ *  punto la conversazione la fa una persona, non un modulo. */
+export const RITARDI_PROPONIBILI = [1, 2, 3] as const;
+
+export type RitardoGiorni = (typeof RITARDI_PROPONIBILI)[number];
+
+export function isRitardoValido(n: number): n is RitardoGiorni {
+  return (RITARDI_PROPONIBILI as readonly number[]).includes(n);
+}
+
+/** Quanto in là si cerca una fascia di riconsegna dopo che il capo è pronto.
+ *
+ *  Stesso spirito di `FINESTRA_GIORNI` in `riconsegna.ts`: senza un tetto, una
+ *  cliente si è ritrovata la riconsegna a cinque settimane. Qui il rischio è lo
+ *  stesso al contrario — pur di trovare una fascia, spedire il bucato in un
+ *  futuro che nessuno ricorda. */
+export const RITARDO_MASSIMO_GIORNI = 10;
+
+/** La data in cui un capo sarà pronto, dato un ritardo in giorni.
+ *
+ *  Si parte da adesso e non dall'ETA dell'ordine: la lavanderia sta guardando
+ *  il capo ORA, e «mi servono due giorni» vuol dire due giorni da adesso, non
+ *  due giorni da una scadenza che è già passata. */
+export function prontoFra(giorni: number, adesso: Date = new Date()): string {
+  return new Date(adesso.getTime() + giorni * 86_400_000).toISOString();
+}

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { addIssue } from "@/lib/actions/partner";
 import { Button } from "@/components/ui/Button";
 import {
+  RITARDI_PROPONIBILI,
   SEGNALAZIONE_AIUTO,
   SEGNALAZIONE_LABEL,
   TIPI_SEGNALAZIONE,
@@ -24,6 +25,7 @@ type Stato = { error?: string; ok?: string } | null;
  *  prima di premere, non dopo. */
 export function SegnalazioneForm({ orderId }: { orderId: string }) {
   const [tipo, setTipo] = useState<TipoSegnalazione | "">("");
+  const [ritardo, setRitardo] = useState(0);
   const [photoPath, setPhotoPath] = useState("");
   const [photoNome, setPhotoNome] = useState("");
   const [caricando, setCaricando] = useState(false);
@@ -36,6 +38,7 @@ export function SegnalazioneForm({ orderId }: { orderId: string }) {
       if (res?.ok) {
         formRef.current?.reset();
         setTipo("");
+        setRitardo(0);
         setPhotoPath("");
         setPhotoNome("");
       }
@@ -138,6 +141,49 @@ export function SegnalazioneForm({ orderId }: { orderId: string }) {
         {caricando && <p className="mt-1 text-xs font-bold text-muted">Carico la foto…</p>}
         {photoNome && !caricando && <p className="mt-1 text-xs font-bold text-[#1F8A5B]">Foto allegata: {photoNome} ✓</p>}
         {erroreFoto && <p className="mt-1 text-xs font-bold text-[#C0392B]">{erroreFoto}</p>}
+      </div>
+
+      {/* Il tempo in più. Non un selettore di data: tre bottoni, perché chi
+          compila ha il capo in una mano e il telefono nell'altra. E si parte da
+          adesso, non dalla scadenza dell'ordine — «mi servono due giorni» vuol
+          dire due giorni da ora. */}
+      <div>
+        <span className="font-display text-sm font-extrabold text-navy">Vi serve più tempo per questo capo?</span>
+        <p className="mt-0.5 text-xs font-medium text-muted">
+          Se lo dite, alla riconsegna ci pensiamo noi: se la data promessa non regge la spostiamo e avvisiamo
+          il cliente. Non dovete chiamare nessuno.
+        </p>
+        <input type="hidden" name="ritardo_giorni" value={ritardo} />
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setRitardo(0)}
+            className={`rounded-full border-2 px-4 py-2 font-display text-sm font-extrabold transition-colors ${
+              ritardo === 0 ? "border-blue bg-blue/[0.06] text-navy" : "border-line text-navy/60 hover:border-navy/25"
+            }`}
+          >
+            No, nei tempi
+          </button>
+          {RITARDI_PROPONIBILI.map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => setRitardo(g)}
+              className={`rounded-full border-2 px-4 py-2 font-display text-sm font-extrabold transition-colors ${
+                ritardo === g ? "border-blue bg-blue/[0.06] text-navy" : "border-line text-navy/60 hover:border-navy/25"
+              }`}
+            >
+              +{g} {g === 1 ? "giorno" : "giorni"}
+            </button>
+          ))}
+        </div>
+        {ritardo > 0 && (
+          <p className="mt-2 rounded-[12px] bg-[#C9881F]/10 px-3 py-2 text-xs font-semibold text-[#C9881F]">
+            Se {ritardo === 1 ? "il giorno in più" : `i ${ritardo} giorni in più`} superano la consegna già
+            fissata, la spostiamo alla prima data utile e lo diciamo al cliente insieme a questa segnalazione.
+            Se invece ci sta dentro, non cambia niente per lui.
+          </p>
+        )}
       </div>
 
       {stato?.error && (

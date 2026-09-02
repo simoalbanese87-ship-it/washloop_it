@@ -10,6 +10,7 @@ import { chargeOrderSpecials, refundOrderSpecial, addSpecialAdmin } from "@/lib/
 import { AdminItems, type Item } from "@/components/app/AdminItems";
 import { SegnalazioneRiga, type Segnalazione } from "@/components/app/SegnalazioneRiga";
 import { pubblicaSegnalazione, chiudiSegnalazione } from "@/lib/actions/segnalazioni";
+import { etichetteFasce } from "@/lib/riprogramma";
 import { signedProofUrl } from "@/lib/orders";
 import { AddSpecialForm, type ListItem } from "@/components/app/AddSpecialForm";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
@@ -62,7 +63,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
     supabase.from("order_items").select("id, kind, status, photo_url").eq("order_id", id).order("created_at").returns<Item[]>(),
     supabase
       .from("order_issues")
-      .select("id, kind, capo, testo, photo_url, created_at, published_at, resolved_at, resolution")
+      .select("id, kind, capo, testo, photo_url, created_at, published_at, resolved_at, resolution, pronto_stimato, riconsegna_da, riconsegna_a")
       .eq("order_id", id)
       .order("created_at", { ascending: false })
       .returns<Segnalazione[]>(),
@@ -104,8 +105,14 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   const itemsFirmati = await Promise.all(
     (items ?? []).map(async (it) => ({ ...it, photo_url: await signedProofUrl(supabase, it.photo_url) })),
   );
+  const fasceSegn = await etichetteFasce(createServiceClient(), (issues ?? []).flatMap((sg) => [sg.riconsegna_da, sg.riconsegna_a]));
   const segnalazioni = await Promise.all(
-    (issues ?? []).map(async (sg) => ({ ...sg, fotoUrl: await signedProofUrl(supabase, sg.photo_url) })),
+    (issues ?? []).map(async (sg) => ({
+      ...sg,
+      fotoUrl: await signedProofUrl(supabase, sg.photo_url),
+      riconsegnaDa: sg.riconsegna_da ? (fasceSegn.get(sg.riconsegna_da) ?? null) : null,
+      riconsegnaA: sg.riconsegna_a ? (fasceSegn.get(sg.riconsegna_a) ?? null) : null,
+    })),
   );
   const daAvvisare = segnalazioni.filter((sg) => !sg.published_at).length;
 
