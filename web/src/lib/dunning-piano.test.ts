@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { prossimoSollecito, testoSollecito, ULTIMO_SOLLECITO } from "./dunning-piano.ts";
 
 const ADESSO = new Date("2026-08-24T08:00:00Z").getTime();
+const oreFa = (n: number) => new Date(ADESSO - n * 3600_000).toISOString();
 const giorniFa = (n: number) => new Date(ADESSO - n * 24 * 3600 * 1000).toISOString();
 
 test("chi non è in recupero non riceve niente", () => {
@@ -16,16 +17,16 @@ test("il primo sollecito non lo manda il cron: lo manda il webhook al fallimento
   assert.equal(prossimoSollecito({ dunning_step: 0, dunning_last_sent_at: giorniFa(10) }, ADESSO), null);
 });
 
-test("secondo sollecito dopo tre giorni, non prima", () => {
-  const stato = { dunning_step: 1, dunning_last_sent_at: giorniFa(2) };
+test("secondo sollecito il giorno dopo, non lo stesso giorno", () => {
+  const stato = { dunning_step: 1, dunning_last_sent_at: oreFa(6) };
   assert.equal(prossimoSollecito(stato, ADESSO), null);
-  assert.equal(prossimoSollecito({ dunning_step: 1, dunning_last_sent_at: giorniFa(3) }, ADESSO), 2);
+  assert.equal(prossimoSollecito({ dunning_step: 1, dunning_last_sent_at: giorniFa(1) }, ADESSO), 2);
   assert.equal(prossimoSollecito({ dunning_step: 1, dunning_last_sent_at: giorniFa(5) }, ADESSO), 2);
 });
 
-test("terzo sollecito quattro giorni dopo il secondo, cioè una settimana dal primo", () => {
-  assert.equal(prossimoSollecito({ dunning_step: 2, dunning_last_sent_at: giorniFa(3) }, ADESSO), null);
-  assert.equal(prossimoSollecito({ dunning_step: 2, dunning_last_sent_at: giorniFa(4) }, ADESSO), 3);
+test("terzo sollecito due giorni dopo il secondo, cioè tre giorni dal primo", () => {
+  assert.equal(prossimoSollecito({ dunning_step: 2, dunning_last_sent_at: giorniFa(1) }, ADESSO), null);
+  assert.equal(prossimoSollecito({ dunning_step: 2, dunning_last_sent_at: giorniFa(2) }, ADESSO), 3);
 });
 
 test("dopo il terzo non si scrive più, per quanto tempo passi", () => {

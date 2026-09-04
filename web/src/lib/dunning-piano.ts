@@ -9,10 +9,17 @@
  *  molestia: da lì in poi decide una persona. */
 
 /** Quanto si aspetta prima del sollecito successivo, contando dall'ultimo
- *  inviato. Il primo parte subito al fallimento, dal webhook. */
+ *  inviato. Il primo parte subito al fallimento, dal webhook.
+ *
+ *  Stretto a 1 e 2 giorni il 04/09/2026: prima erano 3 e 4, cioè una settimana
+ *  per arrivare all'ultimo avviso. Su un abbonamento mensile una settimana di
+ *  silenzio è troppa — chi ha la carta scaduta se ne dimentica in un giorno, e
+ *  nel frattempo i ritiri restano fermi perché il cron non genera niente per
+ *  chi non ha pagato. Tre email in tre giorni non sono insistenza: sono il
+ *  tempo che serve prima di alzare il telefono. */
 export const ATTESA_GIORNI: Record<number, number> = {
-  1: 3, // dal 1º al 2º: tre giorni
-  2: 4, // dal 2º al 3º: altri quattro, cioè una settimana dal primo
+  1: 1, // dal 1º al 2º: il giorno dopo
+  2: 2, // dal 2º al 3º: altri due, cioè tre giorni dal primo
 };
 
 /** L'ultimo sollecito previsto. Dopo questo non si scrive più in automatico. */

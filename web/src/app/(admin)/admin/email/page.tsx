@@ -1,5 +1,23 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { brevoEvents, brevoAccount, type BrevoEvent } from "@/lib/brevo";
+import { createServiceClient } from "@/lib/supabase/server";
+import { fmtFull } from "@/lib/format";
+
+type RigaLog = {
+  id: string;
+  destinatario: string;
+  oggetto: string;
+  esito: "inviata" | "saltata" | "fallita";
+  message_id: string | null;
+  errore: string | null;
+  created_at: string;
+};
+
+const TONO_LOG: Record<RigaLog["esito"], string> = {
+  inviata: "bg-[#1F8A5B]/15 text-[#1F8A5B]",
+  saltata: "bg-[#C9881F]/12 text-[#C9881F]",
+  fallita: "bg-[#C0392B]/12 text-[#C0392B]",
+};
 
 /** Admin → Email: stato invii transazionali via Brevo (consegnata/aperta/bounce).
  *  Ricerca per indirizzo con ?q=email. */
@@ -22,7 +40,27 @@ function fmt(d: string) {
 export default async function EmailPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const { q } = await searchParams;
   const email = (q ?? "").trim() || undefined;
-  const [acc, res] = await Promise.all([brevoAccount(), brevoEvents({ limit: 60, email })]);
+  // Due fonti, e servono entrambe. Brevo sa che cosa è successo DOPO che gli
+  // abbiamo passato il messaggio — consegnata, aperta, rimbalzata. Il registro
+  // locale sa che cosa abbiamo TENTATO, e copre il caso che Brevo non può
+  // vedere: l'email che non è mai uscita da qui (SMTP spento, destinatario
+  // senza indirizzo). Il 4 settembre un cliente ha detto «non mi è arrivata» e
+  // non c'era modo di distinguere i due casi.
+  const svc = createServiceClient();
+  let qLog = svc
+    .from("email_log")
+    .select("id, destinatario, oggetto, esito, message_id, errore, created_at")
+    .order("created_at", { ascending: false })
+    .limit(60);
+  if (email) qLog = qLog.ilike("destinatario", `%${email}%`);
+
+  const [acc, res, { data: log }] = await Promise.all([
+    brevoAccount(),
+    brevoEvents({ limit: 60, email }),
+    qLog.returns<RigaLog[]>(),
+  ]);
+  const righeLog = log ?? [];
+  const nonPartite = righeLog.filter((r) => r.esito !== "inviata").length;
 
   const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
@@ -64,6 +102,39 @@ export default async function EmailPage({ searchParams }: { searchParams: Promis
         </div>
       )}
       <p className="mt-3 text-xs font-medium text-muted">Dati live da Brevo. «Consegnata» = arrivata al provider; «Aperta» = il destinatario l&apos;ha aperta; «Bounce/Bloccata/Spam» = problema di recapito.</p>
+
+      {/* Registro locale: che cosa ha tentato di mandare il sistema. */}
+      <div className="mt-8">
+        <h2 className="font-display text-lg font-extrabold text-navy">Registro degli invii</h2>
+        <p className="mt-1 text-sm font-medium text-muted">
+          Quello che <strong>noi</strong> abbiamo provato a mandare. Se una riga è «fallita» o «saltata», il
+          messaggio non è mai arrivato a Brevo — quindi lì sopra non lo troverai.
+          {nonPartite > 0 ? ` Ce ne sono ${nonPartite} non partite.` : ""}
+        </p>
+
+        {righeLog.length === 0 ? (
+          <Card className="mt-4">
+            <p className="text-sm font-medium text-muted">
+              Nessun invio registrato{email ? ` per ${email}` : ""}. Il registro parte dal 4 settembre 2026:
+              le email precedenti non ci sono.
+            </p>
+          </Card>
+        ) : (
+          <div className="mt-4 space-y-2">
+            {righeLog.map((r) => (
+              <Card key={r.id} className="!p-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <span className="font-display text-sm font-extrabold text-navy">{r.oggetto}</span>
+                  <span className={`rounded-full px-2.5 py-1 font-display text-xs font-bold ${TONO_LOG[r.esito]}`}>{r.esito}</span>
+                </div>
+                <div className="mt-1 text-sm font-medium text-muted">{r.destinatario} · {fmtFull(r.created_at)}</div>
+                {r.errore && <div className="mt-1 text-xs font-bold text-[#C0392B]">{r.errore}</div>}
+                {r.message_id && <div className="mt-1 break-all font-mono text-[11px] text-muted">{r.message_id}</div>}
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
     </>
   );
 }

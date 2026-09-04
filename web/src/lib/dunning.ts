@@ -35,9 +35,17 @@ export async function inviaSollecito(opts: {
   const testo = testoSollecito(step, nome);
   const href = linkPagamento(invoiceUrl);
 
+  // L'esito dell'email si guarda: `dunning_step` è la memoria di che cosa il
+  // cliente ha davvero ricevuto, e farla avanzare su un invio fallito significa
+  // saltare per sempre quel sollecito. Prima si segnava comunque, con la
+  // giustificazione che «riprovare domani non cambia l'esito»: vale per un
+  // indirizzo rimbalzato, non per l'SMTP giù cinque minuti.
+  let inviata = false;
+  let motivo: string | undefined;
+
   try {
     if (destinatario.email) {
-      await sendMail({
+      const res = await sendMail({
         to: destinatario.email,
         subject: testo.subject,
         html: renderEmail({
@@ -52,6 +60,10 @@ export async function inviaSollecito(opts: {
               : undefined,
         }),
       });
+      inviata = !res?.error && !res?.skipped;
+      if (!inviata) motivo = res?.skipped ? "invio saltato (SMTP non configurato o disiscritto)" : "invio fallito";
+    } else {
+      motivo = "il cliente non ha un indirizzo email";
     }
     if (destinatario.userId) {
       await sendPush(destinatario.userId, {
@@ -61,10 +73,13 @@ export async function inviaSollecito(opts: {
       });
     }
   } catch (err) {
+    motivo = err instanceof Error ? err.message : "errore sconosciuto";
     console.error(`[dunning] sollecito ${step} non spedito:`, err);
-    // Si segna comunque: se l'email è rimbalzata, riprovare domani con lo stesso
-    // testo non cambia l'esito e intanto blocca il resto del calendario.
   }
+
+  // Non partita: il contatore non si muove, così domani il cron ritenta lo
+  // stesso passo invece di darlo per fatto. L'esito preciso sta in `email_log`.
+  if (!inviata) return { inviato: false, motivo };
 
   const { error } = await db
     .from("subscriptions")

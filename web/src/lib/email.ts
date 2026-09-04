@@ -82,6 +82,24 @@ async function segnala(messaggio: string, dettaglio?: Record<string, unknown>) {
   }
 }
 
+/** Scrive nel registro l'esito di un invio. Non lancia mai: se il registro non
+ *  scrive, l'email è comunque partita e il chiamante non deve accorgersene. */
+async function registra(riga: {
+  destinatario: string;
+  oggetto: string;
+  kind: string;
+  esito: "inviata" | "saltata" | "fallita";
+  message_id?: string | null;
+  errore?: string | null;
+}) {
+  try {
+    const { createServiceClient } = await import("@/lib/supabase/server");
+    await createServiceClient().from("email_log").insert(riga);
+  } catch {
+    /* il registro è una comodità, non una dipendenza */
+  }
+}
+
 export async function sendMail({
   to,
   subject,
@@ -104,10 +122,12 @@ export async function sendMail({
       // accorgersene qui che scoprire di aver mandato una comunicazione
       // commerciale senza via d'uscita.
       console.error(`[email] "${subject}" è marketing ma non ha unsubUrl: invio annullato`);
+      await registra({ destinatario: to, oggetto: subject, kind, esito: "fallita", errore: "marketing senza link di disiscrizione" });
       return { skipped: true, error: true };
     }
     if (await disiscritto(to)) {
       console.warn(`[email] ${to} è disiscritto — "${subject}" non inviata`);
+      await registra({ destinatario: to, oggetto: subject, kind, esito: "saltata", errore: "destinatario disiscritto" });
       return { skipped: true };
     }
   }
@@ -117,10 +137,11 @@ export async function sendMail({
     console.warn(`[email] SMTP non configurato — email "${subject}" → ${to} non inviata`);
     // Silenzioso ma grave: in produzione significa che NESSUNA email parte.
     void segnala("SMTP non configurato: nessuna email viene inviata", { subject });
+    await registra({ destinatario: to, oggetto: subject, kind, esito: "fallita", errore: "SMTP non configurato" });
     return { skipped: true };
   }
   try {
-    await tx.sendMail({
+    const esito = await tx.sendMail({
       from: SMTP_FROM,
       replyTo: SMTP_REPLY_TO,
       to,
@@ -138,12 +159,20 @@ export async function sendMail({
             }
           : undefined,
     });
-    return { skipped: false };
+    // `messageId` è quello che il server SMTP assegna accettando il messaggio:
+    // è la stringa da cercare nei log del provider quando qualcuno dice «non
+    // mi è arrivata». Senza, la domanda resta senza risposta.
+    await registra({ destinatario: to, oggetto: subject, kind, esito: "inviata", message_id: esito?.messageId ?? null });
+    return { skipped: false, messageId: esito?.messageId ?? null };
   } catch (err) {
     console.error(`[email] invio fallito ("${subject}" → ${to}):`, err);
     // L'esito di sendMail non lo guarda nessuno dei chiamanti: senza questa
     // riga, un'email non recapitata non lascia traccia da nessuna parte.
     void segnala(`Invio fallito: ${err instanceof Error ? err.message : "errore"}`, { subject, to });
+    await registra({
+      destinatario: to, oggetto: subject, kind, esito: "fallita",
+      errore: err instanceof Error ? err.message : "errore sconosciuto",
+    });
     return { skipped: false, error: true };
   }
 }
