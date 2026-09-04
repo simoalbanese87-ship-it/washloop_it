@@ -246,11 +246,44 @@ export async function createSlot(formData: FormData) {
 
 export async function deleteSlot(formData: FormData) {
   await soloAdmin();
-  const supabase = await createClient();
   const id = String(formData.get("slot_id") ?? "");
+  if (!id) redirect(`${REV}?warn=${encodeURIComponent("Fascia non trovata.")}`);
+
+  // Una fascia con un ordine sopra non si cancella: il database lo vieta
+  // (`orders_pickup_slot_id_fkey`) perché toglierla lascerebbe quell'ordine
+  // senza orario e il cliente senza ritiro. Giusto — ma finora l'unica cosa
+  // che si vedeva era la schermata di errore di Next, senza una parola sul
+  // perché. Il controllo si fa prima, e si dice chi c'è sopra.
+  const svc = createServiceClient();
+  const { data: agganciati } = await svc
+    .from("orders")
+    .select("id, profiles!orders_customer_id_fkey(full_name)")
+    .or(`pickup_slot_id.eq.${id},delivery_slot_id.eq.${id}`)
+    .neq("status", "cancelled")
+    .returns<{ id: string; profiles: { full_name: string | null } | { full_name: string | null }[] | null }[]>();
+
+  if ((agganciati ?? []).length > 0) {
+    const nomi = [
+      ...new Set(
+        (agganciati ?? [])
+          .map((o) => (Array.isArray(o.profiles) ? o.profiles[0] : o.profiles)?.full_name)
+          .filter(Boolean) as string[],
+      ),
+    ];
+    const chi = nomi.length > 0 ? ` (${nomi.join(", ")})` : "";
+    redirect(
+      `${REV}?warn=` +
+        encodeURIComponent(
+          `Questa fascia ha ${agganciati!.length} ${agganciati!.length === 1 ? "ordine" : "ordini"} sopra${chi}: cancellarla li lascerebbe senza orario. Sposta o annulla prima quegli ordini.`,
+        ),
+    );
+  }
+
+  const supabase = await createClient();
   const { error } = await supabase.from("slots").delete().eq("id", id);
-  if (error) throw new Error(error.message);
+  if (error) redirect(`${REV}?warn=${encodeURIComponent(`Fascia non rimossa: ${error.message}`)}`);
   revalidatePath(REV);
+  redirect(`${REV}?ok=${encodeURIComponent("Fascia rimossa.")}`);
 }
 
 /** Cancella in blocco le fasce future di una lavanderia, saltando quelle che
