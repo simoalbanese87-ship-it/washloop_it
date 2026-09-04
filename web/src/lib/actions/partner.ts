@@ -30,23 +30,23 @@ async function programmaRiconsegnaSeScelta(orderId: string): Promise<OrderStatus
   const svc = createServiceClient();
   const { data } = await svc
     .from("orders")
-    .select("delivery_slot_id, delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at)")
+    .select("delivery_slot_id")
     .eq("id", orderId)
-    .maybeSingle<{ delivery_slot_id: string | null; delivery_slot: { starts_at: string } | { starts_at: string }[] | null }>();
+    .maybeSingle<{ delivery_slot_id: string | null }>();
   if (!data?.delivery_slot_id) return "ready";
 
-  // La fascia prenotata può essere già passata: il bucato era in ritardo, o è
-  // rimasto fermo. Promuovere lo stesso vorrebbe dire scrivere al cliente
-  // «riconsegna programmata venerdì 4» di sabato — una data morta, che nessun
-  // rider può rispettare. Meglio fermo su «pronto», dove l'ops lo vede e
-  // riprogramma con il cliente: una fascia nuova scelta da sola sarebbe un
-  // appuntamento che nessuno ha preso.
-  const rel = data.delivery_slot;
-  const fascia = Array.isArray(rel) ? rel[0] : rel;
-  if (fascia && Date.parse(fascia.starts_at) < Date.now()) {
-    console.error(`[partner] fascia di riconsegna già passata su ${orderId}: resta su "ready" per l'ops`);
-    return "ready";
-  }
+  // Nota per chi passerà di qui: NON aggiungere un controllo «la fascia è già
+  // passata, allora non promuovere». L'ho fatto il 3 settembre pensando di
+  // evitare una data morta, e il 4 mattina è costato un sacco invisibile.
+  //
+  // La lavanderia ha segnato pronti tre ordini alle 10:05; quello di Saverio
+  // aveva la fascia alle 09:00, passata da un'ora, ed è rimasto su «pronto» —
+  // cioè fuori dal giro del rider, che intanto era in strada a consegnare gli
+  // altri due, con la sua borsa a due metri. Nessuno riprogramma niente in
+  // quel momento: il rider è là, il sacco è là, la consegna è oggi.
+  //
+  // Una fascia scaduta di un'ora non è una data morta, è una consegna in
+  // ritardo — e le fermate arretrate il giro del rider le mostra già apposta.
 
   const { error } = await svc.from("orders").update({ status: "delivery_scheduled" }).eq("id", orderId);
   if (error) {

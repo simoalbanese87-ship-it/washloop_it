@@ -56,7 +56,7 @@ async function advance(_prev: AdvanceState, formData: FormData): Promise<Advance
   return res ?? null;
 }
 
-export function CourierJobCard({ job }: { job: Job }) {
+export function CourierJobCard({ job, n, kind }: { job: Job; n?: number; kind?: "pickup" | "delivery" }) {
   const [proofUrl, setProofUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -79,13 +79,36 @@ export function CourierJobCard({ job }: { job: Job }) {
 
   return (
     <div className="rounded-[20px] border border-line bg-white p-5 shadow-[var(--shadow-sm)]">
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 gap-3">
+          {/* Numero e tipo della fermata. Stanno DENTRO la scheda su cui si
+              preme, e non in un elenco a parte più in alto: il rider guarda un
+              posto solo, in un ordine solo. */}
+          {n != null && (
+            <span
+              className={`grid h-8 w-8 flex-none place-items-center rounded-full font-display text-sm font-black text-white ${
+                kind === "delivery" ? "bg-[#1F8A5B]" : "bg-[#2b7fd4]"
+              }`}
+            >
+              {n}
+            </span>
+          )}
+          <div className="min-w-0">
+          {kind && (
+            <div
+              className={`mb-0.5 font-display text-xs font-extrabold uppercase tracking-wider ${
+                kind === "delivery" ? "text-[#1F8A5B]" : "text-[#2b7fd4]"
+              }`}
+            >
+              {kind === "delivery" ? "Consegna" : "Ritiro"}
+            </div>
+          )}
           <div className="font-display text-base font-extrabold text-navy">{job.customer}</div>
           <div className="mt-0.5 text-sm font-medium text-muted">
             {job.address} · {job.zone}
           </div>
           {job.when && <div className="mt-0.5 text-xs font-semibold text-blue">{job.when}</div>}
+          </div>
         </div>
         <StatusBadge status={job.status} />
       </div>

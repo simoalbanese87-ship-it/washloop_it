@@ -134,57 +134,36 @@ export default async function CourierToday() {
         </Card>
       )}
 
-      {/* Percorso ottimizzato */}
-      {routeRows.length > 0 && (
-        <Card className="mb-6">
-          <h2 className="mb-3 font-display text-lg font-extrabold text-navy">Percorso ottimizzato</h2>
-          <ol className="space-y-2">
-            {routeRows.map((r, i) => {
-              const kind = kindOf(r);
-              const isPickup = kind === "pickup";
-              return (
-                <li key={r.id} className="flex items-center gap-3 rounded-[14px] border border-line bg-white px-3 py-2.5">
-                  <span className={`grid h-7 w-7 flex-none place-items-center rounded-full font-display text-xs font-black text-white ${isPickup ? "bg-[#2b7fd4]" : "bg-[#1F8A5B]"}`}>{i + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-display text-sm font-extrabold text-navy">{r.customer?.full_name ?? "Cliente"}</span>
-                      <span className={`rounded-full px-2 py-0.5 font-display text-[10px] font-bold ${isPickup ? "bg-[#2b7fd4]/12 text-[#2b7fd4]" : "bg-[#1F8A5B]/12 text-[#1F8A5B]"}`}>{isPickup ? "Ritiro" : "Consegna"}</span>
-                      <span className="rounded-full bg-ice px-2 py-0.5 font-display text-[10px] font-bold text-navy">{r.bags} {r.bags === 1 ? "busta" : "buste"}</span>
-                    </div>
-                    <div className="mt-0.5 truncate text-xs font-medium text-muted">{r.addresses?.street ?? "—"}</div>
-                  </div>
-                  {slotOf(r)?.ends_at && <span className="flex-none font-display text-xs font-bold text-navy/60">entro {hhmm(slotOf(r)!.ends_at)}</span>}
-                </li>
-              );
-            })}
-          </ol>
-          {!depot && <p className="mt-3 text-[11px] font-medium text-muted">Deposito non impostato: l&apos;admin lo configura nel Catalogo (sezione Deposito).</p>}
+      {/* Il giro, in un posto solo.
+          Prima questa pagina raccontava le stesse fermate tre volte: un elenco
+          numerato «Percorso ottimizzato» che non faceva niente, e sotto due
+          sezioni separate «Ritiri» e «Consegne» con le schede su cui si preme —
+          in un ordine diverso da quello dell'elenco. Il rider leggeva l'ordine
+          in cima e poi doveva ritrovare la persona più in basso, in una delle
+          due liste. Ora c'è una lista sola, nell'ordine in cui si guida, e
+          ogni riga è già la scheda con cui si lavora. */}
+      {routeRows.length > 0 ? (
+        <div className="space-y-3">
+          {routeRows.map((r, i) => (
+            <CourierJobCard key={r.id} job={toJob(r, kindOf(r))} n={i + 1} kind={kindOf(r)} />
+          ))}
+        </div>
+      ) : (
+        <Card>
+          <p className="text-sm font-medium text-muted">
+            {piuAvanti > 0
+              ? "Niente da fare oggi. Le fermate dei prossimi giorni compaiono qui la mattina stessa."
+              : "Nessuna fermata assegnata."}
+          </p>
         </Card>
       )}
 
-      {/* Azioni: ritiri / consegne */}
-      <div className="grid gap-8 lg:grid-cols-2">
-        <section>
-          <h2 className="mb-3 font-display text-lg font-extrabold text-navy">Ritiri</h2>
-          <div className="space-y-3">
-            {pickups.length > 0 ? (
-              pickups.map((r) => <CourierJobCard key={r.id} job={toJob(r, "pickup")} />)
-            ) : (
-              <Card><p className="text-sm font-medium text-muted">Nessun ritiro assegnato.</p></Card>
-            )}
-          </div>
-        </section>
-        <section>
-          <h2 className="mb-3 font-display text-lg font-extrabold text-navy">Consegne</h2>
-          <div className="space-y-3">
-            {deliveries.length > 0 ? (
-              deliveries.map((r) => <CourierJobCard key={r.id} job={toJob(r, "delivery")} />)
-            ) : (
-              <Card><p className="text-sm font-medium text-muted">Nessuna consegna assegnata.</p></Card>
-            )}
-          </div>
-        </section>
-      </div>
+      {!depot && routeRows.length > 0 && (
+        <p className="mt-3 text-[11px] font-medium text-muted">
+          Deposito non impostato: l&apos;admin lo configura nel Catalogo (sezione Deposito).
+        </p>
+      )}
+
     </>
   );
 }
