@@ -352,7 +352,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
                       <span className="font-semibold text-navy">{s.qty}× {s.item_name}</span>
                       <span className="block text-xs font-medium text-muted">{chiHaInserito(s)}</span>
                     </span>
-                    <span className="flex items-center gap-2">
+                    <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
                       <span className={`font-display font-bold ${s.refunded_at ? "text-muted line-through" : "text-navy"}`}>{eur(s.price_cli_cents * s.qty)}</span>
                       {s.refunded_at ? (
                         <span className="rounded-full bg-navy/10 px-2 py-0.5 font-display text-xs font-extrabold text-navy">rimborsato</span>
