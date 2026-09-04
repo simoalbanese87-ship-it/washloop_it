@@ -62,7 +62,7 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
       .returns<Special[]>(),
     supabase
       .from("partner_special_items")
-      .select("id, category_id, category_name, category_emoji, name, comp_lav_cents")
+      .select("id, category_id, category_name, category_emoji, name, comp_lav_cents, incluse_per_sacco")
       .order("category_sort", { ascending: true })
       .order("sort", { ascending: true })
       .returns<ListItem[]>(),

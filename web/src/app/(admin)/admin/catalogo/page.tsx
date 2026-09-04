@@ -261,8 +261,8 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
           {/* Pulizia prima della rigenerazione: le fasce già prenotate restano,
               cancellarle lascerebbe un ordine senza orario. */}
           <form action={deleteFutureSlots} className="mt-4 grid gap-3 rounded-[14px] border border-line bg-ice p-3 sm:grid-cols-[1fr_auto_auto]">
-            <select name="laundry_id" required className={input} defaultValue="">
-              <option value="" disabled>Svuota le fasce future di…</option>
+            <select name="laundry_id" className={input} defaultValue="">
+              <option value="">Tutte le lavanderie</option>
               {(laundries ?? []).map((l) => (<option key={l.id} value={l.id}>{l.name}</option>))}
             </select>
             <select name="kind" className={input} defaultValue="pickup">
@@ -276,8 +276,8 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
           <form action={generateSlots} className="mt-4 space-y-3">
             <div className="grid gap-3 sm:grid-cols-4">
               <label className="text-xs font-bold text-muted">Lavanderia
-                <select name="laundry_id" required className={input} defaultValue="">
-                  <option value="" disabled>Scegli…</option>
+                <select name="laundry_id" className={input} defaultValue="">
+                  <option value="">Lavanderia (facoltativa)</option>
                   {(laundries ?? []).map((l) => (<option key={l.id} value={l.id}>{l.name}</option>))}
                 </select>
               </label>
@@ -312,8 +312,8 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
 
           {/* Aggiunta singola */}
           <form action={createSlot} className="mt-5 grid gap-2 border-t border-line pt-4 sm:grid-cols-6">
-            <select name="laundry_id" className={input} defaultValue="" required>
-              <option value="" disabled>Lavanderia…</option>
+            <select name="laundry_id" className={input} defaultValue="">
+              <option value="">Lavanderia (facoltativa)</option>
               {(laundries ?? []).map((l) => (<option key={l.id} value={l.id}>{l.name}</option>))}
             </select>
             <select name="kind" className={input} defaultValue="pickup">

@@ -285,21 +285,23 @@ export async function deleteSlot(formData: FormData) {
 export async function deleteFutureSlots(formData: FormData) {
   const me = await getCurrentProfile();
   if (!me || me.role !== "admin") throw new Error("Solo admin");
-  const laundry_id = String(formData.get("laundry_id") ?? "");
+  // Lavanderia facoltativa anche qui: se non la scegli, svuota tutte le fasce
+  // future di quel tipo. È quello che si vuole quando si rifà il calendario.
+  const laundry_id = String(formData.get("laundry_id") ?? "") || null;
   const kind = String(formData.get("kind") ?? "");
-  if (!laundry_id || !["pickup", "delivery"].includes(kind)) {
-    redirect(`${REV}?warn=${encodeURIComponent("Scegli la lavanderia e il tipo di fascia.")}`);
+  if (!["pickup", "delivery"].includes(kind)) {
+    redirect(`${REV}?warn=${encodeURIComponent("Scegli il tipo di fascia: ritiri o consegne.")}`);
   }
 
   const svc = createServiceClient();
-  const { data: futuri } = await svc
+  let q = svc
     .from("slots")
     .select("id")
-    .eq("laundry_id", laundry_id)
     .eq("kind", kind)
     .is("archived_at", null)
-    .gte("starts_at", new Date().toISOString())
-    .returns<{ id: string }[]>();
+    .gte("starts_at", new Date().toISOString());
+  if (laundry_id) q = q.eq("laundry_id", laundry_id);
+  const { data: futuri } = await q.returns<{ id: string }[]>();
 
   const ids = (futuri ?? []).map((s) => s.id);
   if (ids.length === 0) redirect(`${REV}?ok=${encodeURIComponent("Nessuna fascia futura da togliere.")}`);
@@ -324,8 +326,11 @@ export async function deleteFutureSlots(formData: FormData) {
 export async function generateSlots(formData: FormData) {
   await soloAdmin();
   const supabase = await createClient();
-  const laundry_id = String(formData.get("laundry_id") ?? "");
-  if (!laundry_id) throw new Error("Lavanderia obbligatoria");
+  // La lavanderia è utile — dice da dove riparte il capo — ma non deve
+  // impedire di aprire un ritiro. Chi organizza il calendario può non saperla
+  // ancora, e restare bloccato per un campo facoltativo è il modo in cui un
+  // giorno resta scoperto.
+  const laundry_id = String(formData.get("laundry_id") ?? "") || null;
   const kind = String(formData.get("kind") ?? "pickup");
   const date_from = String(formData.get("date_from") ?? "");
   const date_to = String(formData.get("date_to") ?? "");
@@ -339,7 +344,9 @@ export async function generateSlots(formData: FormData) {
   if (!date_from || !date_to || days.length === 0) throw new Error("Date e giorni obbligatori");
   if (windows.length === 0) throw new Error("Inserisci almeno una fascia oraria");
 
-  const { data: lab } = await supabase.from("laundries").select("zone_id").eq("id", laundry_id).maybeSingle<{ zone_id: string | null }>();
+  const { data: lab } = laundry_id
+    ? await supabase.from("laundries").select("zone_id").eq("id", laundry_id).maybeSingle<{ zone_id: string | null }>()
+    : { data: null };
   const zone_id = lab?.zone_id ?? null;
 
   const start = new Date(`${date_from}T00:00:00Z`);

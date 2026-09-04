@@ -7,6 +7,7 @@ import { notifyOrderStatus, notifySpecialAdded, notifySegnalazioneCliente, notif
 import { chargeSpecialById } from "@/lib/billing-specials";
 import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
 import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione } from "@/lib/segnalazioni";
+import { conteggiaConFranchigia } from "@/lib/franchigia";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
 const PARTNER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -160,11 +161,39 @@ export async function addSpecial(formData: FormData) {
   const svc = createServiceClient();
   const { data: item, error: itemErr } = await svc
     .from("special_items")
-    .select("id, name, comp_lav_cents, price_cli_cents, active")
+    .select("id, name, comp_lav_cents, price_cli_cents, active, incluse_per_sacco")
     .eq("id", itemId)
     .single();
   if (itemErr || !item) throw new Error("Capo non a listino");
   if (!item.active) throw new Error("Capo non più disponibile");
+
+  // La franchigia dell'abbonamento la applica il sistema.
+  //
+  // «Ogni sacchetto contiene fino a 3 camicie» è promesso al cliente in sei
+  // punti dell'app, ma finora era solo una frase su questo modulo: chi compilava
+  // doveva ricordarsene e sottrarre a mente. Il 1° settembre sono stati
+  // registrati addebiti che, guardando i numeri, non si può dire se fossero
+  // giusti — perché non era scritto da nessuna parte quante camicie ci fossero.
+  // Ora si dichiara quante ce n'erano e il conto lo fa la macchina.
+  const { data: ordine } = await svc.from("orders").select("bags").eq("id", orderId).maybeSingle<{ bags: number | null }>();
+  const { data: precedenti } = await svc
+    .from("order_specials")
+    .select("qty, qty_totale")
+    .eq("order_id", orderId)
+    .eq("item_id", item.id)
+    .returns<{ qty: number; qty_totale: number | null }[]>();
+  // Si contano i TOTALI già registrati, non gli addebitati: altrimenti due
+  // registrazioni separate userebbero la franchigia due volte.
+  const giaConteggiate = (precedenti ?? []).reduce((t, r) => t + (r.qty_totale ?? r.qty), 0);
+
+  const conto = conteggiaConFranchigia(qty, item.incluse_per_sacco ?? 0, ordine?.bags ?? 1, giaConteggiate);
+
+  if (conto.daAddebitare === 0) {
+    // Niente da addebitare: non si scrive una riga da zero euro, si dice
+    // perché. Una riga a zero in fattura è una domanda del cliente in arrivo.
+    revalidatePath(`/laundry/${orderId}`);
+    return;
+  }
 
   const { data: inserted, error } = await svc
     .from("order_specials")
@@ -172,7 +201,9 @@ export async function addSpecial(formData: FormData) {
       order_id: orderId,
       item_id: item.id,
       item_name: item.name, // snapshot
-      qty,
+      qty: conto.daAddebitare,
+      qty_totale: qty,
+      qty_inclusa: conto.incluse,
       comp_lav_cents: item.comp_lav_cents, // snapshot col. D
       price_cli_cents: item.price_cli_cents, // snapshot col. E (mai esposto al partner)
       added_by: profile.id,
@@ -187,7 +218,7 @@ export async function addSpecial(formData: FormData) {
     order_id: orderId,
     special_id: inserted.id,
     kind: "special",
-    amount_cents: item.comp_lav_cents * qty,
+    amount_cents: item.comp_lav_cents * conto.daAddebitare,
     status: "pending",
   });
 

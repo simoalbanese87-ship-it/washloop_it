@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/Button";
 import { addSpecial } from "@/lib/actions/partner";
 
 export type ListItem = {
+  /** Quante ne comprende l'abbonamento per ogni sacco (3 per la camicia). */
+  incluse_per_sacco?: number | null;
   id: string;
   category_id: string;
   category_name: string;
@@ -62,10 +64,22 @@ export function AddSpecialForm({
             </optgroup>
           ))}
         </select>
-        <input type="number" name="qty" min={1} defaultValue={1} aria-label="Quantità" className={input} />
+        <input type="number" name="qty" min={1} defaultValue={1} aria-label="Quante ce n'erano" className={input} />
       </div>
+      {/* Si chiede QUANTE CE N'ERANO, non quante addebitarne: la sottrazione
+          delle incluse la fa il sistema. Prima toccava a chi compilava
+          ricordarsi la regola e sottrarre a mente, e da un numero registrato
+          non si poteva più capire se il conto fosse stato fatto o no. */}
       {selected && (
         <p className="text-sm font-medium text-muted">
+          Scrivi <strong className="text-navy">quanti capi hai trovato</strong>, non quanti addebitarne.
+          {(selected.incluse_per_sacco ?? 0) > 0 ? (
+            <>
+              {" "}Le prime <strong className="text-navy">{selected.incluse_per_sacco} per sacco</strong> sono
+              comprese nell&apos;abbonamento: le toglie il sistema.
+            </>
+          ) : null}
+          <br />
           {customerView ? "Prezzo cliente" : "Compenso lavanderia"}: <span className="font-bold text-navy">{eur(priceOf(selected))}</span> a capo
         </p>
       )}
