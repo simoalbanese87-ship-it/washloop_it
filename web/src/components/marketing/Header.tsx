@@ -32,9 +32,14 @@ export function Header() {
           ))}
         </nav>
         <div className="flex items-center gap-3">
-          {/* Su schermo largo "Accedi" sta in chiaro; su schermo stretto vive
-              dentro il menu, invece di sparire e basta come faceva prima. */}
-          <Link href="/login" className="hidden font-display text-sm font-bold text-navy/70 transition-colors hover:text-navy md:block">
+          {/* "Accedi" sempre in chiaro, anche sul telefono.
+              Stava solo dentro il menu a panino: per entrare servivano due
+              tocchi, e chi è già cliente non pensa a cercarsi il proprio
+              account dietro un menu — cerca la parola «Accedi». Un tocco. */}
+          <Link
+            href="/login"
+            className="whitespace-nowrap font-display text-sm font-bold text-navy/70 transition-colors hover:text-navy"
+          >
             Accedi
           </Link>
           {/* Il testo intero non ci sta su un telefono stretto accanto al logo
