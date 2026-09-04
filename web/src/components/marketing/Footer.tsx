@@ -36,7 +36,7 @@ export function Footer() {
       </div>
       <div className="border-t border-white/10">
         <div className="mx-auto max-w-6xl px-5 py-6 text-xs font-medium text-white/35">
-          WashLoop © 2026 · {LEGAL.company} · P.IVA {LEGAL.vat} · {LEGAL.address}
+          WashLoop © 2026 · {LEGAL.company} · P.IVA {LEGAL.vat}{LEGAL.rea ? ` · REA ${LEGAL.rea}` : ""} · {LEGAL.address}
         </div>
       </div>
     </footer>

@@ -19,7 +19,7 @@ export default function TerminiPage() {
       </LegalSection>
 
       <LegalSection n="2" title="Fornitore">
-        <p>Il servizio è fornito da <strong>{LEGAL.company}</strong>, sede legale in {LEGAL.address}, P.IVA {LEGAL.vat}, email <a href={`mailto:${LEGAL.email}`} className="text-blue hover:underline">{LEGAL.email}</a>{LEGAL.pec ? `, PEC ${LEGAL.pec}` : ""}.</p>
+        <p>Il servizio è fornito da <strong>{LEGAL.company}</strong>, sede legale in {LEGAL.address}, P.IVA {LEGAL.vat}{LEGAL.rea ? `, iscritta al Registro delle Imprese di Milano al n. REA ${LEGAL.rea}` : ""}, email <a href={`mailto:${LEGAL.email}`} className="text-blue hover:underline">{LEGAL.email}</a>{LEGAL.pec ? `, PEC ${LEGAL.pec}` : ""}.</p>
       </LegalSection>
 
       <LegalSection n="3" title="Informazioni precontrattuali">
