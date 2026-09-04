@@ -336,7 +336,7 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
             nessuno può prenotare. Clicca un giorno per vedere le fasce e toglierle.
           </p>
           <div className="mt-4">
-            <CalendarioSlot fasce={fasceCal} oggi={oggiRoma} />
+            <CalendarioSlot fasce={fasceCal} oggi={oggiRoma} lavanderie={(laundries ?? []).map((l) => ({ id: l.id, name: l.name }))} />
           </div>
         </Card>
       </div>

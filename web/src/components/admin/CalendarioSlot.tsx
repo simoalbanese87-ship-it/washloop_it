@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { deleteSlot } from "@/lib/actions/admin";
+import { deleteSlot, createSlot, setSlotCapacity } from "@/lib/actions/admin";
 
 /** Il calendario delle fasce, a mese.
  *
@@ -50,7 +50,22 @@ function oraRoma(iso: string): string {
   }).format(new Date(iso));
 }
 
-export function CalendarioSlot({ fasce, oggi }: { fasce: FasciaCal[]; oggi: string }) {
+/** Gli orari che il servizio usa davvero, così aggiungere la fascia normale è
+ *  un clic invece di quattro campi da compilare ogni volta. */
+const PREDEFINITI = {
+  pickup: { from: "08:00", to: "12:00", capacity: 15 },
+  delivery: { from: "10:30", to: "14:30", capacity: 15 },
+} as const;
+
+export function CalendarioSlot({
+  fasce,
+  oggi,
+  lavanderie = [],
+}: {
+  fasce: FasciaCal[];
+  oggi: string;
+  lavanderie?: { id: string; name: string }[];
+}) {
   // `oggi` arriva dal server: calcolarlo qui darebbe un primo render diverso
   // fra server e browser, e React se ne lamenta a ragione.
   const [anno, mese] = useState(() => {
@@ -59,6 +74,7 @@ export function CalendarioSlot({ fasce, oggi }: { fasce: FasciaCal[]; oggi: stri
   })[0];
   const [vista, setVista] = useState({ anno, mese });
   const [giornoAperto, setGiornoAperto] = useState<string | null>(null);
+  const [tipoNuovo, setTipoNuovo] = useState<"pickup" | "delivery">("pickup");
 
   const perGiorno = useMemo(() => {
     const m = new Map<string, FasciaCal[]>();
@@ -177,11 +193,12 @@ export function CalendarioSlot({ fasce, oggi }: { fasce: FasciaCal[]; oggi: stri
             </button>
           </div>
 
-          {delGiorno.length === 0 ? (
+          {delGiorno.length === 0 && (
             <p className="mt-2 text-sm font-medium text-muted">
               Nessuna fascia in questo giorno: né ritiri né consegne. Chi prenota non lo vede proprio.
             </p>
-          ) : (
+          )}
+          {delGiorno.length > 0 && (
             <div className="mt-3 space-y-2">
               {delGiorno.map((f) => {
                 const c = COLORE[f.kind];
@@ -193,8 +210,24 @@ export function CalendarioSlot({ fasce, oggi }: { fasce: FasciaCal[]; oggi: stri
                       {oraRoma(f.starts_at)}–{oraRoma(f.ends_at)}
                     </span>
                     <span className={`font-display text-xs font-bold ${pieno ? "text-[#C0392B]" : "text-muted"}`}>
-                      {f.presi}/{f.capacity ?? "∞"} occupati{pieno ? " · piena" : ""}
+                      {f.presi} occupati su
                     </span>
+                    {/* La capienza si cambia qui: rifare la fascia avrebbe
+                        archiviato quella vecchia lasciandoci sopra gli ordini. */}
+                    <form action={setSlotCapacity} className="flex items-center gap-1">
+                      <input type="hidden" name="slot_id" value={f.id} />
+                      <input
+                        type="number"
+                        name="capacity"
+                        min={1}
+                        defaultValue={f.capacity ?? 15}
+                        aria-label="Capienza"
+                        className="w-16 rounded-[8px] border border-line bg-white px-2 py-1 text-sm font-semibold text-navy"
+                      />
+                      <button type="submit" className="font-display text-xs font-bold text-blue hover:underline">
+                        salva
+                      </button>
+                    </form>
                     <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted">{f.laundry ?? "—"}</span>
                     <form action={deleteSlot}>
                       <input type="hidden" name="slot_id" value={f.id} />
@@ -211,6 +244,65 @@ export function CalendarioSlot({ fasce, oggi }: { fasce: FasciaCal[]; oggi: stri
               </p>
             </div>
           )}
+
+          {/* Aggiungere una fascia da qui era il pezzo che mancava: si poteva
+              solo togliere, quindi aprire un giorno vuoto non serviva a niente.
+              I campi arrivano già compilati con gli orari del servizio. */}
+          <form action={createSlot} className="mt-4 border-t border-line pt-4">
+            <input type="hidden" name="date" value={giornoAperto} />
+            <div className="font-display text-sm font-extrabold text-navy">Aggiungi una fascia</div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-[auto_auto_auto_auto_1fr_auto]">
+              <select
+                name="kind"
+                value={tipoNuovo}
+                onChange={(e) => setTipoNuovo(e.target.value as "pickup" | "delivery")}
+                className="rounded-[10px] border border-line bg-white px-3 py-2 text-sm font-medium text-navy"
+              >
+                <option value="pickup">Ritiro</option>
+                <option value="delivery">Consegna</option>
+              </select>
+              <input
+                type="time"
+                name="from"
+                defaultValue={PREDEFINITI[tipoNuovo].from}
+                key={`from-${tipoNuovo}`}
+                className="rounded-[10px] border border-line bg-white px-3 py-2 text-sm font-medium text-navy"
+              />
+              <input
+                type="time"
+                name="to"
+                defaultValue={PREDEFINITI[tipoNuovo].to}
+                key={`to-${tipoNuovo}`}
+                className="rounded-[10px] border border-line bg-white px-3 py-2 text-sm font-medium text-navy"
+              />
+              <input
+                type="number"
+                name="capacity"
+                min={1}
+                defaultValue={PREDEFINITI[tipoNuovo].capacity}
+                key={`cap-${tipoNuovo}`}
+                aria-label="Capienza"
+                className="w-24 rounded-[10px] border border-line bg-white px-3 py-2 text-sm font-medium text-navy"
+              />
+              <select
+                name="laundry_id"
+                defaultValue=""
+                className="min-w-0 rounded-[10px] border border-line bg-white px-3 py-2 text-sm font-medium text-navy"
+              >
+                <option value="">Lavanderia (facoltativa)</option>
+                {lavanderie.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+              <button type="submit" className="rounded-[10px] bg-navy px-4 py-2 font-display text-sm font-bold text-white">
+                Aggiungi
+              </button>
+            </div>
+            <p className="mt-2 text-xs font-medium text-muted">
+              Precompilata con gli orari del servizio: ritiro 08:00–12:00, consegna 10:30–14:30, 15 posti.
+              La lavanderia serve solo a sapere da dove riparte il capo, non è obbligatoria.
+            </p>
+          </form>
         </div>
       )}
     </div>

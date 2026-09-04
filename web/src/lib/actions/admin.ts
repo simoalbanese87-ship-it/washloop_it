@@ -227,22 +227,67 @@ export async function updatePlan(formData: FormData) {
 // ---------- SLOT ----------
 export async function createSlot(formData: FormData) {
   await soloAdmin();
-  const supabase = await createClient();
   const date = String(formData.get("date") ?? "");
   const from = String(formData.get("from") ?? "");
   const to = String(formData.get("to") ?? "");
-  if (!date || !from || !to) throw new Error("Data e orari obbligatori");
+  if (!date || !from || !to) redirect(`${REV}?warn=${encodeURIComponent("Servono data e orari.")}`);
+  if (to <= from) redirect(`${REV}?warn=${encodeURIComponent("L'ora di fine deve venire dopo quella di inizio.")}`);
 
+  const laundry_id = String(formData.get("laundry_id") ?? "") || null;
+  // La zona la eredita dalla lavanderia quando c'è: chi apre una fascia dal
+  // calendario non deve sapere che esiste una tabella delle zone.
+  const svc = createServiceClient();
+  const { data: lab } = laundry_id
+    ? await svc.from("laundries").select("zone_id").eq("id", laundry_id).maybeSingle<{ zone_id: string | null }>()
+    : { data: null };
+
+  const supabase = await createClient();
   const { error } = await supabase.from("slots").insert({
-    zone_id: String(formData.get("zone_id") ?? "") || null,
-    laundry_id: String(formData.get("laundry_id") ?? "") || null,
+    zone_id: String(formData.get("zone_id") ?? "") || lab?.zone_id || null,
+    laundry_id,
     kind: String(formData.get("kind") ?? "pickup"),
     starts_at: romeLocalToISO(`${date}T${from}`),
     ends_at: romeLocalToISO(`${date}T${to}`),
-    capacity: Number(formData.get("capacity") ?? 10) || 10,
+    capacity: Number(formData.get("capacity") ?? 15) || 15,
   });
-  if (error) throw new Error(error.message);
+  if (error) redirect(`${REV}?warn=${encodeURIComponent(`Fascia non creata: ${error.message}`)}`);
   revalidatePath(REV);
+  redirect(`${REV}?ok=${encodeURIComponent("Fascia aggiunta al calendario.")}`);
+}
+
+/** Cambia la capienza di una fascia senza doverla togliere e rifare.
+ *
+ *  Rifarla non era una scorciatoia accettabile: togliere una fascia occupata la
+ *  archivia, e gli ordini sopra resterebbero attaccati a una fascia sparita dal
+ *  calendario. Qui si tocca solo il numero. */
+export async function setSlotCapacity(formData: FormData) {
+  await soloAdmin();
+  const id = String(formData.get("slot_id") ?? "");
+  const capienza = Number(formData.get("capacity") ?? 0);
+  if (!id || !Number.isFinite(capienza) || capienza < 1) {
+    redirect(`${REV}?warn=${encodeURIComponent("Capienza non valida: dev'essere almeno 1.")}`);
+  }
+
+  // Non si scende sotto le prenotazioni già prese: quella fascia è un impegno.
+  const svc = createServiceClient();
+  const { count } = await svc
+    .from("orders")
+    .select("id", { count: "exact", head: true })
+    .or(`pickup_slot_id.eq.${id},delivery_slot_id.eq.${id}`)
+    .neq("status", "cancelled");
+  if ((count ?? 0) > capienza) {
+    redirect(
+      `${REV}?warn=` +
+        encodeURIComponent(
+          `Su questa fascia ci sono già ${count} prenotazioni: la capienza non può scendere sotto quel numero.`,
+        ),
+    );
+  }
+
+  const { error } = await svc.from("slots").update({ capacity: Math.trunc(capienza) }).eq("id", id);
+  if (error) redirect(`${REV}?warn=${encodeURIComponent(error.message)}`);
+  revalidatePath(REV);
+  redirect(`${REV}?ok=${encodeURIComponent("Capienza aggiornata.")}`);
 }
 
 export async function deleteSlot(formData: FormData) {
@@ -372,4 +417,59 @@ export async function generateSlots(formData: FormData) {
   const { error } = await supabase.from("slots").insert(rows);
   if (error) throw new Error(error.message);
   revalidatePath(REV);
+}
+
+/** Modifica una voce del listino capi speciali.
+ *
+ *  Gli importi si scrivono in euro, non in centesimi: chiedere i centesimi a chi
+ *  compila è il modo in cui si sbaglia di cento volte, e su un listino che
+ *  decide gli addebiti automatici non è un rischio accettabile.
+ *
+ *  Nota importante, ed è scritta anche in pagina: cambiare un prezzo NON tocca
+ *  gli addebiti già registrati. `order_specials` fa uno snapshot al momento
+ *  dell'inserimento, apposta — un cliente non può ritrovarsi addebitato un
+ *  prezzo deciso dopo. Vale per i capi da qui in avanti. */
+export async function aggiornaVoceListino(formData: FormData) {
+  await soloAdmin();
+  const id = String(formData.get("item_id") ?? "");
+  if (!id) redirect(`/admin/listino?warn=${encodeURIComponent("Voce non trovata.")}`);
+
+  const euroInCents = (v: FormDataEntryValue | null) => {
+    const n = Number(String(v ?? "").trim().replace(",", "."));
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+  };
+  const comp = euroInCents(formData.get("comp_lav_eur"));
+  const cli = euroInCents(formData.get("price_cli_eur"));
+  const incluse = Number(String(formData.get("incluse_per_sacco") ?? "0").trim());
+
+  if (comp === null || cli === null) {
+    redirect(`/admin/listino?warn=${encodeURIComponent("Importi non validi: usa numeri in euro, es. 3,50.")}`);
+  }
+  if (!Number.isFinite(incluse) || incluse < 0) {
+    redirect(`/admin/listino?warn=${encodeURIComponent("Le incluse per sacco devono essere zero o più.")}`);
+  }
+  // Il compenso è imponibile, il prezzo cliente è ivato: se il primo supera il
+  // secondo ci stiamo rimettendo, e quasi sempre è un errore di battitura.
+  if (comp! > cli!) {
+    redirect(
+      `/admin/listino?warn=` +
+        encodeURIComponent("Il compenso alla lavanderia supera il prezzo cliente: controlla, ci rimetteresti su ogni capo."),
+    );
+  }
+
+  const svc = createServiceClient();
+  const { error } = await svc
+    .from("special_items")
+    .update({
+      comp_lav_cents: comp,
+      price_cli_cents: cli,
+      incluse_per_sacco: Math.trunc(incluse),
+      active: String(formData.get("active") ?? "") === "on",
+    })
+    .eq("id", id);
+  if (error) redirect(`/admin/listino?warn=${encodeURIComponent(error.message)}`);
+
+  revalidatePath("/admin/listino");
+  revalidatePath("/laundry");
+  redirect(`/admin/listino?ok=${encodeURIComponent("Listino aggiornato. Gli addebiti già registrati non cambiano.")}`);
 }
