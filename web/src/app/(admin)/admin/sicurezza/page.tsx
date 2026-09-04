@@ -82,8 +82,8 @@ export default async function SicurezzaPage() {
   const fraUnaSettimana = new Date(Date.now() + 7 * 86_400_000).toISOString();
 
   const [ritiri, consegne, zoneAttive, lavanderie, deposito, indirizziSenzaGeo] = await Promise.all([
-    svc.from("slots").select("id", { count: "exact", head: true }).eq("kind", "pickup").gte("starts_at", oraIso).lte("starts_at", fraUnaSettimana),
-    svc.from("slots").select("id", { count: "exact", head: true }).eq("kind", "delivery").gte("starts_at", oraIso).lte("starts_at", fraUnaSettimana),
+    svc.from("slots").select("id", { count: "exact", head: true }).eq("kind", "pickup").is("archived_at", null).gte("starts_at", oraIso).lte("starts_at", fraUnaSettimana),
+    svc.from("slots").select("id", { count: "exact", head: true }).eq("kind", "delivery").is("archived_at", null).gte("starts_at", oraIso).lte("starts_at", fraUnaSettimana),
     svc.from("zones").select("name, courier_id").eq("active", true).returns<{ name: string; courier_id: string | null }[]>(),
     svc.from("laundries").select("name, address, email, active").eq("active", true).returns<{ name: string; address: string | null; email: string | null; active: boolean }[]>(),
     svc.from("depots").select("name, lat").eq("active", true).maybeSingle<{ name: string; lat: number | null }>(),

@@ -32,10 +32,10 @@ export async function GET(req: Request) {
 
   const [{ data: recs }, { data: slots }, { data: deliverySlots }] = await Promise.all([
     sb.from("recurring_pickups").select("id, customer_id, address_id, weekday, hhmm, delivery_hhmm, bags, notes").eq("active", true),
-    sb.from("slots").select("id, starts_at, laundry_id, capacity").eq("kind", "pickup").gte("starts_at", now.toISOString()).lte("starts_at", until.toISOString()),
+    sb.from("slots").select("id, starts_at, laundry_id, capacity").eq("kind", "pickup").is("archived_at", null).gte("starts_at", now.toISOString()).lte("starts_at", until.toISOString()),
     // Fasce di riconsegna: si guarda più avanti dei ritiri, perché la
     // riconsegna cade dopo la lavorazione (48h, o 24h sui piani veloci).
-    sb.from("slots").select("id, starts_at, laundry_id, capacity").eq("kind", "delivery").gte("starts_at", now.toISOString()).lte("starts_at", new Date(until.getTime() + 4 * 86_400_000).toISOString()),
+    sb.from("slots").select("id, starts_at, laundry_id, capacity").eq("kind", "delivery").is("archived_at", null).gte("starts_at", now.toISOString()).lte("starts_at", new Date(until.getTime() + 4 * 86_400_000).toISOString()),
   ]);
 
   let created = 0;
@@ -44,7 +44,21 @@ export async function GET(req: Request) {
 
   for (const rec of recs ?? []) {
     const matches = (slots ?? []).filter((s) => romeWeekday(s.starts_at) === rec.weekday && romeHHMM(s.starts_at) === rec.hhmm);
-    if (matches.length === 0) continue;
+    if (matches.length === 0) {
+      // Questo `continue` è stato muto per giorni ed è costato un cliente.
+      // Saverio ha il ritiro ricorrente al martedì alle 09:00; il calendario è
+      // stato rigenerato con soli lunedì e mercoledì, e da allora il suo ritiro
+      // non è più nato — senza un errore, senza una riga, senza che nessuno
+      // potesse accorgersene finché non è arrivato il giorno e non è passato
+      // nessuno. Una ricorrenza attiva che non trova la sua fascia è un guasto,
+      // non un caso normale.
+      await registraGuasto(
+        "cron",
+        `Ricorrenza senza fascia compatibile: nessuno slot di ritiro il giorno ${rec.weekday} alle ${rec.hhmm} nei prossimi ${LOOKAHEAD_DAYS} giorni`,
+        { recurring_id: rec.id, weekday: rec.weekday, hhmm: rec.hhmm },
+      );
+      continue;
+    }
 
     // Sub attivo + turnaround del cliente (cache per cliente)
     let turnaround = turnaroundCache.get(rec.customer_id) ?? -1;

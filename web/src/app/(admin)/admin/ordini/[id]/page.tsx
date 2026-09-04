@@ -76,6 +76,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
       .from("slots")
       .select("id, starts_at, ends_at, capacity")
       .eq("kind", "delivery")
+      .is("archived_at", null)
       .gte("starts_at", new Date().toISOString());
     if (order.laundry_id) q = q.eq("laundry_id", order.laundry_id);
     const { data: raw } = await q.order("starts_at").limit(20).returns<DeliverySlot[]>();
@@ -93,6 +94,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
       .from("slots")
       .select("id, starts_at, ends_at, capacity")
       .eq("kind", "pickup")
+      .is("archived_at", null)
       .gte("starts_at", new Date().toISOString());
     if (order.laundry_id) q = q.eq("laundry_id", order.laundry_id);
     const { data: raw } = await q.order("starts_at").limit(20).returns<DeliverySlot[]>();

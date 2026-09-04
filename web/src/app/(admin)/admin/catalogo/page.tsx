@@ -13,13 +13,12 @@ import {
   updatePlan,
   updatePlanPrice,
   createSlot,
-  deleteSlot,
   generateSlots,
   deleteFutureSlots,
 } from "@/lib/actions/admin";
 import { DeleteLaundryButton } from "@/components/admin/DeleteLaundryButton";
-import { fmtDateTime } from "@/lib/format";
 import { pickupCounts, deliveryCounts } from "@/lib/slots";
+import { CalendarioSlot, type FasciaCal } from "@/components/admin/CalendarioSlot";
 
 type Zone = { id: string; name: string; active: boolean; courier_id: string | null };
 type Courier = { id: string; full_name: string | null };
@@ -37,11 +36,29 @@ const DAYS = [
 export default async function CatalogoPage({ searchParams }: { searchParams: Promise<{ ok?: string; warn?: string }> }) {
   const { ok, warn } = await searchParams;
   const supabase = await createClient();
-  const nowIso = new Date().toISOString();
+  // Finestra del calendario: dall'inizio del mese in corso a quattro mesi dopo.
+  const adesso = new Date();
+  const inizioMese = new Date(Date.UTC(adesso.getUTCFullYear(), adesso.getUTCMonth(), 1)).toISOString();
+  const fineFinestra = new Date(Date.UTC(adesso.getUTCFullYear(), adesso.getUTCMonth() + 4, 0)).toISOString();
+  const oggiRoma = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(adesso);
   const [{ data: zones }, { data: laundries }, { data: slots }, { data: plans }, { data: couriers }] = await Promise.all([
     supabase.from("zones").select("id, name, active, courier_id").order("sort").order("name").returns<Zone[]>(),
     supabase.from("laundries").select("id, name, zone_id, address, phone, email, active, bag_comp_cents").order("name").returns<Laundry[]>(),
-    supabase.from("slots").select("id, kind, starts_at, ends_at, capacity, laundries(name)").gte("starts_at", nowIso).order("starts_at").limit(60).returns<Slot[]>(),
+    // Il calendario ragiona per mese, quindi servono le fasce del mese in corso
+    // e dei successivi — non «le prossime 60», che tagliavano a metà proprio
+    // quando il calendario è pieno. Le archiviate restano fuori: sono state
+    // tolte apposta.
+    supabase
+      .from("slots")
+      .select("id, kind, starts_at, ends_at, capacity, laundries(name)")
+      .is("archived_at", null)
+      .gte("starts_at", inizioMese)
+      .lte("starts_at", fineFinestra)
+      .order("starts_at")
+      .limit(600)
+      .returns<Slot[]>(),
     supabase.from("plans").select("id, name, price_month_cents, turnaround_hours, pickups_per_week, active, stripe_price_id").order("sort").returns<Plan[]>(),
     supabase.from("profiles").select("id, full_name").eq("role", "courier").order("full_name").returns<Courier[]>(),
   ]);
@@ -52,6 +69,22 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
   const delivIds = (slots ?? []).filter((s) => s.kind === "delivery").map((s) => s.id);
   const [pCounts, dCounts] = await Promise.all([pickupCounts(supabase, pickIds), deliveryCounts(supabase, delivIds)]);
   const usedOf = (s: Slot) => (s.kind === "pickup" ? pCounts.get(s.id) : dCounts.get(s.id)) ?? 0;
+
+  // L'embed PostgREST della lavanderia arriva come array anche se la relazione
+  // è uno-a-uno: si normalizza qui, una volta, invece che nel componente.
+  const fasceCal: FasciaCal[] = (slots ?? []).map((s) => {
+    const rel = s.laundries as unknown as { name: string }[] | { name: string } | null;
+    const lav = Array.isArray(rel) ? rel[0] : rel;
+    return {
+      id: s.id,
+      kind: s.kind as "pickup" | "delivery",
+      starts_at: s.starts_at,
+      ends_at: s.ends_at,
+      capacity: s.capacity,
+      presi: usedOf(s),
+      laundry: lav?.name ?? null,
+    };
+  });
 
   return (
     <>
@@ -296,31 +329,14 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
 
         {/* ---------- SLOT ESISTENTI ---------- */}
         <Card>
-          <h2 className="font-display text-base font-extrabold text-navy">Slot futuri ({slots?.length ?? 0})</h2>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {(slots ?? []).map((s) => {
-              const used = usedOf(s);
-              const cap = s.capacity;
-              const full = cap != null && used >= cap;
-              const low = !full && cap != null && cap - used <= 3;
-              return (
-                <div key={s.id} className={`flex items-center justify-between rounded-[12px] border px-3 py-2 ${full ? "border-[#C0392B]/40 bg-[#C0392B]/[0.06]" : "border-line bg-ice"}`}>
-                  <div className="text-sm">
-                    <span className="font-display text-[11px] font-bold uppercase text-blue">{s.kind === "pickup" ? "Ritiro" : "Consegna"}</span>
-                    <div className="font-semibold text-navy">{fmtDateTime(s.starts_at)}</div>
-                    <div className="text-xs font-medium text-muted">{s.laundries?.name ?? "—"}</div>
-                    <div className={`mt-0.5 font-display text-xs font-extrabold ${full ? "text-[#C0392B]" : low ? "text-[#C9881F]" : "text-[#1F8A5B]"}`}>
-                      {used}/{cap ?? "∞"} occupati{full ? " · pieno" : ""}
-                    </div>
-                  </div>
-                  <form action={deleteSlot}>
-                    <input type="hidden" name="slot_id" value={s.id} />
-                    <button type="submit" className="font-display text-xs font-bold text-[#C0392B] hover:underline">✕</button>
-                  </form>
-                </div>
-              );
-            })}
-            {(!slots || slots.length === 0) && <p className="text-sm font-medium text-muted">Nessuno slot futuro. Usa il generatore qui sopra.</p>}
+          <h2 className="font-display text-base font-extrabold text-navy">Calendario delle fasce</h2>
+          <p className="mt-1 text-sm font-medium text-muted">
+            Ogni giorno ha due righe: <strong className="text-[#2b7fd4]">ritiri</strong> e{" "}
+            <strong className="text-[#1F8A5B]">consegne</strong>. Una casella vuota è un giorno in cui
+            nessuno può prenotare. Clicca un giorno per vedere le fasce e toglierle.
+          </p>
+          <div className="mt-4">
+            <CalendarioSlot fasce={fasceCal} oggi={oggiRoma} />
           </div>
         </Card>
       </div>

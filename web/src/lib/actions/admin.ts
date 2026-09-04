@@ -249,50 +249,38 @@ export async function deleteSlot(formData: FormData) {
   const id = String(formData.get("slot_id") ?? "");
   if (!id) redirect(`${REV}?warn=${encodeURIComponent("Fascia non trovata.")}`);
 
-  // Una fascia con un ordine sopra non si cancella: il database lo vieta
-  // (`orders_pickup_slot_id_fkey`) perché toglierla lascerebbe quell'ordine
-  // senza orario e il cliente senza ritiro. Giusto — ma finora l'unica cosa
-  // che si vedeva era la schermata di errore di Next, senza una parola sul
-  // perché. Il controllo si fa prima, e si dice chi c'è sopra.
+  // Si archivia, non si cancella. La riga resta dov'è, quindi gli ordini che ci
+  // puntano continuano a sapere giorno e ora — è il requisito: «le richieste
+  // dei clienti devono rimanere anche se cancello tutto». Dal calendario e
+  // dalla prenotazione la fascia sparisce comunque.
+  //
+  // Prima si tentava una DELETE vera, che sulle fasce occupate il database
+  // rifiutava: le uniche che non riuscivi a togliere erano proprio quelle che
+  // ti davano fastidio.
   const svc = createServiceClient();
-  const { data: agganciati } = await svc
+  const { count } = await svc
     .from("orders")
-    .select("id, profiles!orders_customer_id_fkey(full_name)")
+    .select("id", { count: "exact", head: true })
     .or(`pickup_slot_id.eq.${id},delivery_slot_id.eq.${id}`)
-    .neq("status", "cancelled")
-    .returns<{ id: string; profiles: { full_name: string | null } | { full_name: string | null }[] | null }[]>();
+    .neq("status", "cancelled");
 
-  if ((agganciati ?? []).length > 0) {
-    const nomi = [
-      ...new Set(
-        (agganciati ?? [])
-          .map((o) => (Array.isArray(o.profiles) ? o.profiles[0] : o.profiles)?.full_name)
-          .filter(Boolean) as string[],
-      ),
-    ];
-    const chi = nomi.length > 0 ? ` (${nomi.join(", ")})` : "";
-    redirect(
-      `${REV}?warn=` +
-        encodeURIComponent(
-          `Questa fascia ha ${agganciati!.length} ${agganciati!.length === 1 ? "ordine" : "ordini"} sopra${chi}: cancellarla li lascerebbe senza orario. Sposta o annulla prima quegli ordini.`,
-        ),
-    );
-  }
+  const { error } = await svc.from("slots").update({ archived_at: new Date().toISOString() }).eq("id", id);
+  if (error) redirect(`${REV}?warn=${encodeURIComponent(`Fascia non archiviata: ${error.message}`)}`);
 
-  const supabase = await createClient();
-  const { error } = await supabase.from("slots").delete().eq("id", id);
-  if (error) redirect(`${REV}?warn=${encodeURIComponent(`Fascia non rimossa: ${error.message}`)}`);
   revalidatePath(REV);
-  redirect(`${REV}?ok=${encodeURIComponent("Fascia rimossa.")}`);
+  const coda = (count ?? 0) > 0
+    ? ` I ${count} ordini già prenotati su quella fascia restano validi, con il loro orario.`
+    : "";
+  redirect(`${REV}?ok=${encodeURIComponent(`Fascia tolta dal calendario.${coda}`)}`);
 }
 
-/** Cancella in blocco le fasce future di una lavanderia, saltando quelle che
- *  hanno già un ordine agganciato.
+/** Toglie dal calendario tutte le fasce future di una lavanderia.
  *
- *  Serve quando si rigenera il calendario: prima si cancellavano una per una, e
- *  a trentasette fasce di prova diventa un lavoro da non fare. Il salto degli
- *  slot occupati è la parte importante: cancellarne uno prenotato lascerebbe
- *  l'ordine senza orario e il cliente senza ritiro. */
+ *  Ora archivia, quindi **non salta più quelle occupate**: prima le lasciava
+ *  indietro per non lasciare un ordine senza orario, e chi premeva vedeva
+ *  restare proprio le fasce che voleva togliere — sembrava rotto mentre stava
+ *  facendo il suo lavoro. Archiviando il problema non esiste: la riga resta,
+ *  l'ordine tiene giorno e ora, il calendario si pulisce davvero. */
 export async function deleteFutureSlots(formData: FormData) {
   const me = await getCurrentProfile();
   if (!me || me.role !== "admin") throw new Error("Solo admin");
@@ -308,35 +296,30 @@ export async function deleteFutureSlots(formData: FormData) {
     .select("id")
     .eq("laundry_id", laundry_id)
     .eq("kind", kind)
+    .is("archived_at", null)
     .gte("starts_at", new Date().toISOString())
     .returns<{ id: string }[]>();
 
   const ids = (futuri ?? []).map((s) => s.id);
-  if (ids.length === 0) redirect(`${REV}?ok=${encodeURIComponent("Nessuna fascia futura da rimuovere.")}`);
+  if (ids.length === 0) redirect(`${REV}?ok=${encodeURIComponent("Nessuna fascia futura da togliere.")}`);
 
   const col = kind === "pickup" ? "pickup_slot_id" : "delivery_slot_id";
-  const { data: occupati } = await svc
+  const { count: conOrdini } = await svc
     .from("orders")
-    .select(col)
+    .select("id", { count: "exact", head: true })
     .in(col, ids)
-    .neq("status", "cancelled")
-    .returns<Record<string, string | null>[]>();
+    .neq("status", "cancelled");
 
-  const daTenere = new Set((occupati ?? []).map((o) => o[col]).filter(Boolean) as string[]);
-  const daCancellare = ids.filter((id) => !daTenere.has(id));
-  if (daCancellare.length === 0) {
-    redirect(`${REV}?warn=${encodeURIComponent(`Tutte le ${ids.length} fasce future hanno ordini agganciati: nessuna rimossa.`)}`);
-  }
-
-  const { error } = await svc.from("slots").delete().in("id", daCancellare);
+  const { error } = await svc.from("slots").update({ archived_at: new Date().toISOString() }).in("id", ids);
   if (error) redirect(`${REV}?warn=${encodeURIComponent(error.message)}`);
 
   revalidatePath(REV);
-  const tenute = daTenere.size ? ` ${daTenere.size} conservate perché già prenotate.` : "";
-  redirect(`${REV}?ok=${encodeURIComponent(`Rimosse ${daCancellare.length} fasce future.${tenute}`)}`);
+  const coda = (conOrdini ?? 0) > 0
+    ? ` ${conOrdini} ${conOrdini === 1 ? "ordine resta valido" : "ordini restano validi"}, con il loro orario.`
+    : "";
+  redirect(`${REV}?ok=${encodeURIComponent(`${ids.length} fasce tolte dal calendario.${coda}`)}`);
 }
 
-/** Genera slot ricorrenti per una lavanderia su un intervallo, giorni e fasce. */
 export async function generateSlots(formData: FormData) {
   await soloAdmin();
   const supabase = await createClient();

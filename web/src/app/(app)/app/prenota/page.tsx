@@ -17,8 +17,8 @@ export default async function PrenotaPage() {
     // le fasce di riconsegna prima di quel momento non hanno senso mostrarle.
     supabase.from("subscriptions").select("status, plans(turnaround_hours)").order("created_at", { ascending: false }).limit(1).maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>(),
     supabase.from("addresses").select("id, label, street, zone_id, access_mode, access_note").order("created_at", { ascending: false }).returns<Address[]>(),
-    supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity").eq("kind", "pickup").gte("starts_at", nowIso).order("starts_at").limit(80).returns<RawSlot[]>(),
-    supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity").eq("kind", "delivery").gte("starts_at", nowIso).order("starts_at").limit(120).returns<RawSlot[]>(),
+    supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity").eq("kind", "pickup").is("archived_at", null).gte("starts_at", nowIso).order("starts_at").limit(80).returns<RawSlot[]>(),
+    supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity").eq("kind", "delivery").is("archived_at", null).gte("starts_at", nowIso).order("starts_at").limit(120).returns<RawSlot[]>(),
     supabase.from("special_categories").select("id, name, emoji, sort").order("sort").returns<Cat[]>(),
     // Vista e non tabella: `special_items` contiene anche il compenso pagato
     // alla lavanderia, che al cliente non deve arrivare nemmeno via API.

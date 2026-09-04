@@ -68,7 +68,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
     svc.from("recurring_pickups").select("id, weekday, hhmm, bags, active, needs_confirmation, delivery_hhmm, address_id, addresses(label), pending_weekday, pending_hhmm, pending_bags, pending_delivery_hhmm").eq("customer_id", id).order("created_at", { ascending: false }).returns<Rec[]>(),
-    svc.from("slots").select("id, starts_at, ends_at, kind").gte("starts_at", new Date().toISOString()).order("starts_at").limit(60).returns<Slot[]>(),
+    svc.from("slots").select("id, starts_at, ends_at, kind").is("archived_at", null).gte("starts_at", new Date().toISOString()).order("starts_at").limit(60).returns<Slot[]>(),
     svc.from("subscription_offers").select("id, description, amount_cents, checkout_url, expires_at, created_at").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Offerta>(),
   ]);
   const email = userRes?.user?.email ?? "—";
