@@ -25,6 +25,7 @@ const GRUPPI: { titolo: string; nota: string; voci: { href: string; label: strin
     nota: "Le regole del servizio. Si toccano di rado.",
     voci: [
       { href: "/admin/catalogo", label: "Catalogo", sub: "Piani, prezzi, lavanderie, zone, deposito e fasce orarie" },
+      { href: "/admin/listino", label: "Listino capi speciali", sub: "Quanto paghiamo alla lavanderia, quanto paga il cliente, quanto resta" },
       { href: "/admin/sicurezza", label: "Sicurezza e stato", sub: "Configurazione, protezioni e se il servizio può girare domani" },
     ],
   },

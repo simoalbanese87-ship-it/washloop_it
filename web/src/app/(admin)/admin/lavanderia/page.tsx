@@ -2,7 +2,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { createServiceClient } from "@/lib/supabase/server";
 import { segnaMesePagato } from "@/lib/actions/payout";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
-import { scorpora, ALIQUOTA_IVA } from "@/lib/iva";
+import { aggiungiIva, ALIQUOTA_IVA } from "@/lib/iva";
 
 export const dynamic = "force-dynamic";
 
@@ -154,7 +154,7 @@ export default async function LavanderiaPage({
       <PageTitle
         kicker="Finanza"
         title="Soldi alla lavanderia"
-        sub="Compensi maturati per sacchi e capi speciali, raggruppati per mese. Gli importi sono IVA inclusa: sotto ogni mese trovi imponibile e IVA per il proforma."
+        sub="Compensi maturati per sacchi e capi speciali, raggruppati per mese. Gli importi sono IMPONIBILI, come la colonna del contratto: l'IVA si aggiunge, e sotto ogni mese trovi il totale da pagare."
       />
 
       {ok && <div className="mb-4 rounded-[14px] bg-[#1F8A5B]/10 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
@@ -166,16 +166,17 @@ export default async function LavanderiaPage({
         </h2>
         {daPagare > 0 && (
           <p className="mt-1 text-sm font-medium text-muted">
-            {eur(scorpora(daPagare).imponibile)} di imponibile + {eur(scorpora(daPagare).iva)} di IVA al{" "}
-            {ALIQUOTA_IVA}%.
+            {eur(daPagare)} di imponibile + {eur(aggiungiIva(daPagare).iva)} di IVA al {ALIQUOTA_IVA}% ={" "}
+            <strong className="text-navy">{eur(aggiungiIva(daPagare).lordo)}</strong> da bonificare.
           </p>
         )}
         {importoDaMaturare > 0 && (
           <p className="mt-2 rounded-[12px] bg-[#C9881F]/10 px-3 py-2 text-sm font-semibold text-[#C9881F]">
-            Più <strong>{eur(importoDaMaturare)}</strong> ancora da maturare su {sacchiDaMaturare}{" "}
+            Più <strong>{eur(importoDaMaturare)}</strong> di imponibile ancora da maturare su {sacchiDaMaturare}{" "}
             {sacchiDaMaturare === 1 ? "sacco lavato ma non ancora consegnato" : "sacchi lavati ma non ancora consegnati"}:
-            entrano nel conto quando il rider chiude la consegna. Totale previsto{" "}
-            <strong>{eur(daPagare + importoDaMaturare)}</strong>.
+            entrano nel conto quando il rider chiude la consegna. Imponibile previsto{" "}
+            <strong>{eur(daPagare + importoDaMaturare)}</strong>, cioè{" "}
+            <strong>{eur(aggiungiIva(daPagare + importoDaMaturare).lordo)}</strong> con l&apos;IVA.
           </p>
         )}
         <p className="mt-1 text-sm font-medium text-muted">
@@ -289,11 +290,11 @@ export default async function LavanderiaPage({
                           <span className="text-xs font-bold uppercase tracking-wider text-navy/50">Per il proforma</span>
                         </td>
                         <td className="pt-3 text-right text-sm font-semibold text-muted">
-                          imponibile {eur(scorpora(g.totale).imponibile)}
+                          imponibile {eur(g.totale)}
                           <br />
-                          IVA {ALIQUOTA_IVA}% {eur(scorpora(g.totale).iva)}
+                          IVA {ALIQUOTA_IVA}% {eur(aggiungiIva(g.totale).iva)}
                         </td>
-                        <td className="pt-3 text-right font-black">{eur(g.totale)}</td>
+                        <td className="pt-3 text-right font-black">{eur(aggiungiIva(g.totale).lordo)}</td>
                       </tr>
                     </tfoot>
                   </table>

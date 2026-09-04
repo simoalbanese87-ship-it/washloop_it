@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scorpora, ALIQUOTA_IVA } from "./iva.ts";
+import { scorpora, aggiungiIva, ALIQUOTA_IVA } from "./iva.ts";
 
 test("un sacco da 15 € ivati: imponibile 12,30 e IVA 2,70", () => {
   const s = scorpora(1500);
@@ -36,4 +36,19 @@ test("l'aliquota si può cambiare senza toccare la funzione", () => {
   const s = scorpora(1000, 10);
   assert.equal(s.imponibile, 909);
   assert.equal(s.iva, 91);
+});
+
+test("verso la lavanderia l'IVA si aggiunge, non si scorpora", () => {
+  // Un sacco: 12,30 € imponibile (la colonna del contratto) → 15,01 € totale.
+  const s = aggiungiIva(1230);
+  assert.equal(s.imponibile, 1230);
+  assert.equal(s.iva, 271);
+  assert.equal(s.lordo, 1501);
+});
+
+test("anche aggiungendo, imponibile + IVA rifà esattamente il totale", () => {
+  for (let c = 1; c <= 5000; c++) {
+    const s = aggiungiIva(c);
+    assert.equal(s.imponibile + s.iva, s.lordo, `non quadra su ${c}`);
+  }
 });

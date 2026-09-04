@@ -1,10 +1,16 @@
-/** Lo scorporo dell'IVA, in un posto solo.
+/** L'IVA, in un posto solo.
  *
- *  Gli importi che questo sistema maneggia sono **IVA inclusa**: il prezzo che
- *  il cliente vede e paga su Stripe, e il compenso concordato con la lavanderia
- *  («15 € a sacco» detto da Simone il 4 settembre 2026 vuol dire quindici euro
- *  in tutto, non quindici più IVA). L'imponibile non si memorizza: si ricava
- *  quando serve, cioè quando si emette un documento.
+ *  Le due direzioni servono entrambe, e confonderle costa soldi veri:
+ *
+ *  - **Verso il cliente** gli importi sono IVA inclusa: il prezzo a listino è
+ *    quello che paga su Stripe. Per fatturare si SCORPORA.
+ *  - **Verso la lavanderia** gli importi sono IVA esclusa: il listino del
+ *    contratto ha una colonna apposta («Prezzo iva esclusa per calcolo
+ *    lavanderia»), ed è quella che il database memorizza. Sul proforma l'IVA si
+ *    AGGIUNGE.
+ *
+ *  Il 4 settembre 2026 avevo trattato il dovuto alla lavanderia come ivato e
+ *  scorporato: sbagliato, e il file del contratto lo dice a chiare lettere.
  *
  *  Il conto stava già dentro `fatturazione.ts` come `amountCents / 1.22` scritto
  *  a mano. Metterlo qui evita che la terza copia diverga dalle prime due, e
@@ -33,5 +39,13 @@ export type Scorporo = {
 export function scorpora(lordoCents: number, aliquota: number = ALIQUOTA_IVA): Scorporo {
   const lordo = Math.round(lordoCents);
   const imponibile = Math.round(lordo / (1 + aliquota / 100));
+  return { imponibile, iva: lordo - imponibile, lordo };
+}
+
+/** Da un imponibile ricava imposta e totale. La direzione opposta a
+ *  `scorpora`: si usa verso i fornitori, che fatturano imponibile + IVA. */
+export function aggiungiIva(imponibileCents: number, aliquota: number = ALIQUOTA_IVA): Scorporo {
+  const imponibile = Math.round(imponibileCents);
+  const lordo = Math.round(imponibile * (1 + aliquota / 100));
   return { imponibile, iva: lordo - imponibile, lordo };
 }

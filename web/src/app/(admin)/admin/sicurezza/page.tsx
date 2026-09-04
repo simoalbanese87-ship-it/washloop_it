@@ -1,5 +1,6 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { statoStripe } from "@/lib/stato-stripe";
 
 export const dynamic = "force-dynamic";
 
@@ -78,8 +79,11 @@ export default async function SicurezzaPage() {
   // --- Pronti a operare? Controlli che nessuna pagina faceva, e che sono la
   //     differenza tra "il sito è su" e "il servizio funziona davvero". ---
   const svc = createServiceClient();
-  const oraIso = new Date().toISOString();
-  const fraUnaSettimana = new Date(Date.now() + 7 * 86_400_000).toISOString();
+  // Un solo istante letto, e da lì si deriva il resto: chiamare l'orologio due
+  // volte dentro il render è quello che il linter segnala, giustamente.
+  const adesso = new Date();
+  const oraIso = adesso.toISOString();
+  const fraUnaSettimana = new Date(adesso.getTime() + 7 * 86_400_000).toISOString();
 
   const [ritiri, consegne, zoneAttive, lavanderie, deposito, indirizziSenzaGeo] = await Promise.all([
     svc.from("slots").select("id", { count: "exact", head: true }).eq("kind", "pickup").is("archived_at", null).gte("starts_at", oraIso).lte("starts_at", fraUnaSettimana),
@@ -90,6 +94,16 @@ export default async function SicurezzaPage() {
     svc.from("addresses").select("id", { count: "exact", head: true }).is("lat", null),
   ]);
 
+  // --- Stripe, chiesto a Stripe. ---
+  //
+  // «Incassato 0 €» e «il webhook non arriva» erano due deduzioni fatte
+  // guardando tabelle vuote. Le tabelle vuote hanno molte cause, e da fuori non
+  // si distinguono: qui si chiede direttamente a Stripe quali endpoint webhook
+  // sono configurati e quanto è stato incassato davvero. Le chiavi ce le ha il
+  // server, non chi legge questa pagina — ed è l'unico posto da cui la domanda
+  // può ricevere una risposta invece di un'ipotesi.
+  const stato = await statoStripe();
+
   const senzaRider = (zoneAttive.data ?? []).filter((z) => !z.courier_id).map((z) => z.name);
   const lavIncomplete = (lavanderie.data ?? []).filter((l) => !l.address || !l.email);
   const nRitiri = ritiri.count ?? 0;
@@ -97,6 +111,24 @@ export default async function SicurezzaPage() {
   const nSenzaGeo = indirizziSenzaGeo.count ?? 0;
 
   const ops: Check[] = [
+    {
+      label: "Webhook Stripe",
+      status: stato.ok ? (stato.endpointNostro ? "ok" : "fail") : "warn",
+      detail: !stato.ok
+        ? `Stripe non risponde: ${stato.errore}`
+        : stato.endpointNostro
+          ? `Registrato e ${stato.endpointNostro.attivo ? "attivo" : "DISATTIVATO"} · ${stato.endpointNostro.eventi} eventi ascoltati`
+          : stato.endpoints === 0
+            ? "Nessun endpoint webhook configurato su Stripe: i pagamenti non arrivano mai nel sistema, e il registro incassi resta vuoto. Va aggiunto da Sviluppatori → Webhook, puntato su /api/stripe/webhook."
+            : `${stato.endpoints} endpoint configurati su Stripe, ma nessuno punta a questo sito: i pagamenti non arrivano qui.`,
+    },
+    {
+      label: "Incassi su Stripe",
+      status: stato.ok ? "ok" : "warn",
+      detail: stato.ok
+        ? `${stato.fatturePagate} fatture pagate negli ultimi 90 giorni, per ${(stato.incassatoCents / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}`
+        : "Non verificabile finché Stripe non risponde",
+    },
     {
       label: "Fasce di ritiro nei prossimi 7 giorni",
       status: nRitiri === 0 ? "fail" : nRitiri < 7 ? "warn" : "ok",
