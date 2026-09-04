@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { incassiStripePerMese } from "@/lib/incassi-stripe";
 import { waitlistLeads } from "@/lib/waitlist";
 
 /** Aggregatori per la dashboard admin. Tutti gli importi sono in cent EUR.
@@ -109,6 +110,11 @@ export async function revenueMetrics(includiProva = false): Promise<RevenueMetri
       .returns<{ amount_cents: number; created_at: string; profiles: { is_test: boolean } | null }[]>(),
   ]);
 
+  // Gli incassi veri li sa Stripe. La tabella `invoices` si popola da un webhook
+  // che non arriva, quindi da sola dava zero mentre gli abbonamenti venivano
+  // pagati: resta come ripiego se Stripe non risponde.
+  const stripePerMese = await incassiStripePerMese(Math.floor(new Date(yearStart).getTime() / 1000));
+
   const coreMrrCents = attivi.reduce((t, a) => t + a.prezzoCents, 0);
 
   let extraMonthCents = 0, extraYearCents = 0;
@@ -134,10 +140,20 @@ export async function revenueMetrics(includiProva = false): Promise<RevenueMetri
   }
 
   let incassatoMeseCents = 0, incassatoAnnoCents = 0;
-  for (const i of incassi ?? []) {
-    if (!includiProva && i.profiles?.is_test) continue;
-    incassatoAnnoCents += i.amount_cents ?? 0;
-    if (i.created_at >= monthStart) incassatoMeseCents += i.amount_cents ?? 0;
+  if (stripePerMese) {
+    const meseCorrente = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit" })
+      .format(new Date())
+      .slice(0, 7);
+    for (const [k, v] of stripePerMese) {
+      incassatoAnnoCents += v.totaleCents;
+      if (k === meseCorrente) incassatoMeseCents += v.totaleCents;
+    }
+  } else {
+    for (const i of incassi ?? []) {
+      if (!includiProva && i.profiles?.is_test) continue;
+      incassatoAnnoCents += i.amount_cents ?? 0;
+      if (i.created_at >= monthStart) incassatoMeseCents += i.amount_cents ?? 0;
+    }
   }
 
   return { coreMrrCents, coreYearProjCents: coreMrrCents * 12, extraMonthCents, extraYearCents, incassatoMeseCents, incassatoAnnoCents };

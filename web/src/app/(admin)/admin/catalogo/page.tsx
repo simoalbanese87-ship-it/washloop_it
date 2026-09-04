@@ -158,9 +158,9 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
                     type="number"
                     step="0.01"
                     min="0"
-                    defaultValue={((l.bag_comp_cents ?? 800) / 100).toFixed(2)}
+                    defaultValue={((l.bag_comp_cents ?? 1500) / 100).toFixed(2)}
                     placeholder="€/sacco"
-                    title="Quanto paghi alla lavanderia per ogni sacco (IVA escl.)"
+                    title="Quanto paghi alla lavanderia per ogni sacco, IVA INCLUSA. Il proforma con imponibile e IVA si legge in «Soldi alla lavanderia»."
                     className={input}
                   />
                   <label className="flex h-10 items-center gap-1.5 text-xs font-bold text-navy"><input type="checkbox" name="active" defaultChecked={l.active} className="accent-[#2b7fd4]" />Attiva</label>

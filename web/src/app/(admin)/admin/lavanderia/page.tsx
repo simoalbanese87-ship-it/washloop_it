@@ -2,6 +2,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { createServiceClient } from "@/lib/supabase/server";
 import { segnaMesePagato } from "@/lib/actions/payout";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
+import { scorpora, ALIQUOTA_IVA } from "@/lib/iva";
 
 export const dynamic = "force-dynamic";
 
@@ -145,7 +146,7 @@ export default async function LavanderiaPage({
     const lav = Array.isArray(rel) ? rel[0] : rel;
     const sacchi = o.bags ?? 1;
     sacchiDaMaturare += sacchi;
-    importoDaMaturare += (lav?.bag_comp_cents ?? 800) * sacchi;
+    importoDaMaturare += (lav?.bag_comp_cents ?? 1500) * sacchi;
   }
 
   return (
@@ -153,7 +154,7 @@ export default async function LavanderiaPage({
       <PageTitle
         kicker="Finanza"
         title="Soldi alla lavanderia"
-        sub="Compensi maturati per sacchi e capi speciali, raggruppati per mese. IVA esclusa."
+        sub="Compensi maturati per sacchi e capi speciali, raggruppati per mese. Gli importi sono IVA inclusa: sotto ogni mese trovi imponibile e IVA per il proforma."
       />
 
       {ok && <div className="mb-4 rounded-[14px] bg-[#1F8A5B]/10 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
@@ -163,6 +164,12 @@ export default async function LavanderiaPage({
         <h2 className="font-display text-base font-extrabold text-navy">
           {daPagare > 0 ? `${eur(daPagare)} ancora da pagare` : "Nessun importo in sospeso"}
         </h2>
+        {daPagare > 0 && (
+          <p className="mt-1 text-sm font-medium text-muted">
+            {eur(scorpora(daPagare).imponibile)} di imponibile + {eur(scorpora(daPagare).iva)} di IVA al{" "}
+            {ALIQUOTA_IVA}%.
+          </p>
+        )}
         {importoDaMaturare > 0 && (
           <p className="mt-2 rounded-[12px] bg-[#C9881F]/10 px-3 py-2 text-sm font-semibold text-[#C9881F]">
             Più <strong>{eur(importoDaMaturare)}</strong> ancora da maturare su {sacchiDaMaturare}{" "}
@@ -273,6 +280,22 @@ export default async function LavanderiaPage({
                           );
                         })}
                     </tbody>
+                    {/* La riga che serve per il proforma: gli importi concordati
+                        sono IVA inclusa (15,00 € a sacco), quindi imponibile e
+                        imposta si ricavano scorporando. */}
+                    <tfoot>
+                      <tr className="border-t-2 border-line font-display text-navy">
+                        <td className="pt-3" colSpan={3}>
+                          <span className="text-xs font-bold uppercase tracking-wider text-navy/50">Per il proforma</span>
+                        </td>
+                        <td className="pt-3 text-right text-sm font-semibold text-muted">
+                          imponibile {eur(scorpora(g.totale).imponibile)}
+                          <br />
+                          IVA {ALIQUOTA_IVA}% {eur(scorpora(g.totale).iva)}
+                        </td>
+                        <td className="pt-3 text-right font-black">{eur(g.totale)}</td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               </Card>

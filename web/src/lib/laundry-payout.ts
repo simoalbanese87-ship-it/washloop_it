@@ -38,7 +38,7 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
 
     const rel = ordine.laundries as unknown as { bag_comp_cents: number | null }[] | { bag_comp_cents: number | null } | null;
     const lav = Array.isArray(rel) ? rel[0] : rel;
-    const compenso = lav?.bag_comp_cents ?? 800;
+    const compenso = lav?.bag_comp_cents ?? 1500;
     const sacchi = ordine.bags ?? 1;
 
     const { error } = await svc.from("laundry_payouts").insert({

@@ -43,7 +43,10 @@ export async function brevoAccount(): Promise<{ ok: true; email: string; credits
   if (!key) return { ok: false, error: "BREVO_API_KEY non configurata" };
   try {
     const res = await fetch(`${BASE}/account`, { headers: { "api-key": key, accept: "application/json" }, cache: "no-store" });
-    if (!res.ok) return { ok: false, error: `Brevo ${res.status}` };
+    // Il corpo della risposta si legge SEMPRE: senza, un 401 diventava
+    // «Brevo 401» e basta, e non si poteva sapere se fosse la chiave sbagliata
+    // o l'IP non autorizzato — due problemi con due rimedi diversi.
+    if (!res.ok) return { ok: false, error: `Brevo ${res.status}: ${(await res.text()).slice(0, 300)}` };
     const j = (await res.json()) as { email?: string; plan?: { credits?: number }[] };
     return { ok: true, email: j.email ?? "—", credits: j.plan?.[0]?.credits ?? 0 };
   } catch (e) {

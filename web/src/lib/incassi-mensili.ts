@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { incassiStripePerMese } from "@/lib/incassi-stripe";
 
 /** Gli incassi mese per mese, per il grafico a barre della Home.
  *
@@ -24,6 +25,10 @@ export type MeseIncassi = {
   corrente: boolean;
 };
 
+/** Da dove escono i numeri. Serve a dirlo in pagina: un totale non verificabile
+ *  vale meno di un totale che dichiara la propria fonte. */
+export type FonteIncassi = "stripe" | "registro";
+
 /** Anno e mese in ora di Roma: usare `getMonth()` sposterebbe di un mese chi
  *  guarda il primo del mese a mezzanotte e mezza. */
 function annoMeseRoma(d: Date): { anno: number; mese: number } {
@@ -43,21 +48,30 @@ export async function incassiMensili(includiProva = false, quantiMesi = 12): Pro
   const daMese = ((oggi.mese - (quantiMesi - 1) - 1 + 12) % 12) + 1;
   const dallIso = new Date(Date.UTC(daAnno, daMese - 1, 1)).toISOString();
 
-  const { data: righe } = await svc
-    .from("invoices")
-    .select("amount_cents, created_at, profiles(is_test)")
-    .gte("created_at", dallIso)
-    .returns<{ amount_cents: number; created_at: string; profiles: { is_test: boolean } | null }[]>();
+  // Prima si chiede a Stripe, che è dove i soldi arrivano davvero. La tabella
+  // `invoices` resta come ripiego, ma da sola non basta: si popola da un webhook
+  // che non arriva, quindi ogni mese risultava a zero mentre gli abbonamenti
+  // venivano pagati.
+  const daStripe = await incassiStripePerMese(Math.floor(new Date(dallIso).getTime() / 1000));
 
   const per = new Map<string, { totaleCents: number; quanti: number }>();
-  for (const r of righe ?? []) {
-    if (!includiProva && r.profiles?.is_test) continue;
-    const { anno, mese } = annoMeseRoma(new Date(r.created_at));
-    const k = chiaveDi(anno, mese);
-    const acc = per.get(k) ?? { totaleCents: 0, quanti: 0 };
-    acc.totaleCents += r.amount_cents ?? 0;
-    acc.quanti++;
-    per.set(k, acc);
+  if (daStripe) {
+    for (const [k, v] of daStripe) per.set(k, { totaleCents: v.totaleCents, quanti: v.quanti });
+  } else {
+    const { data: righe } = await svc
+      .from("invoices")
+      .select("amount_cents, created_at, profiles(is_test)")
+      .gte("created_at", dallIso)
+      .returns<{ amount_cents: number; created_at: string; profiles: { is_test: boolean } | null }[]>();
+    for (const r of righe ?? []) {
+      if (!includiProva && r.profiles?.is_test) continue;
+      const { anno, mese } = annoMeseRoma(new Date(r.created_at));
+      const k = chiaveDi(anno, mese);
+      const acc = per.get(k) ?? { totaleCents: 0, quanti: 0 };
+      acc.totaleCents += r.amount_cents ?? 0;
+      acc.quanti++;
+      per.set(k, acc);
+    }
   }
 
   const fmtCorto = new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", month: "short" });

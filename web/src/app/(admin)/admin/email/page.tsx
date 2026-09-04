@@ -54,6 +54,13 @@ export default async function EmailPage({ searchParams }: { searchParams: Promis
     .limit(60);
   if (email) qLog = qLog.ilike("destinatario", `%${email}%`);
 
+  // L'indirizzo da cui esce il server, chiesto a un servizio esterno. È il
+  // numero che Brevo vede e rifiuta: senza, si discute su uno screenshot.
+  const ipUscita = await fetch("https://api.ipify.org?format=json", { cache: "no-store" })
+    .then((r) => (r.ok ? (r.json() as Promise<{ ip?: string }>) : null))
+    .then((j) => j?.ip ?? null)
+    .catch(() => null);
+
   const [acc, res, { data: log }] = await Promise.all([
     brevoAccount(),
     brevoEvents({ limit: 60, email }),
@@ -99,8 +106,17 @@ export default async function EmailPage({ searchParams }: { searchParams: Promis
             </h2>
             <p className="mt-2 text-sm font-medium text-navy/80">
               Sul vostro account Brevo è attiva la restrizione <strong>«IP autorizzati»</strong>, e
-              l&apos;indirizzo da cui esce il server{ipRilevato ? ` (${ipRilevato})` : ""} non è nell&apos;elenco.
+              l&apos;indirizzo da cui esce il server non è nell&apos;elenco.
             </p>
+            <div className="mt-2 rounded-[10px] bg-white/70 px-3 py-2 font-mono text-xs text-navy">
+              <div>IP rifiutato da Brevo in questa richiesta: <strong>{ipRilevato ?? "—"}</strong></div>
+              <div>IP da cui esce il server adesso: <strong>{ipUscita ?? "non rilevato"}</strong></div>
+              {ipUscita && ipRilevato && ipUscita !== ipRilevato && (
+                <div className="mt-1 font-sans font-bold text-[#C0392B]">
+                  Sono diversi: è la prova che l&apos;indirizzo cambia da solo fra una richiesta e l&apos;altra.
+                </div>
+              )}
+            </div>
             <p className="mt-2 text-sm font-semibold text-navy">
               Le email continuano a partire: escono via SMTP, che è un&apos;altra porta. Quello che manca è
               sapere se sono state consegnate o sono rimbalzate.

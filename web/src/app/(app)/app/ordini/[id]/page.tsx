@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { SegnalazioneRiga, type Segnalazione } from "@/components/app/SegnalazioneRiga";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { signedProofUrl, statusIndex, ORDER_STATUS_LABEL, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
-import { fmtDate, fmtFull } from "@/lib/format";
+import { fmtDate, fmtFull, eurCents } from "@/lib/format";
 import { spostaRitiro, clienteDisdiceRitiro } from "@/lib/actions/orders";
 import { pickupCounts } from "@/lib/slots";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
@@ -60,6 +60,25 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
     .eq("order_id", id)
     .order("created_at")
     .returns<Item[]>();
+
+  // I capi speciali addebitati su questo ritiro.
+  //
+  // Finora non comparivano da nessuna parte nell'area del cliente: l'unico
+  // avviso era un'email al momento dell'addebito, e se quella non arriva la
+  // persona si trova un importo in più sulla fattura senza sapere perché.
+  // Un addebito che il cliente non può rileggere quando vuole non è
+  // trasparente, è una sorpresa.
+  //
+  // `comp_lav_cents` non si chiede di proposito: è quanto paghiamo noi alla
+  // lavanderia e il permesso di colonna lo nega al cliente.
+  const { data: specials } = await supabase
+    .from("order_specials")
+    .select("id, item_name, qty, price_cli_cents, charged_at, refunded_at, created_at")
+    .eq("order_id", id)
+    .order("created_at")
+    .returns<{ id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null; created_at: string }[]>();
+  const extra = (specials ?? []).filter((x) => !x.refunded_at);
+  const totaleExtraCents = extra.reduce((t, x) => t + x.price_cli_cents * x.qty, 0);
 
   // Segnalazioni della lavanderia. La policy lascia passare al cliente solo
   // quelle pubblicate: i danni in lavorazione arrivano qui dopo che l'ops ha
@@ -245,6 +264,38 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
               </p>
             </>
           )}
+        </section>
+      )}
+
+      {/* Capi speciali addebitati. Sopra i capi e le segnalazioni: se sul
+          ritiro c'è un costo in più, è la prima cosa che una persona vuole
+          sapere aprendo la pagina. */}
+      {extra.length > 0 && (
+        <section className="rounded-[18px] border border-[#C9881F]/35 bg-[#C9881F]/[0.06] p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-display text-sm font-extrabold text-navy">Capi speciali su questo ritiro</span>
+            <span className="font-display text-base font-black text-[#C9881F]">{eurCents(totaleExtraCents)}</span>
+          </div>
+          <p className="mt-1 text-xs font-medium text-muted">
+            Capi fuori dal sacco base, riconosciuti in lavanderia e conteggiati a listino.
+          </p>
+          <ul className="mt-3 space-y-1.5">
+            {extra.map((x) => (
+              <li key={x.id} className="flex items-center justify-between gap-3 rounded-[12px] bg-white px-3 py-2">
+                <span className="font-display text-sm font-bold text-navy">
+                  {x.qty}× {x.item_name}
+                </span>
+                <span className="text-sm font-semibold text-navy">
+                  {eurCents(x.price_cli_cents * x.qty)}
+                  {x.charged_at ? "" : " · in attesa"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs font-medium text-muted">
+            L&apos;importo finisce sulla tua prossima fattura mensile, non è un pagamento a parte. Se qualcosa
+            non ti torna scrivici a info@washloop.it citando questo ritiro.
+          </p>
         </section>
       )}
 
