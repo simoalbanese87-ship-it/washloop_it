@@ -9,12 +9,15 @@ export async function geocodeAddress(input: {
   cap?: string | null;
   city?: string | null;
 }): Promise<{ lat: number; lng: number } | null> {
-  const q = [
-    [input.street, input.civico].filter(Boolean).join(" ").trim(),
-    (input.cap ?? "").trim(),
-    (input.city ?? "").trim() || "Milano",
-    "Italia",
-  ].filter(Boolean).join(", ");
+  // La città si aggiunge solo se chi chiama non l'ha già messa nell'indirizzo.
+  // Prima veniva imposta "Milano" a chi non ne passava una: finché tutto era in
+  // città funzionava, ma la lavanderia è a Zanica (BG) e appendere ", Milano"
+  // a un indirizzo bergamasco manda la geocodifica sul posto sbagliato — e da
+  // quel punto il rider si vede calcolare il giro da una via che non esiste.
+  const via = [input.street, input.civico].filter(Boolean).join(" ").trim();
+  const citta = (input.city ?? "").trim();
+  const cap = (input.cap ?? "").trim();
+  const q = [via, cap, citta, "Italia"].filter(Boolean).join(", ");
   if (!q.replace(/[, ]/g, "")) return null;
 
   try {

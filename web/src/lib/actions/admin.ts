@@ -106,7 +106,7 @@ export async function updateDepot(formData: FormData) {
   const id = String(formData.get("depot_id") ?? "") || null;
   const name = String(formData.get("name") ?? "").trim() || "Deposito Milano";
   const address = String(formData.get("address") ?? "").trim() || null;
-  const geo = address ? await geocodeAddress({ street: address, city: "Milano" }) : null;
+  const geo = address ? await geocodeAddress({ street: address }) : null;
   const patch = { name, address, lat: geo?.lat ?? null, lng: geo?.lng ?? null, active: true };
   if (id) await svc.from("depots").update(patch).eq("id", id);
   else await svc.from("depots").insert(patch);
@@ -120,7 +120,7 @@ export async function createLaundry(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Nome lavanderia obbligatorio");
   const address = String(formData.get("address") ?? "") || null;
-  const geo = address ? await geocodeAddress({ street: address, city: "Milano" }) : null;
+  const geo = address ? await geocodeAddress({ street: address }) : null;
   const { error } = await supabase.from("laundries").insert({
     name,
     zone_id: String(formData.get("zone_id") ?? "") || null,
@@ -141,8 +141,9 @@ export async function updateLaundry(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!id || !name) throw new Error("Dati lavanderia mancanti");
   const address = String(formData.get("address") ?? "") || null;
-  // Geocodifica l'indirizzo (deposito) al salvataggio, best-effort.
-  const geo = address ? await geocodeAddress({ street: address, city: "Milano" }) : null;
+  // Geocodifica al salvataggio, best-effort. L'indirizzo si passa intero,
+  // città compresa: le lavanderie non sono per forza a Milano.
+  const geo = address ? await geocodeAddress({ street: address }) : null;
   const patch: Record<string, unknown> = {
     name,
     zone_id: String(formData.get("zone_id") ?? "") || null,

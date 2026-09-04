@@ -21,6 +21,29 @@ export function haversineKm(aLat: number, aLng: number, bLat: number, bLng: numb
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 }
 
+export type Partenza = { lat: number; lng: number } | null;
+
+/** Da dove comincia il giro.
+ *
+ *  Non è sempre lo stesso posto, e confonderli manda il rider dalla parte
+ *  sbagliata. Se la prima cosa da fare è una CONSEGNA, il giro comincia dalla
+ *  lavanderia: è lì che si caricano i sacchi puliti, e per WashLoop la
+ *  lavanderia è a Zanica, quaranta chilometri fuori Milano — partire dal
+ *  deposito darebbe un ordine di visita costruito su un viaggio che nessuno fa.
+ *  Se invece si comincia con i RITIRI, il rider parte dal deposito e le case
+ *  dei clienti sono le fermate: quello era già giusto.
+ *
+ *  Funzione pura e separata apposta: è una riga di logica che decide l'ordine
+ *  di tutta la giornata, e va potuta collaudare senza mappa né database. */
+export function partenzaDelGiro(
+  primaFermataÈConsegna: boolean,
+  lavanderia: Partenza,
+  deposito: Partenza,
+): Partenza {
+  if (primaFermataÈConsegna && lavanderia) return lavanderia;
+  return deposito ?? lavanderia;
+}
+
 /** Ritorna gli indici di `stops` nell'ordine di visita ottimizzato. */
 export function optimizeOrder(depot: { lat: number; lng: number } | null, stops: RouteStop[]): number[] {
   const remaining = stops.map((_, i) => i);

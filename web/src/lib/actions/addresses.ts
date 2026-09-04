@@ -34,7 +34,9 @@ export async function addAddress(formData: FormData) {
 
   // Via + civico → riga indirizzo; CAP e città anche in colonne dedicate.
   const cap = String(formData.get("cap") ?? "").trim();
-  const city = String(formData.get("city") ?? "").trim();
+  // Il default sta qui e non più dentro `geocodeAddress`: il servizio parte da
+  // Milano, ma la geocodifica non deve più imporre una città a chi ne ha già una.
+  const city = String(formData.get("city") ?? "").trim() || "Milano";
   const street = [`${streetRaw} ${civico}`.trim(), cap, city].filter(Boolean).join(", ");
 
   // Zona derivata dal CAP (zone_caps). Se il CAP non è mappato → null (l'admin risolve).

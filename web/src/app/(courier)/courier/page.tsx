@@ -7,7 +7,7 @@ import type { Stop, Depot } from "@/components/app/RiderMap";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { fmtSlot, entroOggiRoma } from "@/lib/format";
-import { optimizeOrder } from "@/lib/route";
+import { optimizeOrder, partenzaDelGiro } from "@/lib/route";
 import type { OrderStatus, AccessMode } from "@/lib/orders";
 
 type Row = {
@@ -60,6 +60,16 @@ export default async function CourierToday() {
     supabase.from("depots").select("lat, lng").eq("active", true).limit(1).maybeSingle<{ lat: number | null; lng: number | null }>(),
   ]);
 
+  // I sacchi puliti si caricano in lavanderia, non in deposito: se il giro
+  // comincia con una consegna, il punto di partenza è quello.
+  const { data: lavRow } = await supabase
+    .from("laundries")
+    .select("name, lat, lng")
+    .eq("active", true)
+    .not("lat", "is", null)
+    .limit(1)
+    .maybeSingle<{ name: string; lat: number | null; lng: number | null }>();
+
   const tutte = data ?? [];
   const kindOf = (r: Row): "pickup" | "delivery" => (r.status === "pickup_scheduled" ? "pickup" : "delivery");
   const slotOf = (r: Row) => (kindOf(r) === "pickup" ? r.pickup_slot : r.delivery_slot);
@@ -82,14 +92,24 @@ export default async function CourierToday() {
 
   // Deposito = hub logistico interno (tabella depots). Solo lato rider, mai al cliente.
   const depot: Depot = depotRow?.lat != null && depotRow?.lng != null ? { lat: depotRow.lat, lng: depotRow.lng } : null;
+  const lavanderia: Depot = lavRow?.lat != null && lavRow?.lng != null ? { lat: lavRow.lat, lng: lavRow.lng } : null;
 
   // Fermate con coordinate → ottimizzazione; senza coord → in coda per orario.
   const geo = rows.filter((r) => r.addresses?.lat != null && r.addresses?.lng != null);
   const noGeo = rows.filter((r) => !(r.addresses?.lat != null && r.addresses?.lng != null))
     .sort((a, b) => (slotOf(a)?.ends_at ?? "").localeCompare(slotOf(b)?.ends_at ?? ""));
 
+  // La prima cosa in ordine di orario decide da dove si parte: una giornata di
+  // sole consegne comincia in lavanderia, una che apre con un ritiro comincia
+  // dal deposito.
+  const primaPerOrario = [...rows].sort((a, b) =>
+    (slotOf(a)?.starts_at ?? "").localeCompare(slotOf(b)?.starts_at ?? ""),
+  )[0];
+  const siParteConUnaConsegna = !!primaPerOrario && kindOf(primaPerOrario) === "delivery";
+  const partenza = partenzaDelGiro(siParteConUnaConsegna, lavanderia, depot);
+
   const order = optimizeOrder(
-    depot,
+    partenza,
     geo.map((r) => ({ lat: r.addresses!.lat!, lng: r.addresses!.lng!, deadlineMs: slotOf(r)?.ends_at ? Date.parse(slotOf(r)!.ends_at) : null })),
   );
   const geoOrdered = order.map((i) => geo[i]);
@@ -130,7 +150,7 @@ export default async function CourierToday() {
 
       {stops.length > 0 && (
         <Card className="mb-6 overflow-hidden !p-0">
-          <RiderMapLoader stops={stops} depot={depot} />
+          <RiderMapLoader stops={stops} depot={partenza} />
         </Card>
       )}
 
@@ -158,9 +178,13 @@ export default async function CourierToday() {
         </Card>
       )}
 
-      {!depot && routeRows.length > 0 && (
+      {routeRows.length > 0 && (
         <p className="mt-3 text-[11px] font-medium text-muted">
-          Deposito non impostato: l&apos;admin lo configura nel Catalogo (sezione Deposito).
+          {partenza
+            ? siParteConUnaConsegna
+              ? `Percorso calcolato partendo dalla lavanderia${lavRow?.name ? ` (${lavRow.name})` : ""}, dove carichi i sacchi puliti.`
+              : "Percorso calcolato partendo dal deposito."
+            : "Nessun punto di partenza impostato: l'ordine delle fermate segue solo gli orari. L'admin lo configura nel Catalogo."}
         </p>
       )}
 
