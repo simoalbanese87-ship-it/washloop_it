@@ -16,9 +16,14 @@ export function Header() {
     // riferimento al pannello del menu. Metterli entrambi significa scrivere
     // due volte la stessa proprietà CSS e sperare nell'ordine delle regole.
     <header className="sticky top-0 z-50 border-b border-line bg-white/85 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
-        <Link href="/" aria-label="WashLoop home">
-          <Logo size={30} />
+      {/* Spaziature strette sul telefono. Da quando «Accedi» sta in chiaro, in
+          questa riga convivono logo, Accedi, «Attiva» e il menu: a 360px —
+          mezzo parco Android — con `gap-3` e il logo a 30 il contenuto chiedeva
+          369px e la pagina scorreva di lato. Misurato, non stimato. */}
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-4 sm:gap-3 sm:px-5">
+        <Link href="/" aria-label="WashLoop home" className="flex-none">
+          <span className="sm:hidden"><Logo size={24} /></span>
+          <span className="hidden sm:block"><Logo size={30} /></span>
         </Link>
         <nav className="hidden items-center gap-8 md:flex">
           {nav.map((item) => (
@@ -31,7 +36,7 @@ export function Header() {
             </Link>
           ))}
         </nav>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-none items-center gap-2 sm:gap-3">
           {/* "Accedi" sempre in chiaro, anche sul telefono.
               Stava solo dentro il menu a panino: per entrare servivano due
               tocchi, e chi è già cliente non pensa a cercarsi il proprio
