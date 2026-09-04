@@ -18,6 +18,8 @@ export const dynamic = "force-dynamic";
  *  o mandare a qualcuno: `?tipo=`, `?dal=`, `?al=`. */
 
 type Riga = {
+  /** Progressivo della ricevuta nell'anno. Nullo solo sulle righe pre-numerazione. */
+  numero_ricevuta: number | null;
   id: string;
   stripe_invoice_id: string | null;
   amount_cents: number;
@@ -69,7 +71,8 @@ export default async function IncassiPage({
   const svc = createServiceClient();
   let q = svc
     .from("invoices")
-    .select("id, stripe_invoice_id, amount_cents, stato, fic_number, fic_url, ei_status, errore, created_at, profiles(full_name, client_code)")
+    .select("id, stripe_invoice_id, amount_cents, stato, fic_number, fic_url, ei_status, errore, created_at, numero_ricevuta, profiles(full_name, client_code)")
+    .order("numero_ricevuta", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(500);
 
@@ -254,6 +257,14 @@ export default async function IncassiPage({
             <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
+                  {/* Il numero per primo: è quello che rende un elenco di
+                      importi un registro, e quello che si cita al cliente o al
+                      commercialista. */}
+                  {r.numero_ricevuta != null && (
+                    <span className="rounded-[8px] bg-navy px-2 py-0.5 font-display text-[11px] font-black text-white">
+                      n. {r.numero_ricevuta}/{new Date(r.created_at).getFullYear()}
+                    </span>
+                  )}
                   <span className="font-display text-sm font-bold text-navy">{r.profiles?.full_name ?? "—"}</span>
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${TONO[r.stato] ?? "bg-navy/10 text-navy"}`}>
                     {ETICHETTA[r.stato] ?? r.stato}

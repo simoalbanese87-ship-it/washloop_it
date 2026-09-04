@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { createServiceClient } from "@/lib/supabase/server";
 import { eurCents } from "@/lib/format";
-import { aggiungiIva, scorpora, ALIQUOTA_IVA } from "@/lib/iva";
+import { aggiungiIva, scorpora } from "@/lib/iva";
 import { aggiornaVoceListino } from "@/lib/actions/admin";
 
 export const dynamic = "force-dynamic";

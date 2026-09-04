@@ -82,6 +82,15 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   ]);
 
   const totaleIncassatoCents = incassi.reduce((t, i) => t + i.amount_cents, 0);
+
+  // Gli addebiti che partiranno da soli col prossimo rinnovo.
+  //
+  // Un capo speciale non è un prelievo immediato: diventa una voce sulla
+  // prossima fattura dell'abbonamento, e i soldi si muovono lì. Chi guarda
+  // questa scheda vede «addebitato» e pensa a soldi già presi, oppure non lo
+  // vede affatto e scopre l'importo quando il cliente telefona.
+  const inAttesa = (capi ?? []).filter((c) => c.charged_at && !c.refunded_at);
+  const inAttesaCents = inAttesa.reduce((t, c) => t + c.price_cli_cents * c.qty, 0);
   const addebitatoCents = charges?.filter((c) => c.kind !== "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
   const stornatoCents = charges?.filter((c) => c.kind === "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
 
@@ -152,6 +161,52 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               Solleciti e dettagli ↓
             </a>
           </div>
+        </div>
+      )}
+
+      {inAttesa.length > 0 && (
+        <div className="mb-4 rounded-[16px] border-2 border-[#C9881F]/40 bg-[#C9881F]/[0.07] p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-display text-base font-black text-[#C9881F]">
+              {eur(inAttesaCents)} entreranno nella prossima fattura
+            </span>
+            {sub?.current_period_end && (
+              <span className="font-display text-sm font-bold text-navy">rinnovo il {fmtDate(sub.current_period_end)}</span>
+            )}
+          </div>
+          <p className="mt-1 text-sm font-medium text-navy/75">
+            Capi speciali già registrati su Stripe come voci della prossima fattura. <strong>Non sono soldi
+            già presi</strong>: si incassano al rinnovo, da soli, senza che tu debba confermare niente.
+          </p>
+          <ul className="mt-3 space-y-1.5">
+            {inAttesa.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-white px-3 py-2">
+                <span className="font-display text-sm font-bold text-navy">
+                  {c.qty}× {c.item_name}
+                  {c.qty_totale != null && (
+                    <span className="ml-2 text-xs font-medium text-muted">
+                      ({c.qty_totale} trovate, {c.qty_inclusa ?? 0} comprese nell&apos;abbonamento)
+                    </span>
+                  )}
+                </span>
+                <span className="flex items-center gap-3">
+                  {c.qty_totale == null && (
+                    <span className="rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[11px] font-bold text-[#C0392B]">
+                      da verificare con la lavanderia
+                    </span>
+                  )}
+                  <span className="font-display text-sm font-extrabold text-navy">{eur(c.price_cli_cents * c.qty)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          {inAttesa.some((c) => c.qty_totale == null) && (
+            <p className="mt-2 text-xs font-semibold text-[#C0392B]">
+              Le voci senza il dettaglio «trovate / comprese» sono state registrate prima che il sistema
+              applicasse le camicie incluse nel sacco: non si può sapere se la lavanderia avesse già
+              sottratto la franchigia. Va chiesto a loro prima del rinnovo.
+            </p>
+          )}
         </div>
       )}
 

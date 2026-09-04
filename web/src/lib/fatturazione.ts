@@ -38,6 +38,21 @@ export async function registraIncasso(input: {
 
   let riga = esistente;
   if (!riga) {
+    // Numero di ricevuta: progressivo dell'anno solare, assegnato adesso e mai
+    // più cambiato. Calcolarlo al volo ordinando per data sembrerebbe uguale,
+    // ma il giorno in cui arriva un incasso con data anteriore farebbe scalare
+    // tutti i numeri già comunicati.
+    const anno = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric" }).format(new Date());
+    const { data: ultima } = await svc
+      .from("invoices")
+      .select("numero_ricevuta, created_at")
+      .not("numero_ricevuta", "is", null)
+      .gte("created_at", `${anno}-01-01`)
+      .order("numero_ricevuta", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ numero_ricevuta: number | null }>();
+    const numero_ricevuta = (ultima?.numero_ricevuta ?? 0) + 1;
+
     const { data: creata, error } = await svc
       .from("invoices")
       .insert({
@@ -45,6 +60,7 @@ export async function registraIncasso(input: {
         stripe_customer_id: input.stripeCustomerId,
         amount_cents: input.amountCents,
         user_id: input.userId ?? null,
+        numero_ricevuta,
         // "saltata" = incassato, ricevuta e basta. È la normalità del regime
         // scelto col commercialista, non un'eccezione: la riga nasce così e
         // diventa "da_emettere" solo per chi la fattura l'ha chiesta davvero.

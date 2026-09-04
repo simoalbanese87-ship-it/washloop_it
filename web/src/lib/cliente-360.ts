@@ -155,6 +155,10 @@ export type IncassoCliente = {
 };
 
 export type CapoSpeciale = {
+  /** Quante ne sono state trovate e quante ne ha assorbite l'abbonamento.
+   *  Nulle sulle righe registrate prima che il sistema applicasse la franchigia. */
+  qty_totale?: number | null;
+  qty_inclusa?: number | null;
   id: string;
   item_name: string;
   qty: number;
@@ -186,7 +190,7 @@ export async function capiSpecialiCliente(userId: string): Promise<CapoSpeciale[
 
   const { data } = await svc
     .from("order_specials")
-    .select("id, item_name, qty, price_cli_cents, created_at, charged_at, refunded_at, order_id")
+    .select("id, item_name, qty, qty_totale, qty_inclusa, price_cli_cents, created_at, charged_at, refunded_at, order_id")
     .in("order_id", ids)
     .order("created_at", { ascending: false })
     .returns<CapoSpeciale[]>();
