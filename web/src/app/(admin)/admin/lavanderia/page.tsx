@@ -73,6 +73,30 @@ export default async function LavanderiaPage({
   const elenco = [...gruppi.values()].sort((a, b) => b.mese.localeCompare(a.mese));
   const daPagare = elenco.reduce((t, g) => t + (g.totale - g.pagate), 0);
 
+  // Quello che maturerà quando il rider chiuderà i giri di oggi.
+  //
+  // Senza questo numero la pagina è vera e sembra sbagliata: il 4 settembre
+  // diceva «11,89 € da pagare» — cioè i soli capi speciali — mentre in
+  // lavanderia c'erano quattro sacchi lavati e pronti, per altri 32 €. Il
+  // compenso a sacco si registra alla consegna, quindi prima non esiste; ma chi
+  // guarda la cifra sta per fare un bonifico, e deve sapere che non è finita.
+  const { data: inViaggio } = await svc
+    .from("orders")
+    .select("bags, laundry_id, laundries(bag_comp_cents)")
+    .in("status", ["delivery_scheduled", "out_for_delivery"])
+    .not("laundry_id", "is", null)
+    .returns<{ bags: number | null; laundry_id: string; laundries: { bag_comp_cents: number | null } | { bag_comp_cents: number | null }[] | null }[]>();
+
+  let sacchiDaMaturare = 0;
+  let importoDaMaturare = 0;
+  for (const o of inViaggio ?? []) {
+    const rel = o.laundries;
+    const lav = Array.isArray(rel) ? rel[0] : rel;
+    const sacchi = o.bags ?? 1;
+    sacchiDaMaturare += sacchi;
+    importoDaMaturare += (lav?.bag_comp_cents ?? 800) * sacchi;
+  }
+
   return (
     <>
       <PageTitle
@@ -88,6 +112,14 @@ export default async function LavanderiaPage({
         <h2 className="font-display text-base font-extrabold text-navy">
           {daPagare > 0 ? `${eur(daPagare)} ancora da pagare` : "Nessun importo in sospeso"}
         </h2>
+        {importoDaMaturare > 0 && (
+          <p className="mt-2 rounded-[12px] bg-[#C9881F]/10 px-3 py-2 text-sm font-semibold text-[#C9881F]">
+            Più <strong>{eur(importoDaMaturare)}</strong> ancora da maturare su {sacchiDaMaturare}{" "}
+            {sacchiDaMaturare === 1 ? "sacco lavato ma non ancora consegnato" : "sacchi lavati ma non ancora consegnati"}:
+            entrano nel conto quando il rider chiude la consegna. Totale previsto{" "}
+            <strong>{eur(daPagare + importoDaMaturare)}</strong>.
+          </p>
+        )}
         <p className="mt-1 text-sm font-medium text-muted">
           Il compenso per i sacchi matura alla consegna; quello dei capi speciali quando la lavanderia li aggiunge.
           Il compenso a sacco si imposta in Catalogo, sulla scheda della lavanderia.

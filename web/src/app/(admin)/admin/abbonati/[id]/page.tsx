@@ -123,6 +123,38 @@ export default async function CustomerPage({ params, searchParams }: { params: P
       <Link href="/admin/abbonati" className="font-display text-sm font-bold text-blue hover:underline">← Abbonati</Link>
       <PageTitle kicker="Cliente" title={profile.full_name ?? "Cliente"} sub={`${email}${profile.client_code ? ` · ${profile.client_code}` : ""} · ${profile.phone ?? "SENZA TELEFONO"} · Iscritto il ${fmtDate(profile.created_at)}`} />
 
+      {/* Il pagamento fallito si vede appena si apre la scheda.
+          Il riquadro dettagliato c'è già più in basso, dentro «Abbonamento» —
+          ma per arrivarci bisogna scorrere, e chi apre la scheda di un cliente
+          che ha un problema deve saperlo dalla prima riga, non trovarlo. Qui
+          sopra c'è il fatto e la cosa da fare; sotto restano i dettagli. */}
+      {inSofferenza && (
+        <div className="mb-4 rounded-[16px] border-2 border-[#C0392B]/40 bg-[#C0392B]/8 p-4">
+          <div className="font-display text-base font-black text-[#C0392B]">
+            Pagamento non riuscito{sub?.last_failed_at ? ` dal ${fmtDate(sub.last_failed_at)}` : ""}
+          </div>
+          <p className="mt-1 text-sm font-semibold text-navy">
+            {priceLabel}/mese · {solleciti === 0 ? "nessun sollecito ancora partito" : `${solleciti} ${solleciti === 1 ? "sollecito inviato" : "solleciti inviati"} su 3`}.
+            {" "}I ritiri ricorrenti sono fermi: finché l&apos;abbonamento non torna attivo il sistema non ne genera.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            {sub?.last_failed_invoice_url && (
+              <a
+                href={sub.last_failed_invoice_url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full bg-[#C0392B] px-4 py-2 font-display text-sm font-extrabold text-white"
+              >
+                Apri la fattura da saldare →
+              </a>
+            )}
+            <a href="#abbonamento" className="font-display text-sm font-bold text-[#C0392B] hover:underline">
+              Solleciti e dettagli ↓
+            </a>
+          </div>
+        </div>
+      )}
+
       {ok && (
         <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>
       )}
@@ -152,7 +184,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Abbonamento */}
         <Card>
-          <h2 className="font-display text-base font-extrabold text-navy">Abbonamento</h2>
+          <h2 id="abbonamento" className="font-display text-base font-extrabold text-navy">Abbonamento</h2>
           {sub ? (
             <>
               <div className="mt-3 space-y-1 text-sm font-medium text-muted">
@@ -188,9 +220,10 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
                     {solleciti === 0 ? (
                       <p className="rounded-[10px] bg-[#C9881F]/12 px-2.5 py-1.5 text-xs font-semibold text-[#C9881F]">
-                        Nessun sollecito ancora partito. Quelli automatici li fa scattare Stripe quando un addebito
-                        fallisce: se il blocco è vecchio, quel momento può non arrivare mai. Falli partire tu — dal
-                        secondo in poi prosegue il calendario da solo.
+                        Nessun sollecito ancora partito. Il primo lo mandiamo noi nell&apos;istante in cui l&apos;addebito
+                        viene rifiutato: se qui è a zero, quel momento non è mai arrivato — blocco più vecchio del
+                        recupero automatico, oppure pagamento fallito fuori da Stripe. Fallo partire tu; dal secondo
+                        in poi prosegue il calendario da solo.
                       </p>
                     ) : solleciti >= 3 ? (
                       <p className="rounded-[10px] bg-[#C0392B]/10 px-2.5 py-1.5 text-xs font-semibold text-[#C0392B]">
@@ -442,6 +475,15 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                   {r.delivery_hhmm && <span className="text-xs font-medium text-muted">· consegna pref. {r.delivery_hhmm}</span>}
                   <span className="text-xs font-medium text-muted">· {r.addresses?.label ?? "indirizzo"}</span>
                   {!r.active && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">non attivo</span>}
+                  {/* Una ricorrenza attiva su un abbonamento non pagato NON
+                      genera ritiri: il cron salta chi non è in regola. Senza
+                      dirlo qui si legge «ogni martedì alle 9» e sembra che il
+                      servizio stia andando, mentre da giorni non passa nessuno. */}
+                  {r.active && !active && (
+                    <span className="rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[11px] font-bold text-[#C0392B]">
+                      in pausa · abbonamento non attivo
+                    </span>
+                  )}
                   {r.needs_confirmation && <span className="rounded-full bg-[#C9881F]/15 px-2 py-0.5 text-[11px] font-bold text-[#C9881F]">in attesa di conferma cliente</span>}
                 </div>
                 {r.pending_hhmm != null && (
