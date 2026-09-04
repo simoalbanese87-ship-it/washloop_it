@@ -39,7 +39,39 @@ type Event = { id: string; status: OrderStatus; created_at: string; note: string
 type Person = { id: string; full_name: string | null };
 type Laundry = { id: string; name: string };
 type DeliverySlot = { id: string; starts_at: string; ends_at: string; capacity: number | null; presi?: number };
-type Special = { id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null };
+type Special = {
+  id: string;
+  item_name: string;
+  qty: number;
+  price_cli_cents: number;
+  charged_at: string | null;
+  refunded_at: string | null;
+  created_at: string;
+  // Chi l'ha messo dentro. Senza questo, davanti a un addebito che non torna
+  // l'unica risposta possibile è «non lo so»: è già successo con la camicia di
+  // fabia, e la domanda era «te lo sei inventato?».
+  autore: { full_name: string | null; role: string } | null;
+};
+
+/** «Chi ha messo dentro questo capo, e quando».
+ *
+ *  Serve a rispondere senza aprire il database. Il ruolo conta più del nome:
+ *  «la lavanderia» dice subito che il capo l'ha trovato chi lava, mentre un
+ *  nome da solo non distingue un inserimento dal campo da uno fatto dal
+ *  pannello. Se `added_by` è vuoto — può succedere per i profili cancellati,
+ *  la chiave va a NULL — si dice che non si sa, invece di inventare. */
+function chiHaInserito(s: Special): string {
+  const quando = fmtFull(s.created_at);
+  // PostgREST restituisce gli embed uno-a-uno a volte come array.
+  const a = Array.isArray(s.autore) ? (s.autore[0] ?? null) : s.autore;
+  if (!a) return `inserito il ${quando} · autore non più risalibile`;
+  const chi =
+    a.role === "partner" ? "dalla lavanderia" :
+    a.role === "courier" ? "dal rider" :
+    a.role === "admin" ? "dal pannello" :
+    "dal cliente";
+  return `inserito ${chi}${a.full_name ? ` (${a.full_name})` : ""} · ${quando}`;
+}
 
 const input = "h-11 w-full rounded-[14px] border border-line bg-ice px-3.5 text-sm font-medium text-navy outline-none focus:border-blue";
 const STATUSES: OrderStatus[] = [...ORDER_FLOW, "cancelled"];
@@ -113,7 +145,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
 
   const { data: specials } = await supabase
     .from("order_specials")
-    .select("id, item_name, qty, price_cli_cents, charged_at, refunded_at")
+    .select("id, item_name, qty, price_cli_cents, charged_at, refunded_at, created_at, autore:profiles!order_specials_added_by_fkey(full_name, role)")
     .eq("order_id", id)
     .order("created_at")
     .returns<Special[]>();
@@ -316,7 +348,10 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
               <ul className="mt-3 space-y-2">
                 {specialRows.map((s) => (
                   <li key={s.id} className="flex items-center justify-between gap-3 rounded-[12px] border border-line bg-ice px-3 py-2 text-sm">
-                    <span className="font-semibold text-navy">{s.qty}× {s.item_name}</span>
+                    <span>
+                      <span className="font-semibold text-navy">{s.qty}× {s.item_name}</span>
+                      <span className="block text-xs font-medium text-muted">{chiHaInserito(s)}</span>
+                    </span>
                     <span className="flex items-center gap-2">
                       <span className={`font-display font-bold ${s.refunded_at ? "text-muted line-through" : "text-navy"}`}>{eur(s.price_cli_cents * s.qty)}</span>
                       {s.refunded_at ? (
