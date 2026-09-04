@@ -348,7 +348,11 @@ export async function generateSlots(formData: FormData) {
 
   const rows: Array<Record<string, unknown>> = [];
   const d = new Date(start);
-  for (let i = 0; d <= end && i < 90; d.setUTCDate(d.getUTCDate() + 1), i++) {
+  // Il tetto è di 370 giorni e non più di 90: con una fascia a settimana, 90
+  // giorni non arrivano a fine anno e il calendario andava generato a pezzi —
+  // che è il modo in cui ci si dimentica un trimestre e nessuno può prenotare.
+  // La guardia vera resta quella sotto, sui 500 slot.
+  for (let i = 0; d <= end && i < 370; d.setUTCDate(d.getUTCDate() + 1), i++) {
     if (!days.includes(String(d.getUTCDay()))) continue;
     const ds = d.toISOString().slice(0, 10);
     for (const [from, to] of windows) {

@@ -47,8 +47,48 @@ export default async function LavanderiaPage({
 
   const righe = data ?? [];
 
+  // Il dettaglio per ordine: chi è il cliente, quanti sacchi, quali capi.
+  //
+  // Un totale mensile non si può controllare. Il 4 settembre la pagina diceva
+  // «11,89 €» e la domanda era «e i quattro sacchi?»: la risposta c'era — il
+  // compenso a sacco matura alla consegna — ma per darla bisognava andare a
+  // guardare in banca dati. Prima di un bonifico si deve poter leggere da dove
+  // esce ogni euro, riga per riga.
+  const ordiniCitati = [...new Set(righe.map((r) => r.order_id).filter(Boolean) as string[])];
+  const [{ data: ordini }, { data: extra }] = await Promise.all([
+    ordiniCitati.length
+      ? svc
+          .from("orders")
+          .select("id, bags, status, profiles!orders_customer_id_fkey(full_name, client_code)")
+          .in("id", ordiniCitati)
+          .returns<{ id: string; bags: number | null; status: string; profiles: { full_name: string | null; client_code: string | null } | { full_name: string | null; client_code: string | null }[] | null }[]>()
+      : Promise.resolve({ data: [] as never[] }),
+    ordiniCitati.length
+      ? svc
+          .from("order_specials")
+          .select("order_id, item_name, qty, comp_lav_cents")
+          .in("order_id", ordiniCitati)
+          .returns<{ order_id: string; item_name: string; qty: number; comp_lav_cents: number }[]>()
+      : Promise.resolve({ data: [] as never[] }),
+  ]);
+
+  const datiOrdine = new Map(
+    (ordini ?? []).map((o) => {
+      const rel = o.profiles;
+      const pr = Array.isArray(rel) ? rel[0] : rel;
+      return [o.id, { bags: o.bags ?? 1, cliente: pr?.full_name ?? "Cliente", codice: pr?.client_code ?? "—" }];
+    }),
+  );
+  const extraPerOrdine = new Map<string, string[]>();
+  for (const e of extra ?? []) {
+    const lista = extraPerOrdine.get(e.order_id) ?? [];
+    lista.push(`${e.qty}× ${e.item_name} ${eur(e.comp_lav_cents * e.qty)}`);
+    extraPerOrdine.set(e.order_id, lista);
+  }
+
   // Raggruppo per lavanderia e mese: è l'unità con cui si paga davvero.
-  const gruppi = new Map<string, { lavanderia: string; laundryId: string; mese: string; sacchi: number; capi: number; totale: number; pagate: number; righe: number }>();
+  type Voce = { orderId: string | null; sacchi: number; capi: number; quando: string };
+  const gruppi = new Map<string, { lavanderia: string; laundryId: string; mese: string; sacchi: number; capi: number; totale: number; pagate: number; righe: number; voci: Map<string, Voce> }>();
   for (const r of righe) {
     const mese = r.created_at.slice(0, 7);
     const chiave = `${r.laundry_id}|${mese}`;
@@ -61,7 +101,18 @@ export default async function LavanderiaPage({
       totale: 0,
       pagate: 0,
       righe: 0,
+      voci: new Map<string, Voce>(),
     };
+
+    // Le due righe di uno stesso ordine (sacchi e capi) si fondono in una voce
+    // sola: è così che la si legge, «quell'ordine ci è costato tanto».
+    const k = r.order_id ?? `senza-ordine-${r.id}`;
+    const v = g.voci.get(k) ?? { orderId: r.order_id, sacchi: 0, capi: 0, quando: r.created_at };
+    if (r.kind === "bag") v.sacchi += r.amount_cents;
+    else v.capi += r.amount_cents;
+    if (r.created_at < v.quando) v.quando = r.created_at;
+    g.voci.set(k, v);
+
     if (r.kind === "bag") g.sacchi += r.amount_cents;
     else g.capi += r.amount_cents;
     g.totale += r.amount_cents;
@@ -164,6 +215,65 @@ export default async function LavanderiaPage({
                       </form>
                     )}
                   </div>
+                </div>
+
+                {/* Da quali ordini esce quel totale. È la parte che mancava:
+                    un numero mensile non si può controllare, e chi sta per fare
+                    un bonifico deve poter risalire a ogni euro. */}
+                <div className="mt-4 overflow-x-auto border-t border-line pt-3">
+                  <table className="w-full min-w-[560px] text-left text-sm">
+                    <thead>
+                      <tr className="font-display text-[11px] font-extrabold uppercase tracking-wider text-navy/50">
+                        <th className="pb-2 pr-3 font-inherit">Cliente</th>
+                        <th className="pb-2 pr-3">Ordine</th>
+                        <th className="pb-2 pr-3">Sacchi</th>
+                        <th className="pb-2 pr-3">Capi speciali</th>
+                        <th className="pb-2 text-right">Totale</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...g.voci.values()]
+                        .sort((a, b) => b.quando.localeCompare(a.quando))
+                        .map((v) => {
+                          const o = v.orderId ? datiOrdine.get(v.orderId) : undefined;
+                          const capi = v.orderId ? (extraPerOrdine.get(v.orderId) ?? []) : [];
+                          return (
+                            <tr key={v.orderId ?? v.quando} className="border-t border-line/60 align-top">
+                              <td className="py-2 pr-3">
+                                <div className="font-semibold text-navy">{o?.cliente ?? "—"}</div>
+                                <div className="text-xs font-medium text-muted">{o?.codice ?? ""}</div>
+                              </td>
+                              <td className="py-2 pr-3 font-mono text-xs text-muted">
+                                {v.orderId ? v.orderId.slice(0, 8) : "—"}
+                              </td>
+                              <td className="py-2 pr-3 text-muted">
+                                {v.sacchi > 0 ? (
+                                  <>
+                                    {o?.bags ?? "?"} × {eur(v.sacchi / (o?.bags || 1))} ={" "}
+                                    <span className="font-semibold text-navy">{eur(v.sacchi)}</span>
+                                  </>
+                                ) : (
+                                  <span className="text-xs">non ancora consegnato</span>
+                                )}
+                              </td>
+                              <td className="py-2 pr-3 text-muted">
+                                {capi.length > 0 ? (
+                                  <>
+                                    <div className="text-xs">{capi.join(" · ")}</div>
+                                    <div className="font-semibold text-navy">{eur(v.capi)}</div>
+                                  </>
+                                ) : (
+                                  <span className="text-xs">—</span>
+                                )}
+                              </td>
+                              <td className="py-2 text-right font-display font-extrabold text-navy">
+                                {eur(v.sacchi + v.capi)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
                 </div>
               </Card>
             );

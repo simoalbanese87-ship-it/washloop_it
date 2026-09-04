@@ -60,6 +60,12 @@ export default async function EmailPage({ searchParams }: { searchParams: Promis
     qLog.returns<RigaLog[]>(),
   ]);
   const righeLog = log ?? [];
+
+  // Riconosce il 401 da IP non autorizzato, che è un caso a sé: non è un guasto
+  // e soprattutto non riguarda l'invio.
+  const errore = res.ok ? "" : String(res.error ?? "");
+  const ipNonAutorizzato = /unrecognised ip|unrecognized ip|authorised_ips/i.test(errore);
+  const ipRilevato = errore.match(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/)?.[1] ?? null;
   const nonPartite = righeLog.filter((r) => r.esito !== "inviata").length;
 
   const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
@@ -83,7 +89,43 @@ export default async function EmailPage({ searchParams }: { searchParams: Promis
       </Card>
 
       {!res.ok ? (
-        <Card><p className="text-sm font-semibold text-[#C0392B]">Errore Brevo: {res.error}</p></Card>
+        /* Il 401 «unrecognised IP» non è un guasto nostro e non ferma le email:
+           blocca solo la LETTURA degli eventi. Mostrarlo grezzo, in inglese,
+           lasciava credere che fosse saltato l'invio. */
+        ipNonAutorizzato ? (
+          <Card className="!border-[#C9881F]/40 !bg-[#C9881F]/[0.06]">
+            <h2 className="font-display text-base font-extrabold text-[#C9881F]">
+              Brevo non ci fa leggere lo stato delle consegne
+            </h2>
+            <p className="mt-2 text-sm font-medium text-navy/80">
+              Sul vostro account Brevo è attiva la restrizione <strong>«IP autorizzati»</strong>, e
+              l&apos;indirizzo da cui esce il server{ipRilevato ? ` (${ipRilevato})` : ""} non è nell&apos;elenco.
+            </p>
+            <p className="mt-2 text-sm font-semibold text-navy">
+              Le email continuano a partire: escono via SMTP, che è un&apos;altra porta. Quello che manca è
+              sapere se sono state consegnate o sono rimbalzate.
+            </p>
+            <p className="mt-2 text-sm font-medium text-navy/80">
+              <strong>Aggiungere questo IP non basta.</strong> Non è un indirizzo nostro: il server gira su
+              macchine condivise e l&apos;indirizzo cambia da solo, quindi fra qualche giorno si torna qui. La
+              cosa da fare è <strong>togliere la restrizione</strong> — la chiave API resta il segreto che
+              protegge l&apos;account.
+            </p>
+            <a
+              href="https://app.brevo.com/security/authorised_ips"
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-block rounded-full bg-navy px-4 py-2 font-display text-sm font-extrabold text-white"
+            >
+              Apri le impostazioni Brevo →
+            </a>
+            <p className="mt-3 text-xs font-medium text-muted">
+              Intanto il registro qui sotto funziona lo stesso: non passa da Brevo.
+            </p>
+          </Card>
+        ) : (
+          <Card><p className="text-sm font-semibold text-[#C0392B]">Errore Brevo: {res.error}</p></Card>
+        )
       ) : res.events.length === 0 ? (
         <Card><p className="text-sm font-medium text-muted">Nessun evento email{email ? ` per ${email}` : ""}.</p></Card>
       ) : (
