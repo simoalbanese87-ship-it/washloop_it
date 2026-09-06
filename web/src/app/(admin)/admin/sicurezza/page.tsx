@@ -101,14 +101,14 @@ export default async function SicurezzaPage() {
     // in modo leggibile. Sono poche righe, non vale una vista.
     svc
       .from("orders")
-      .select("id, status, pickup:slots!orders_pickup_slot_id_fkey(archived_at), consegna:slots!orders_delivery_slot_id_fkey(archived_at)")
+      .select("id, status, cliente:profiles!orders_customer_id_fkey(is_test), pickup:slots!orders_pickup_slot_id_fkey(archived_at), consegna:slots!orders_delivery_slot_id_fkey(archived_at)")
       .not("status", "in", `(${STATI_CHIUSI.join(",")})`)
-      .returns<{ id: string; status: OrderStatus; pickup: { archived_at: string | null } | null; consegna: { archived_at: string | null } | null }[]>(),
+      .returns<{ id: string; status: OrderStatus; cliente: { is_test: boolean } | null; pickup: { archived_at: string | null } | null; consegna: { archived_at: string | null } | null }[]>(),
     // Ricorrenze attive che non trovano la loro fascia. È lo stesso guasto che
     // il cron registra da solo (`app/api/cron/recurring/route.ts`), ma quel
     // registro non lo apre nessuno: il commento lì dice che quel silenzio «è
     // costato un cliente». Qui la stessa domanda si vede senza doverla cercare.
-    svc.from("recurring_pickups").select("id, weekday, hhmm").eq("active", true).returns<{ id: string; weekday: number; hhmm: string }[]>(),
+    svc.from("recurring_pickups").select("id, weekday, hhmm, cliente:profiles!recurring_pickups_customer_id_fkey(is_test)").eq("active", true).returns<{ id: string; weekday: number; hhmm: string; cliente: { is_test: boolean } | null }[]>(),
     svc.from("slots").select("starts_at").eq("kind", "pickup").is("archived_at", null).gte("starts_at", oraIso).returns<{ starts_at: string }[]>(),
   ]);
 
@@ -129,20 +129,36 @@ export default async function SicurezzaPage() {
   const nSenzaGeo = indirizziSenzaGeo.count ?? 0;
 
   const unoSolo = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);
-  const orfani = (ordiniAperti.data ?? []).filter((o) =>
+
+  /** Un guasto sui dati di prova va **detto**, non fatto suonare.
+   *
+   *  Mario Test ha un ritiro ricorrente al martedì alle 09:00 e nessuno slot a
+   *  quell'ora: da manuale è lo stesso guasto che a settembre è costato un
+   *  cliente vero, ma su un profilo di prova non c'è niente da rincorrere. Se
+   *  resta rosso, questa pagina ha un allarme perenne che nessuno spegnerà — e
+   *  il giorno in cui compare quello vero non lo distingue più nessuno. */
+  const gravita = (reali: number, prova: number): Status => (reali > 0 ? "fail" : prova > 0 ? "warn" : "ok");
+  const codaProva = (prova: number) =>
+    prova === 0 ? "" : ` Più ${prova} su ${prova === 1 ? "un profilo di prova" : "profili di prova"}: solo da sapere.`;
+
+  const orfaniTutti = (ordiniAperti.data ?? []).filter((o) =>
     daRisistemare({
       aperto: true,
       ritiroArchiviato: unoSolo(o.pickup)?.archived_at != null,
       riconsegnaArchiviata: unoSolo(o.consegna)?.archived_at != null,
     }),
-  ).length;
+  );
+  const orfani = orfaniTutti.filter((o) => !unoSolo(o.cliente)?.is_test).length;
+  const orfaniProva = orfaniTutti.length - orfani;
 
   // La regola è la stessa del cron: stesso giorno della settimana **e** stessa
   // ora, in fuso di Roma. Scritta diversa qui darebbe una risposta diversa da
   // quella che il cron poi userà davvero.
-  const ricorrenzeOrfane = (ricorrenze.data ?? []).filter(
+  const ricorrenzeSenzaFascia = (ricorrenze.data ?? []).filter(
     (r) => !(fasceRitiroFuture.data ?? []).some((f) => romeWeekday(f.starts_at) === r.weekday && romeHHMM(f.starts_at) === r.hhmm),
-  ).length;
+  );
+  const ricorrenzeOrfane = ricorrenzeSenzaFascia.filter((r) => !unoSolo(r.cliente)?.is_test).length;
+  const ricorrenzeOrfaneProva = ricorrenzeSenzaFascia.length - ricorrenzeOrfane;
 
   const ops: Check[] = [
     {
@@ -209,17 +225,17 @@ export default async function SicurezzaPage() {
     },
     {
       label: "Ordini su fasce tolte dal calendario",
-      status: orfani === 0 ? "ok" : "fail",
+      status: gravita(orfani, orfaniProva),
       detail: orfani === 0
-        ? "Nessuno: ogni ordine aperto sta su una fascia viva"
-        : `${orfani} ${orfani === 1 ? "ordine è rimasto" : "ordini sono rimasti"} su una fascia archiviata: quel giorno non passa nessuno. Si sistemano dal board ordini.`,
+        ? `Nessun cliente vero è rimasto su una fascia archiviata.${codaProva(orfaniProva)}`.trim()
+        : `${orfani} ${orfani === 1 ? "ordine è rimasto" : "ordini sono rimasti"} su una fascia archiviata: quel giorno non passa nessuno. Si sistemano dal board ordini.${codaProva(orfaniProva)}`,
     },
     {
       label: "Ricorrenze con la loro fascia",
-      status: ricorrenzeOrfane === 0 ? "ok" : "fail",
+      status: gravita(ricorrenzeOrfane, ricorrenzeOrfaneProva),
       detail: ricorrenzeOrfane === 0
-        ? "Ogni ritiro settimanale attivo trova la sua fascia"
-        : `${ricorrenzeOrfane} ${ricorrenzeOrfane === 1 ? "ricorrenza attiva non trova" : "ricorrenze attive non trovano"} nessuna fascia al loro giorno e ora: quei ritiri non nasceranno, in silenzio.`,
+        ? `Ogni ritiro settimanale di un cliente vero trova la sua fascia.${codaProva(ricorrenzeOrfaneProva)}`.trim()
+        : `${ricorrenzeOrfane} ${ricorrenzeOrfane === 1 ? "ricorrenza attiva non trova" : "ricorrenze attive non trovano"} nessuna fascia al loro giorno e ora: quei ritiri non nasceranno, in silenzio.${codaProva(ricorrenzeOrfaneProva)}`,
     },
   ];
 
