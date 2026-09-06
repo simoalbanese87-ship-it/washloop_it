@@ -136,7 +136,13 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
       .eq("kind", "delivery")
       .is("archived_at", null)
       .gte("starts_at", new Date().toISOString());
-    if (order.laundry_id) q = q.eq("laundry_id", order.laundry_id);
+    // La lavanderia restringe, non esclude. Con `eq` una fascia senza
+    // lavanderia spariva: il 6 settembre l'ordine di un cliente aveva una
+    // lavanderia, **tutte** le fasce vive non ne avevano nessuna, e il menù
+    // usciva vuoto — proprio sull'ordine che il pannello «Da risistemare»
+    // segnalava come da spostare. Le fasce libere valgono per chiunque, ed è
+    // già la regola altrove: la lavanderia non deve essere bloccante.
+    if (order.laundry_id) q = q.or(`laundry_id.is.null,laundry_id.eq.${order.laundry_id}`);
     const { data: raw } = await q.order("starts_at").limit(20).returns<DeliverySlot[]>();
     const usati = await deliveryCounts(supabase, (raw ?? []).map((s) => s.id));
     fasceConsegna = (raw ?? []).map((s) => ({ ...s, presi: usati.get(s.id) ?? 0 }));
@@ -155,7 +161,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
       .eq("kind", "pickup")
       .is("archived_at", null)
       .gte("starts_at", new Date().toISOString());
-    if (order.laundry_id) q = q.eq("laundry_id", order.laundry_id);
+    if (order.laundry_id) q = q.or(`laundry_id.is.null,laundry_id.eq.${order.laundry_id}`);
     const { data: raw } = await q.order("starts_at").limit(20).returns<DeliverySlot[]>();
     const usati = await pickupCounts(supabase, (raw ?? []).map((s) => s.id));
     fasceRitiro = (raw ?? []).map((s) => ({ ...s, presi: usati.get(s.id) ?? 0 }));
@@ -304,7 +310,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
                 </form>
               ) : (
                 <p className="mt-3 rounded-[12px] bg-ice px-3 py-2 text-sm font-medium text-muted">
-                  Nessuna fascia di ritiro futura per questa lavanderia: generane in Catalogo.
+                  Nessuna fascia di ritiro futura: generane dal Calendario.
                 </p>
               )}
             </Card>
