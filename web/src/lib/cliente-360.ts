@@ -166,6 +166,9 @@ export type CapoSpeciale = {
   created_at: string;
   charged_at: string | null;
   refunded_at: string | null;
+  /** Tolto senza che i soldi si siano mossi, con il suo perché. */
+  annullato_at: string | null;
+  annullato_motivo: string | null;
   order_id: string;
 };
 
@@ -190,7 +193,7 @@ export async function capiSpecialiCliente(userId: string): Promise<CapoSpeciale[
 
   const { data } = await svc
     .from("order_specials")
-    .select("id, item_name, qty, qty_totale, qty_inclusa, price_cli_cents, created_at, charged_at, refunded_at, order_id")
+    .select("id, item_name, qty, qty_totale, qty_inclusa, price_cli_cents, created_at, charged_at, refunded_at, annullato_at, annullato_motivo, order_id")
     .in("order_id", ids)
     .order("created_at", { ascending: false })
     .returns<CapoSpeciale[]>();

@@ -1,6 +1,9 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { statoStripe } from "@/lib/stato-stripe";
+import { daRisistemare } from "@/lib/riconsegna";
+import { romeHHMM, romeWeekday } from "@/lib/format";
+import { STATI_CHIUSI, type OrderStatus } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
 
@@ -85,13 +88,28 @@ export default async function SicurezzaPage() {
   const oraIso = adesso.toISOString();
   const fraUnaSettimana = new Date(adesso.getTime() + 7 * 86_400_000).toISOString();
 
-  const [ritiri, consegne, zoneAttive, lavanderie, deposito, indirizziSenzaGeo] = await Promise.all([
+  const [ritiri, consegne, zoneAttive, lavanderie, deposito, indirizziSenzaGeo, ordiniAperti, ricorrenze, fasceRitiroFuture] = await Promise.all([
     svc.from("slots").select("id", { count: "exact", head: true }).eq("kind", "pickup").is("archived_at", null).gte("starts_at", oraIso).lte("starts_at", fraUnaSettimana),
     svc.from("slots").select("id", { count: "exact", head: true }).eq("kind", "delivery").is("archived_at", null).gte("starts_at", oraIso).lte("starts_at", fraUnaSettimana),
     svc.from("zones").select("name, courier_id").eq("active", true).returns<{ name: string; courier_id: string | null }[]>(),
     svc.from("laundries").select("name, address, email, active").eq("active", true).returns<{ name: string; address: string | null; email: string | null; active: boolean }[]>(),
     svc.from("depots").select("name, lat").eq("active", true).maybeSingle<{ name: string; lat: number | null }>(),
     svc.from("addresses").select("id", { count: "exact", head: true }).is("lat", null),
+    // Ordini rimasti su fasce tolte dal calendario. Si legge tutto e si filtra
+    // in JS: la condizione è «l'ordine è aperto E almeno una delle due fasce è
+    // archiviata», e in PostgREST un OR su due tabelle innestate non si scrive
+    // in modo leggibile. Sono poche righe, non vale una vista.
+    svc
+      .from("orders")
+      .select("id, status, pickup:slots!orders_pickup_slot_id_fkey(archived_at), consegna:slots!orders_delivery_slot_id_fkey(archived_at)")
+      .not("status", "in", `(${STATI_CHIUSI.join(",")})`)
+      .returns<{ id: string; status: OrderStatus; pickup: { archived_at: string | null } | null; consegna: { archived_at: string | null } | null }[]>(),
+    // Ricorrenze attive che non trovano la loro fascia. È lo stesso guasto che
+    // il cron registra da solo (`app/api/cron/recurring/route.ts`), ma quel
+    // registro non lo apre nessuno: il commento lì dice che quel silenzio «è
+    // costato un cliente». Qui la stessa domanda si vede senza doverla cercare.
+    svc.from("recurring_pickups").select("id, weekday, hhmm").eq("active", true).returns<{ id: string; weekday: number; hhmm: string }[]>(),
+    svc.from("slots").select("starts_at").eq("kind", "pickup").is("archived_at", null).gte("starts_at", oraIso).returns<{ starts_at: string }[]>(),
   ]);
 
   // --- Stripe, chiesto a Stripe. ---
@@ -109,6 +127,22 @@ export default async function SicurezzaPage() {
   const nRitiri = ritiri.count ?? 0;
   const nConsegne = consegne.count ?? 0;
   const nSenzaGeo = indirizziSenzaGeo.count ?? 0;
+
+  const unoSolo = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);
+  const orfani = (ordiniAperti.data ?? []).filter((o) =>
+    daRisistemare({
+      aperto: true,
+      ritiroArchiviato: unoSolo(o.pickup)?.archived_at != null,
+      riconsegnaArchiviata: unoSolo(o.consegna)?.archived_at != null,
+    }),
+  ).length;
+
+  // La regola è la stessa del cron: stesso giorno della settimana **e** stessa
+  // ora, in fuso di Roma. Scritta diversa qui darebbe una risposta diversa da
+  // quella che il cron poi userà davvero.
+  const ricorrenzeOrfane = (ricorrenze.data ?? []).filter(
+    (r) => !(fasceRitiroFuture.data ?? []).some((f) => romeWeekday(f.starts_at) === r.weekday && romeHHMM(f.starts_at) === r.hhmm),
+  ).length;
 
   const ops: Check[] = [
     {
@@ -172,6 +206,20 @@ export default async function SicurezzaPage() {
       label: "Indirizzi cliente con coordinate",
       status: nSenzaGeo === 0 ? "ok" : "warn",
       detail: nSenzaGeo === 0 ? "Tutti geocodificati" : `${nSenzaGeo} senza coordinate: non compaiono sulla mappa del rider`,
+    },
+    {
+      label: "Ordini su fasce tolte dal calendario",
+      status: orfani === 0 ? "ok" : "fail",
+      detail: orfani === 0
+        ? "Nessuno: ogni ordine aperto sta su una fascia viva"
+        : `${orfani} ${orfani === 1 ? "ordine è rimasto" : "ordini sono rimasti"} su una fascia archiviata: quel giorno non passa nessuno. Si sistemano dal board ordini.`,
+    },
+    {
+      label: "Ricorrenze con la loro fascia",
+      status: ricorrenzeOrfane === 0 ? "ok" : "fail",
+      detail: ricorrenzeOrfane === 0
+        ? "Ogni ritiro settimanale attivo trova la sua fascia"
+        : `${ricorrenzeOrfane} ${ricorrenzeOrfane === 1 ? "ricorrenza attiva non trova" : "ricorrenze attive non trovano"} nessuna fascia al loro giorno e ora: quei ritiri non nasceranno, in silenzio.`,
     },
   ];
 

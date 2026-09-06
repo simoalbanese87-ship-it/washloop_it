@@ -4,7 +4,8 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso } from "@/lib/actions/admin-customer";
+import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
 import { LinkOfferta } from "@/components/admin/LinkOfferta";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
@@ -75,10 +76,13 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   // Verità da Stripe + tutto quello che la scheda non mostrava: incassi
   // registrati (ricevute e fatture) e capi fuori abbonamento.
-  const [stripeSub, incassi, capi] = await Promise.all([
+  const [stripeSub, incassi, capi, { data: nota }] = await Promise.all([
     sub?.stripe_subscription_id ? abbonamentoDaStripe(sub.stripe_subscription_id, sub.stripe_customer_id ?? null) : Promise.resolve(null),
     incassiCliente(id),
     capiSpecialiCliente(id),
+    // Le note interne stanno in una tabella a parte, con RLS solo admin: su
+    // `profiles` sarebbero leggibili dal cliente stesso.
+    svc.from("customer_notes").select("note").eq("customer_id", id).maybeSingle<{ note: string }>(),
   ]);
 
   const totaleIncassatoCents = incassi.reduce((t, i) => t + i.amount_cents, 0);
@@ -89,7 +93,11 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   // prossima fattura dell'abbonamento, e i soldi si muovono lì. Chi guarda
   // questa scheda vede «addebitato» e pensa a soldi già presi, oppure non lo
   // vede affatto e scopre l'importo quando il cliente telefona.
-  const inAttesa = (capi ?? []).filter((c) => c.charged_at && !c.refunded_at);
+  const inAttesa = (capi ?? []).filter((c) => c.charged_at && !c.refunded_at && !c.annullato_at);
+  // Quelli tolti: si mostrano lo stesso, con il motivo. Un addebito sparito
+  // senza spiegazione è indistinguibile da un addebito mai fatto, e alla
+  // telefonata dopo nessuno sa più cos'era successo.
+  const annullati = (capi ?? []).filter((c) => c.annullato_at);
   const inAttesaCents = inAttesa.reduce((t, c) => t + c.price_cli_cents * c.qty, 0);
   const addebitatoCents = charges?.filter((c) => c.kind !== "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
   const stornatoCents = charges?.filter((c) => c.kind === "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
@@ -188,14 +196,21 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                       ({c.qty_totale} trovate, {c.qty_inclusa ?? 0} comprese nell&apos;abbonamento)
                     </span>
                   )}
+                  <a href={`/admin/ordini/${c.order_id}`} className="ml-2 text-xs font-bold text-blue hover:underline">
+                    vedi il ritiro →
+                  </a>
                 </span>
-                <span className="flex items-center gap-3">
+                <span className="flex flex-wrap items-center gap-3">
                   {c.qty_totale == null && (
                     <span className="rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[11px] font-bold text-[#C0392B]">
                       da verificare con la lavanderia
                     </span>
                   )}
                   <span className="font-display text-sm font-extrabold text-navy">{eur(c.price_cli_cents * c.qty)}</span>
+                  {/* Il bottone per toglierlo sta qui, dove si guarda quando il
+                      cliente reclama. Prima esisteva solo nella scheda del
+                      ritiro, e da questa pagina non c'era modo di arrivarci. */}
+                  <AnnullaAddebito specialId={c.id} tornaA={`/admin/abbonati/${id}`} />
                 </span>
               </li>
             ))}
@@ -207,6 +222,27 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               sottratto la franchigia. Va chiesto a loro prima del rinnovo.
             </p>
           )}
+        </div>
+      )}
+
+      {annullati.length > 0 && (
+        <div className="mb-4 rounded-[16px] border border-line bg-white p-4">
+          <span className="font-display text-sm font-extrabold text-navy">Addebiti annullati</span>
+          <p className="mt-1 text-xs font-medium text-muted">
+            Tolti dalla fattura: il cliente non li paga. Restano scritti con il motivo, così se ne
+            richiama si sa cos&apos;è successo e chi l&apos;ha deciso.
+          </p>
+          <ul className="mt-3 space-y-1.5">
+            {annullati.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-ice px-3 py-2">
+                <span className="text-sm font-semibold text-navy/70">
+                  <span className="line-through">{c.qty}× {c.item_name}</span>
+                  <span className="ml-2 text-xs font-medium text-muted">{c.annullato_motivo}</span>
+                </span>
+                <span className="font-display text-sm font-bold text-muted line-through">{eur(c.price_cli_cents * c.qty)}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -235,6 +271,109 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           </BottoneInvio>
         </form>
       </div>
+
+      {/* Correggere l'anagrafica.
+          Finora nome e telefono si scrivevano solo alla creazione del cliente:
+          «SENZA TELEFONO» sulla scheda non era un caso limite, era l'unico
+          esito possibile. Sta dentro un <details> perché è una cosa che si
+          apre quando serve, non un modulo sempre aperto sotto gli occhi. */}
+      <details className="mb-4 rounded-[16px] border border-line bg-white p-4">
+        <summary className="cursor-pointer font-display text-sm font-extrabold text-navy">
+          Modifica anagrafica
+        </summary>
+
+        <form action={aggiornaAnagraficaCliente} className="mt-4 space-y-4">
+          <input type="hidden" name="customer_id" value={id} />
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs font-bold text-muted">
+              Nome e cognome
+              <input name="full_name" defaultValue={profile.full_name ?? ""} className={`${input} mt-1`} />
+            </label>
+            <label className="block text-xs font-bold text-muted">
+              Telefono
+              <input name="phone" defaultValue={profile.phone ?? ""} placeholder="+39…" className={`${input} mt-1`} />
+            </label>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2 text-sm font-semibold text-navy">
+              <input type="checkbox" name="billing_wants_invoice" defaultChecked={!!profile.billing_wants_invoice} className="h-4 w-4 accent-[#2b7fd4]" />
+              Vuole la fattura
+            </label>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <label className="block text-xs font-bold text-muted">
+                Intestazione
+                <input name="billing_name" defaultValue={profile.billing_name ?? ""} className={`${input} mt-1`} />
+              </label>
+              <label className="block text-xs font-bold text-muted">
+                Indirizzo
+                <input name="billing_address" defaultValue={profile.billing_address ?? ""} className={`${input} mt-1`} />
+              </label>
+              <label className="block text-xs font-bold text-muted">
+                CAP
+                <input name="billing_cap" defaultValue={profile.billing_cap ?? ""} className={`${input} mt-1`} />
+              </label>
+              <label className="block text-xs font-bold text-muted">
+                Città
+                <input name="billing_city" defaultValue={profile.billing_city ?? ""} className={`${input} mt-1`} />
+              </label>
+              <label className="block text-xs font-bold text-muted">
+                Codice fiscale
+                <input name="billing_tax_code" defaultValue={profile.billing_tax_code ?? ""} className={`${input} mt-1`} />
+              </label>
+              <label className="block text-xs font-bold text-muted">
+                Partita IVA
+                <input name="billing_vat" defaultValue={profile.billing_vat ?? ""} className={`${input} mt-1`} />
+              </label>
+              <label className="block text-xs font-bold text-muted">
+                Codice SDI
+                <input name="billing_sdi" defaultValue={profile.billing_sdi ?? ""} className={`${input} mt-1`} />
+              </label>
+              <label className="block text-xs font-bold text-muted">
+                PEC
+                <input name="billing_pec" defaultValue={profile.billing_pec ?? ""} className={`${input} mt-1`} />
+              </label>
+            </div>
+          </div>
+
+          <label className="block text-xs font-bold text-muted">
+            Note interne
+            <span className="ml-2 font-medium normal-case">visibili solo a noi, mai al cliente</span>
+            <textarea
+              name="staff_notes"
+              rows={3}
+              defaultValue={nota?.note ?? ""}
+              placeholder="Accordi presi al telefono, claim aperti, come si entra…"
+              className={`${input} mt-1 h-auto py-2`}
+            />
+          </label>
+
+          <BottoneInvio className="h-11 rounded-full bg-navy px-6 font-display text-sm font-extrabold text-white">
+            Salva anagrafica
+          </BottoneInvio>
+        </form>
+
+        {/* L'email è la credenziale d'accesso: sta in una form a parte, con la
+            sua conferma. Metterla insieme al telefono significherebbe poterla
+            cambiare per sbaglio mentre si aggiusta un numero. */}
+        <form action={cambiaEmailAccesso} className="mt-5 space-y-2 rounded-[12px] border border-[#C0392B]/30 bg-[#C0392B]/[0.04] p-3">
+          <input type="hidden" name="customer_id" value={id} />
+          <p className="font-display text-sm font-extrabold text-[#C0392B]">Email di accesso</p>
+          <p className="text-xs font-semibold text-navy/80">
+            È l&apos;indirizzo con cui il cliente entra. Cambiandolo, il vecchio smette di funzionare
+            subito e va avvisato: se non lo sa, non entra più.
+          </p>
+          <input name="email" type="email" defaultValue={email} className={input} />
+          <label className="flex items-center gap-2 text-xs font-bold text-navy">
+            <input type="checkbox" name="conferma" className="h-4 w-4 accent-[#C0392B]" />
+            Ho capito, cambia l&apos;email di accesso
+          </label>
+          <BottoneInvio className="rounded-full bg-[#C0392B] px-4 py-2 font-display text-xs font-extrabold text-white">
+            Cambia email
+          </BottoneInvio>
+        </form>
+      </details>
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Abbonamento */}

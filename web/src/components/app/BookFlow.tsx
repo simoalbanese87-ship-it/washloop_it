@@ -33,7 +33,7 @@ const TOTAL = 4;
 const TITLES = ["Quando ritiriamo?", "Quando riportiamo?", "Hai capi speciali?", "Conferma"];
 const SUBS = [
   "Scegli il giorno e la fascia: passiamo noi sotto casa.",
-  "Il bucato torna pulito e piegato: dicci quando trovarti in casa.",
+  "Il bucato torna pulito, stirato e piegato: dicci quando trovarti in casa.",
   "Mettili in un sacco separato dal bucato — al resto pensiamo noi.",
   "Controlla e conferma il ritiro.",
 ];
@@ -275,7 +275,8 @@ export function BookFlow({
                 Pronto {prontoDa ? `da ${cap(fmtDowLong(prontoDa.toISOString()))}` : `in ${turnaroundHours} ore`}
               </span>
               <span className="mt-0.5 block font-medium text-muted">
-                Ci servono {turnaroundHours} ore per lavare, asciugare e piegare. Le fasce qui sotto partono da lì.
+                Ci servono {turnaroundHours} ore per lavare, asciugare, stirare e piegare. Le fasce qui sotto
+                partono da lì.
               </span>
             </div>
           </div>

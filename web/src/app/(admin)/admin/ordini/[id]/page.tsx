@@ -6,7 +6,8 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { advanceStatus, assignOrder, setEta, scheduleDelivery, spostaRitiro } from "@/lib/actions/orders";
 import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
 import { DeleteOrderButton } from "@/components/admin/DeleteOrderButton";
-import { chargeOrderSpecials, refundOrderSpecial, addSpecialAdmin } from "@/lib/actions/charge";
+import { chargeOrderSpecials, addSpecialAdmin } from "@/lib/actions/charge";
+import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { AdminItems, type Item } from "@/components/app/AdminItems";
 import { SegnalazioneRiga, type Segnalazione } from "@/components/app/SegnalazioneRiga";
 import { pubblicaSegnalazione, chiudiSegnalazione } from "@/lib/actions/segnalazioni";
@@ -28,9 +29,9 @@ type Order = {
   customer_id: string | null;
   eta_ready_at: string | null;
   delivery_slot_id: string | null;
-  delivery_slot: { starts_at: string; ends_at: string } | null;
+  delivery_slot: { starts_at: string; ends_at: string; archived_at: string | null } | null;
   pickup_slot_id: string | null;
-  pickup_slot: { starts_at: string; ends_at: string } | null;
+  pickup_slot: { starts_at: string; ends_at: string; archived_at: string | null } | null;
   customer: { full_name: string | null; phone: string | null } | null;
   addresses: { street: string; intercom: string | null; floor: string | null; zones: { name: string } | null } | null;
 };
@@ -38,7 +39,11 @@ type Order = {
 type Event = { id: string; status: OrderStatus; created_at: string; note: string | null };
 type Person = { id: string; full_name: string | null };
 type Laundry = { id: string; name: string };
-type DeliverySlot = { id: string; starts_at: string; ends_at: string; capacity: number | null; presi?: number };
+type DeliverySlot = {
+  id: string; starts_at: string; ends_at: string; capacity: number | null; presi?: number;
+  /** La fascia è stata tolta dal calendario ma l'ordine ci sta ancora sopra. */
+  tolta?: boolean;
+};
 type Special = {
   id: string;
   item_name: string;
@@ -46,6 +51,7 @@ type Special = {
   price_cli_cents: number;
   charged_at: string | null;
   refunded_at: string | null;
+  annullato_at: string | null;
   created_at: string;
   // Chi l'ha messo dentro. Senza questo, davanti a un addebito che non torna
   // l'unica risposta possibile è «non lo so»: è già successo con la camicia di
@@ -73,6 +79,26 @@ function chiHaInserito(s: Special): string {
   return `inserito ${chi}${a.full_name ? ` (${a.full_name})` : ""} · ${quando}`;
 }
 
+/** Rimette in elenco la fascia su cui l'ordine sta davvero, se è stata tolta
+ *  dal calendario.
+ *
+ *  Le query filtrano `archived_at is null`, giustamente: una fascia archiviata
+ *  non va più proposta a nessuno. Ma se è proprio quella dell'ordine, il menù
+ *  si apre su una fascia **diversa** da quella vera, e chi guarda legge una
+ *  data che non è quella comunicata al cliente. È come è rimasta invisibile per
+ *  giorni la riconsegna di giovedì 10.
+ *
+ *  Va in testa e marcata, così si vede subito che è da cambiare. */
+function conFasciaAttuale(
+  fasce: DeliverySlot[],
+  attualeId: string | null,
+  attuale: { starts_at: string; ends_at: string; archived_at: string | null } | null,
+): DeliverySlot[] {
+  const s = Array.isArray(attuale) ? attuale[0] ?? null : attuale;
+  if (!attualeId || !s?.archived_at || fasce.some((f) => f.id === attualeId)) return fasce;
+  return [{ id: attualeId, starts_at: s.starts_at, ends_at: s.ends_at, capacity: null, presi: 0, tolta: true }, ...fasce];
+}
+
 const input = "h-11 w-full rounded-[14px] border border-line bg-ice px-3.5 text-sm font-medium text-navy outline-none focus:border-blue";
 const STATUSES: OrderStatus[] = [...ORDER_FLOW, "cancelled"];
 const eur = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
@@ -85,7 +111,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }, { data: items }, { data: issues }] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, status, bags, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, pickup_slot_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at)")
+      .select("id, status, bags, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, pickup_slot_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at, archived_at), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at, archived_at)")
       .eq("id", id)
       .maybeSingle<Order>(),
     supabase.from("order_events").select("id, status, created_at, note").eq("order_id", id).order("created_at", { ascending: false }).returns<Event[]>(),
@@ -114,6 +140,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
     const { data: raw } = await q.order("starts_at").limit(20).returns<DeliverySlot[]>();
     const usati = await deliveryCounts(supabase, (raw ?? []).map((s) => s.id));
     fasceConsegna = (raw ?? []).map((s) => ({ ...s, presi: usati.get(s.id) ?? 0 }));
+    fasceConsegna = conFasciaAttuale(fasceConsegna, order.delivery_slot_id, order.delivery_slot);
   }
 
   // Fasce di RITIRO: finché il sacco non è stato preso, la data si sposta anche
@@ -132,6 +159,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
     const { data: raw } = await q.order("starts_at").limit(20).returns<DeliverySlot[]>();
     const usati = await pickupCounts(supabase, (raw ?? []).map((s) => s.id));
     fasceRitiro = (raw ?? []).map((s) => ({ ...s, presi: usati.get(s.id) ?? 0 }));
+    fasceRitiro = conFasciaAttuale(fasceRitiro, order.pickup_slot_id, order.pickup_slot);
   }
 
   // Bucket privato: le foto prova si servono con link firmato a scadenza.
@@ -145,7 +173,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
 
   const { data: specials } = await supabase
     .from("order_specials")
-    .select("id, item_name, qty, price_cli_cents, charged_at, refunded_at, created_at, autore:profiles!order_specials_added_by_fkey(full_name, role)")
+    .select("id, item_name, qty, price_cli_cents, charged_at, refunded_at, annullato_at, created_at, autore:profiles!order_specials_added_by_fkey(full_name, role)")
     .eq("order_id", id)
     .order("created_at")
     .returns<Special[]>();
@@ -173,7 +201,12 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   if (!order) notFound();
 
   const specialRows = specials ?? [];
-  const pendingTotal = specialRows.filter((s) => !s.charged_at).reduce((t, s) => t + s.price_cli_cents * s.qty, 0);
+  // I capi annullati non tornano fra quelli «da addebitare»: senza questo
+  // filtro il totale del bottone «Metti in fattura» li conterebbe di nuovo,
+  // perché annullare rimette `charged_at` a NULL.
+  const pendingTotal = specialRows
+    .filter((s) => !s.charged_at && !s.annullato_at && !s.refunded_at)
+    .reduce((t, s) => t + s.price_cli_cents * s.qty, 0);
 
   return (
     <>
@@ -247,8 +280,9 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
                 qui serve quando chiama e non vuole farlo lui.
               </p>
               {order.pickup_slot && (
-                <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-sm font-bold text-navy">
+                <p className={`mt-2 rounded-[12px] px-3 py-2 text-sm font-bold ${order.pickup_slot.archived_at ? "bg-[#C9881F]/12 text-[#C9881F]" : "bg-ice text-navy"}`}>
                   Adesso: {fmtSlot(order.pickup_slot.starts_at, order.pickup_slot.ends_at)}
+                  {order.pickup_slot.archived_at ? " — questa fascia è stata tolta dal calendario: spostalo." : ""}
                 </p>
               )}
               {fasceRitiro.length > 0 ? (
@@ -261,7 +295,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
                       return (
                         <option key={s.id} value={s.id} disabled={pieno}>
                           {fmtSlot(s.starts_at, s.ends_at)}
-                          {s.capacity != null ? ` — ${Math.max(0, s.capacity - (s.presi ?? 0))} posti` : ""}
+                          {s.tolta ? " — TOLTA DAL CALENDARIO, da spostare" : s.capacity != null ? ` — ${Math.max(0, s.capacity - (s.presi ?? 0))} posti` : ""}
                         </option>
                       );
                     })}
@@ -284,8 +318,9 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
               Al salvataggio l&apos;ordine passa a &laquo;in consegna programmata&raquo; e il cliente riceve giorno e ora.
             </p>
             {order.delivery_slot && (
-              <p className="mt-2 rounded-[12px] bg-ice px-3 py-2 text-sm font-bold text-navy">
+              <p className={`mt-2 rounded-[12px] px-3 py-2 text-sm font-bold ${order.delivery_slot.archived_at ? "bg-[#C9881F]/12 text-[#C9881F]" : "bg-ice text-navy"}`}>
                 Fissata: {fmtSlot(order.delivery_slot.starts_at, order.delivery_slot.ends_at)}
+                {order.delivery_slot.archived_at ? " — questa fascia è stata tolta dal calendario: spostala." : ""}
               </p>
             )}
             {fasceConsegna.length > 0 ? (
@@ -298,7 +333,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
                     return (
                       <option key={s.id} value={s.id} disabled={pieno}>
                         {fmtSlot(s.starts_at, s.ends_at)}
-                        {s.capacity != null ? ` — ${Math.max(0, s.capacity - (s.presi ?? 0))} posti` : ""}
+                        {s.tolta ? " — TOLTA DAL CALENDARIO, da spostare" : s.capacity != null ? ` — ${Math.max(0, s.capacity - (s.presi ?? 0))} posti` : ""}
                       </option>
                     );
                   })}
@@ -353,16 +388,20 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
                       <span className="block text-xs font-medium text-muted">{chiHaInserito(s)}</span>
                     </span>
                     <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-                      <span className={`font-display font-bold ${s.refunded_at ? "text-muted line-through" : "text-navy"}`}>{eur(s.price_cli_cents * s.qty)}</span>
-                      {s.refunded_at ? (
+                      <span className={`font-display font-bold ${s.refunded_at || s.annullato_at ? "text-muted line-through" : "text-navy"}`}>{eur(s.price_cli_cents * s.qty)}</span>
+                      {s.annullato_at ? (
+                        <span className="rounded-full bg-navy/10 px-2 py-0.5 font-display text-xs font-extrabold text-navy">annullato</span>
+                      ) : s.refunded_at ? (
                         <span className="rounded-full bg-navy/10 px-2 py-0.5 font-display text-xs font-extrabold text-navy">rimborsato</span>
                       ) : s.charged_at ? (
                         <>
                           <span className="rounded-full bg-[#1F8A5B]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#1F8A5B]">in fattura</span>
-                          <form action={refundOrderSpecial}>
-                            <input type="hidden" name="special_id" value={s.id} />
-                            <button type="submit" className="font-display text-xs font-bold text-[#C0392B] hover:underline">Rimborsa</button>
-                          </form>
+                          {/* «Rimborsa» solo quando c'è qualcosa da rimborsare.
+                              Finché il capo è in attesa della prossima fattura
+                              i soldi non si sono mossi, e chiamarla rimborso
+                              faceva credere di aver restituito un importo mai
+                              incassato: si annulla, con il motivo. */}
+                          <AnnullaAddebito specialId={s.id} tornaA={`/admin/ordini/${order.id}`} />
                         </>
                       ) : (
                         <span className="rounded-full bg-[#E08A00]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#E08A00]">in attesa</span>

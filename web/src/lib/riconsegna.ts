@@ -44,3 +44,76 @@ export function fasceProponibili<T extends FasciaRiconsegna>(
     })
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
 }
+
+/** Che fine fa la riconsegna quando il ritiro si sposta.
+ *
+ *  Il difetto che chiude
+ *  ---------------------
+ *  `spostaRitiro` aggiornava **solo** `pickup_slot_id`. Sposti il ritiro tre
+ *  giorni avanti e la riconsegna resta dov'era: il cliente si ritrova la
+ *  riconsegna prima del ritiro, e nessuno se ne accorge finché il rider non
+ *  suona a vuoto. Il conto lo sapeva già fare `fasceProponibili`, semplicemente
+ *  non veniva rifatto dopo lo spostamento.
+ *
+ *  Le tre risposte possibili, e perché servono tutte e tre:
+ *
+ *  - **tiene**: la riconsegna fissata va ancora bene. È il caso normale quando
+ *    si sposta il ritiro di poche ore, e non va toccata — una data comunicata
+ *    al cliente non si cambia senza motivo.
+ *  - **sposta**: non regge più, ma c'è una fascia buona. Si prende la prima
+ *    utile, che è la meno peggio per chi aspetta il bucato.
+ *  - **libera**: non regge e non c'è alternativa. La riconsegna si toglie e
+ *    la riprogramma l'ops. Meglio «da programmare» che una data impossibile:
+ *    la prima si vede, la seconda si scopre il giorno stesso.
+ *
+ *  `archiviata` esiste per il caso che ha fatto nascere questa funzione: una
+ *  riconsegna agganciata a una fascia tolta dal calendario ha un orario che a
+ *  guardarlo sembra valido, ma quel giorno non ci va nessuno. Va spostata anche
+ *  se l'ora tornerebbe. */
+export type EsitoRiconsegna<T> =
+  | { azione: "tiene" }
+  | { azione: "sposta"; fascia: T }
+  | { azione: "libera" };
+
+export function riconsegnaDopoSpostamento<T extends FasciaRiconsegna>(
+  fasceAttive: T[],
+  attuale: { starts_at: string; archiviata: boolean } | null,
+  inizioRitiroIso: string,
+  turnaroundHours: number,
+  finestraGiorni: number = FINESTRA_GIORNI,
+): EsitoRiconsegna<T> {
+  // Nessuna riconsegna fissata: non c'è niente da rimettere a posto. La
+  // programmerà chi di dovere, come già succede.
+  if (!attuale) return { azione: "tiene" };
+
+  const soglia = prontoDa(inizioRitiroIso, turnaroundHours).getTime();
+  const tetto = soglia + finestraGiorni * 86_400_000;
+  const quando = new Date(attuale.starts_at).getTime();
+  if (!attuale.archiviata && quando >= soglia && quando <= tetto) return { azione: "tiene" };
+
+  const candidate = fasceProponibili(fasceAttive, inizioRitiroIso, turnaroundHours, finestraGiorni);
+  return candidate.length > 0 ? { azione: "sposta", fascia: candidate[0] } : { azione: "libera" };
+}
+
+/** Un ordine è «da risistemare» quando è ancora aperto e almeno una delle sue
+ *  fasce è stata tolta dal calendario.
+ *
+ *  Nasce dal 6 settembre: le fasce di lunedì 7 e giovedì 10 erano archiviate e
+ *  la riconsegna di un cliente era rimasta sopra a quella di giovedì. Dal
+ *  calendario non si vedeva, in prenotazione non compariva, e ogni menù
+ *  «sposta» filtra `archived_at is null` — quindi quella riconsegna era
+ *  **immobile per costruzione** e nessuna schermata la nominava.
+ *
+ *  Archiviare una fascia occupata resta permesso: è il requisito («le richieste
+ *  dei clienti restano anche se cancello tutto»). Quello che non deve restare
+ *  possibile è che nessuno lo sappia.
+ *
+ *  Gli ordini chiusi non contano: una consegna già fatta su una fascia poi
+ *  archiviata è storia, non lavoro arretrato. */
+export function daRisistemare(o: {
+  aperto: boolean;
+  ritiroArchiviato: boolean;
+  riconsegnaArchiviata: boolean;
+}): boolean {
+  return o.aperto && (o.ritiroArchiviato || o.riconsegnaArchiviata);
+}

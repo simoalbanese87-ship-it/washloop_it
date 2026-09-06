@@ -59,8 +59,8 @@ const CUSTOMER: Partial<
     subject: "Il tuo bucato è pronto ✨",
     title: "Bucato pronto",
     emoji: "✨",
-    preheader: "Lavato e pronto: a breve programmiamo la riconsegna.",
-    body: () => `Il tuo bucato è lavato, piegato e pronto. A breve programmiamo la riconsegna: trovi i dettagli nella tua area personale.`,
+    preheader: "Lavato e stirato: a breve programmiamo la riconsegna.",
+    body: () => `Il tuo bucato è lavato, stirato, piegato e pronto. A breve programmiamo la riconsegna: trovi i dettagli nella tua area personale.`,
     push: "Il tuo bucato è pronto ✨",
   },
   delivery_scheduled: {

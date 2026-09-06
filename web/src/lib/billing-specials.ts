@@ -38,11 +38,15 @@ export type ChargeResult =
 export async function chargeSpecialById(svc: SupabaseClient, specialId: string): Promise<ChargeResult> {
   const { data: sp } = await svc
     .from("order_specials")
-    .select("id, order_id, item_name, qty, price_cli_cents, charged_at, refunded_at, orders(customer_id)")
+    .select("id, order_id, item_name, qty, price_cli_cents, charged_at, refunded_at, annullato_at, orders(customer_id)")
     .eq("id", specialId)
-    .maybeSingle<{ id: string; order_id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null; orders: { customer_id: string | null } | null }>();
+    .maybeSingle<{ id: string; order_id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null; annullato_at: string | null; orders: { customer_id: string | null } | null }>();
   if (!sp) return { ok: false, reason: "not_found" };
-  if (sp.charged_at || sp.refunded_at) return { ok: false, reason: "already_charged" };
+  // `annullato_at` sta qui accanto a `refunded_at` per una ragione precisa:
+  // annullare rimette `charged_at` a NULL, quindi senza questo controllo un
+  // capo tolto per un claim tornerebbe indistinguibile da uno mai addebitato,
+  // e la prima chiamata utile lo rimetterebbe in fattura.
+  if (sp.charged_at || sp.refunded_at || sp.annullato_at) return { ok: false, reason: "already_charged" };
   const userId = sp.orders?.customer_id ?? null;
   if (!userId) return { ok: false, reason: "no_customer" };
 

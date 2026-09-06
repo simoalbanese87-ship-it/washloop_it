@@ -8,10 +8,11 @@ import { getCurrentProfile } from "@/lib/auth";
 import { haversineKm } from "@/lib/route";
 import { canTransition, transitionError, statusIndex } from "@/lib/orders";
 import type { OrderStatus, ScanResult, RiderLivePos } from "@/lib/orders";
-import { romeLocalToISO, romeWeekday, romeHHMM, entroOggiRoma, fmtDayShort } from "@/lib/format";
+import { romeLocalToISO, romeWeekday, romeHHMM, entroOggiRoma, fmtDayShort, fmtFull } from "@/lib/format";
 import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
 import { registraSacchiLavanderia } from "@/lib/laundry-payout";
-import { slotFullMessage } from "@/lib/slots";
+import { deliveryCounts, slotFullMessage } from "@/lib/slots";
+import { riconsegnaDopoSpostamento } from "@/lib/riconsegna";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
  *  Calcola l'ETA "pronto" = inizio ritiro + turnaround del piano attivo. */
@@ -786,6 +787,160 @@ export async function setEta(formData: FormData) {
 /** Stati in cui il sacco non è ancora stato ritirato: fin qui la data si cambia. */
 const PRIMA_DEL_RITIRO: OrderStatus[] = ["requested", "pickup_scheduled"];
 
+/** Stati in cui la riconsegna si può ancora spostare: fino a quando il rider
+ *  non è partito col sacco. Dopo, la fascia non è più una promessa da tenere
+ *  ma un giro già in strada. */
+const PRIMA_DELLA_CONSEGNA: OrderStatus[] = [
+  "requested", "pickup_scheduled", "picked_up", "at_laundry", "washing", "ready", "delivery_scheduled",
+];
+
+/** PostgREST tipizza gli embed come array anche quando la relazione è uno a
+ *  uno, e a runtime a volte restituisce l'oggetto e a volte l'array di uno.
+ *  Leggere `.starts_at` sul risultato sbagliato non dà errore: dà `undefined`,
+ *  che qui vorrebbe dire «nessun ritiro» e farebbe uscire la funzione senza
+ *  fare niente. */
+const unoSolo = <T,>(v: T | T[] | null | undefined): T | null =>
+  (Array.isArray(v) ? v[0] ?? null : v ?? null);
+
+/** Le ore di lavorazione del piano di questo cliente. 48 se non risulta nulla,
+ *  che è il valore usato ovunque nel progetto come base. */
+async function oreDiLavorazione(svc: ReturnType<typeof createServiceClient>, customerId: string | null): Promise<number> {
+  if (!customerId) return 48;
+  const { data: sub } = await svc
+    .from("subscriptions")
+    .select("plans(turnaround_hours)")
+    .eq("user_id", customerId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ plans: { turnaround_hours: number } | null }>();
+  return sub?.plans?.turnaround_hours ?? 48;
+}
+
+/** Rimette la riconsegna in riga dopo che il ritiro si è spostato.
+ *
+ *  Restituisce la frase da appendere al messaggio di conferma, perché chi ha
+ *  premuto deve sapere se gli abbiamo cambiato anche l'altra data. Una
+ *  riconsegna spostata in silenzio è come non averla spostata: il cliente si
+ *  presenta lo stesso il giorno di prima.
+ *
+ *  Le fasce candidate sono solo quelle **non archiviate**: è il punto in cui si
+ *  smette di riproporre giorni che dal calendario sono già stati tolti. */
+async function allineaRiconsegna(
+  svc: ReturnType<typeof createServiceClient>,
+  orderId: string,
+): Promise<string> {
+  // L'ordine si rilegge invece di fidarsi dello slot appena passato: la UPDATE
+  // è già andata, quindi qui la fascia di ritiro è quella nuova, e leggerla
+  // dalla riga è l'unico modo di essere sicuri che sia davvero cambiata.
+  const { data: o } = await svc
+    .from("orders")
+    .select("customer_id, delivery_slot_id, pickup:slots!orders_pickup_slot_id_fkey(starts_at), consegna:slots!orders_delivery_slot_id_fkey(starts_at, archived_at)")
+    .eq("id", orderId)
+    .maybeSingle<{
+      customer_id: string | null;
+      delivery_slot_id: string | null;
+      pickup: { starts_at: string } | null;
+      consegna: { starts_at: string; archived_at: string | null } | null;
+    }>();
+  const inizioRitiro = unoSolo(o?.pickup)?.starts_at ?? null;
+  if (!o || !inizioRitiro) return "";
+
+  const turnaround = await oreDiLavorazione(svc, o.customer_id);
+  const eta = new Date(new Date(inizioRitiro).getTime() + turnaround * 3600_000).toISOString();
+
+  const { data: fasce } = await svc
+    .from("slots")
+    .select("id, starts_at, capacity")
+    .eq("kind", "delivery")
+    .is("archived_at", null)
+    .gte("starts_at", eta)
+    .order("starts_at")
+    .limit(60)
+    .returns<{ id: string; starts_at: string; capacity: number | null }[]>();
+
+  // Le fasce piene non sono candidate: proporne una che il trigger rifiuterà
+  // significa spostare la riconsegna «con successo» e lasciarla dov'era.
+  const conteggi = await deliveryCounts(svc, (fasce ?? []).map((f) => f.id));
+  const libere = (fasce ?? []).filter((f) => f.capacity == null || (conteggi.get(f.id) ?? 0) < f.capacity);
+
+  const consegna = unoSolo(o.consegna);
+  const esito = riconsegnaDopoSpostamento(
+    libere,
+    consegna ? { starts_at: consegna.starts_at, archiviata: consegna.archived_at != null } : null,
+    inizioRitiro,
+    turnaround,
+  );
+  if (esito.azione === "tiene") return "";
+
+  if (esito.azione === "libera") {
+    await svc.from("orders").update({ delivery_slot_id: null, eta_ready_at: eta }).eq("id", orderId);
+    return " La riconsegna che c'era non regge più con la nuova data e non ci sono fasce libere: l'abbiamo tolta, va riprogrammata.";
+  }
+
+  await svc.from("orders").update({ delivery_slot_id: esito.fascia.id, eta_ready_at: eta }).eq("id", orderId);
+  return ` Spostata anche la riconsegna a ${fmtFull(esito.fascia.starts_at)}: quella di prima cadeva prima che il bucato fosse pronto.`;
+}
+
+/** Il cliente (o l'amministrazione) sposta la riconsegna.
+ *
+ *  Perché non c'era
+ *  ----------------
+ *  La riconsegna si sceglieva in prenotazione e poi non si toccava più: la
+ *  pagina del ritiro diceva «Se a quell'ora non ci sei, scrivici». Funziona
+ *  finché la fascia esiste. Il 6 settembre una riconsegna è rimasta agganciata
+ *  a una fascia tolta dal calendario: nessun menù la mostrava, nessuno poteva
+ *  spostarla, e l'unica strada era scrivere in sede — cioè far fare a mano una
+ *  cosa che il sistema sa fare. */
+export async function spostaRiconsegna(formData: FormData) {
+  const id = String(formData.get("order_id") ?? "");
+  const delivery_slot_id = String(formData.get("delivery_slot_id") ?? "");
+  const dalCliente = String(formData.get("da") ?? "") === "cliente";
+  const dove = dalCliente ? `/app/ordini/${id}` : `/admin/ordini/${id}`;
+  if (!id || !delivery_slot_id) redirect(`${dove}?err=${encodeURIComponent("Scegli una fascia.")}`);
+
+  const me = await getCurrentProfile();
+  if (!me) redirect(`${dove}?err=${encodeURIComponent("Sessione scaduta.")}`);
+
+  const svc = createServiceClient();
+  const { data: ordine } = await svc
+    .from("orders")
+    .select("id, status, customer_id, delivery_slot_id")
+    .eq("id", id)
+    .maybeSingle<{ id: string; status: OrderStatus; customer_id: string | null; delivery_slot_id: string | null }>();
+  if (!ordine) redirect(`${dove}?err=${encodeURIComponent("Ritiro non trovato.")}`);
+
+  const admin = me!.role === "admin";
+  if (!admin && ordine!.customer_id !== me!.id) redirect(`${dove}?err=${encodeURIComponent("Non è un tuo ritiro.")}`);
+  if (!PRIMA_DELLA_CONSEGNA.includes(ordine!.status)) {
+    redirect(`${dove}?err=${encodeURIComponent(admin
+      ? "Il giro è già partito: la riconsegna non si sposta più da qui."
+      : "Il rider è già in strada con il tuo bucato: scrivici e troviamo noi una soluzione.")}`);
+  }
+
+  // Lo stato si tocca **solo** se il bucato è già pronto. Scegliere la fascia
+  // di riconsegna non vuol dire che il sacco sia lavato: quasi sempre qui
+  // l'ordine è ancora `pickup_scheduled` — la fascia si sceglie in
+  // prenotazione, giorni prima. Portarlo a `delivery_scheduled` lo farebbe
+  // sparire dal giro dei ritiri del rider e comparire in quello delle consegne,
+  // con il sacco ancora a casa del cliente.
+  const patch: { delivery_slot_id: string; status?: OrderStatus } = { delivery_slot_id };
+  if (ordine!.status === "ready" || ordine!.status === "delivery_scheduled") {
+    patch.status = "delivery_scheduled" as OrderStatus;
+  }
+
+  const { error } = await svc.from("orders").update(patch).eq("id", id);
+  if (error) {
+    redirect(`${dove}?err=${encodeURIComponent(slotFullMessage(error) ?? "Questa fascia non è disponibile. Provane un'altra.")}`);
+  }
+
+  revalidatePath(`/app/ordini/${id}`);
+  revalidatePath(`/admin/ordini/${id}`);
+  revalidatePath("/admin/ordini");
+  revalidatePath("/admin/calendario");
+  revalidatePath("/courier");
+  redirect(`${dove}?ok=${encodeURIComponent("Riconsegna spostata.")}`);
+}
+
 /** Chi può toccare questo ordine, e da dove sta guardando.
  *  L'amministrazione può sempre; il cliente solo il proprio, e solo finché il
  *  bucato è ancora a casa sua. */
@@ -837,12 +992,18 @@ export async function spostaRitiro(formData: FormData) {
     redirect(`${dove}?err=${encodeURIComponent(slotFullMessage(error) ?? "Questa fascia non è disponibile. Provane un'altra.")}`);
   }
 
+  // Spostato il ritiro, la riconsegna va rimessa in riga. Prima non succedeva:
+  // si aggiornava solo `pickup_slot_id`, e chi spostava il ritiro in avanti si
+  // ritrovava la riconsegna prima che il bucato fosse pronto — o addirittura
+  // prima del ritiro — senza nessun avviso.
+  const nota = await allineaRiconsegna(svc, id);
+
   revalidatePath(`/app/ordini/${id}`);
   revalidatePath(`/admin/ordini/${id}`);
   revalidatePath("/admin/ordini");
   revalidatePath("/admin/calendario");
   revalidatePath("/courier");
-  redirect(`${dove}?ok=${encodeURIComponent("Ritiro spostato.")}`);
+  redirect(`${dove}?ok=${encodeURIComponent(`Ritiro spostato.${nota}`)}`);
 }
 
 /** Il cliente disdice un ritiro che non è ancora avvenuto.
@@ -859,17 +1020,52 @@ export async function clienteDisdiceRitiro(formData: FormData) {
   const p = await permessoSulRitiro(id);
   if (!p.ok) redirect(`${dove}?err=${encodeURIComponent(p.errore)}`);
 
+  // «Anche i prossimi» ferma la ricorrenza settimanale, non solo questo ritiro.
+  //
+  // Prima questa scelta non esisteva e non esisteva nemmeno la parola: si
+  // annullava il singolo ordine, la ricorrenza restava accesa e il cron ne
+  // generava un altro. Chi aveva appena disdetto vedeva ricomparire il ritiro
+  // e concludeva che l'annullo non avesse funzionato. La ricorrenza si poteva
+  // spegnere, ma da un'altra schermata e solo sapendo di doverlo fare.
+  const ancheProssimi = String(formData.get("anche_prossimi") ?? "") === "1";
+
   const svc = createServiceClient();
   const { error } = await svc
     .from("orders")
-    .update({ status: "cancelled" as OrderStatus, staff_notes: "Disdetto dal cliente dall'app." })
+    .update({
+      status: "cancelled" as OrderStatus,
+      staff_notes: ancheProssimi
+        ? "Disdetto dal cliente dall'app, insieme al ritiro settimanale."
+        : "Disdetto dal cliente dall'app.",
+    })
     .eq("id", id);
   if (error) redirect(`${dove}?err=${encodeURIComponent("Non siamo riusciti ad annullarlo. Riprova.")}`);
 
+  let coda = "";
+  if (ancheProssimi) {
+    const { data: o } = await svc
+      .from("orders")
+      .select("recurring_id")
+      .eq("id", id)
+      .maybeSingle<{ recurring_id: string | null }>();
+    if (o?.recurring_id) {
+      // Sul `customer_id` oltre che sull'id: la ricorrenza si spegne solo se è
+      // di chi sta premendo. La guardia di `permessoSulRitiro` copre l'ordine,
+      // non la riga della ricorrenza.
+      await svc
+        .from("recurring_pickups")
+        .update({ active: false })
+        .eq("id", o.recurring_id)
+        .eq("customer_id", p.ordine.customer_id ?? "");
+      coda = " Anche il ritiro settimanale è stato sospeso: puoi riattivarlo quando vuoi dalla home.";
+    }
+  }
+
   await notifyOrderStatus(id, "cancelled");
+  revalidatePath("/app");
   revalidatePath("/app/ordini");
   revalidatePath("/admin/ordini");
   revalidatePath("/admin/calendario");
   revalidatePath("/courier");
-  redirect(`/app/ordini?ok=${encodeURIComponent("Ritiro annullato.")}`);
+  redirect(`/app/ordini?ok=${encodeURIComponent(`Ritiro annullato.${coda}`)}`);
 }

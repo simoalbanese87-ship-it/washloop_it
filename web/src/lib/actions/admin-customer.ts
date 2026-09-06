@@ -687,3 +687,103 @@ export async function sollecitaOra(formData: FormData) {
       : `Sollecito ${step} di 3 inviato. Nessuna fattura aperta trovata su Stripe: il link porta alla pagina abbonamento.`,
   }));
 }
+
+/** L'amministrazione corregge l'anagrafica di un cliente.
+ *
+ *  Perché mancava e perché è un problema
+ *  -------------------------------------
+ *  Nome e telefono si scrivevano **solo alla creazione** (`createCustomer`).
+ *  Dopo, nessuna action li toccava: «SENZA TELEFONO» sulla scheda di fabia non
+ *  era un caso limite, era l'unico esito possibile. Il cliente poteva
+ *  correggersi da solo (`lib/actions/profile.ts`), chi gestisce no — ed è chi
+ *  gestisce a rispondere al telefono e a sentirsi dettare il numero.
+ *
+ *  L'email non sta qui: è la credenziale di accesso e cambiarla ha una
+ *  conseguenza diversa da tutto il resto. Sta in `cambiaEmailAccesso`, con la
+ *  sua conferma. */
+export async function aggiornaAnagraficaCliente(formData: FormData) {
+  await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  const back = `/admin/abbonati/${customerId}`;
+  if (!customerId) throw new Error("Cliente mancante");
+
+  const testo = (k: string) => String(formData.get(k) ?? "").trim() || null;
+  const full_name = testo("full_name");
+  if (!full_name) redirect(`${back}?warn=${encodeURIComponent("Il nome non può restare vuoto.")}`);
+
+  const svc = createServiceClient();
+  const { error } = await svc
+    .from("profiles")
+    .update({
+      full_name,
+      phone: testo("phone"),
+      // Dati di fatturazione: erano già in tabella e già mostrati nella scheda,
+      // ma in sola lettura. Servono il giorno in cui si accende Fatture in
+      // Cloud, e a quel punto correggerli uno per uno in banca dati non è un
+      // piano.
+      billing_wants_invoice: formData.get("billing_wants_invoice") != null,
+      billing_name: testo("billing_name"),
+      billing_address: testo("billing_address"),
+      billing_cap: testo("billing_cap"),
+      billing_city: testo("billing_city"),
+      billing_tax_code: testo("billing_tax_code"),
+      billing_vat: testo("billing_vat"),
+      billing_sdi: testo("billing_sdi"),
+      billing_pec: testo("billing_pec"),
+    })
+    .eq("id", customerId);
+  if (error) redirect(`${back}?warn=${encodeURIComponent(`Anagrafica non salvata: ${error.message}`)}`);
+
+  // Le note interne stanno in `customer_notes`, non su `profiles`: una colonna
+  // sul profilo sarebbe leggibile dal cliente stesso, perché la SELECT concessa
+  // a livello di tabella copre ogni colonna e revocarne una non toglie niente.
+  // Verificato con `has_column_privilege` prima di cambiare strada.
+  const nota = testo("staff_notes");
+  const { error: erroreNota } = nota
+    ? await svc.from("customer_notes").upsert({
+        customer_id: customerId,
+        note: nota,
+        updated_at: new Date().toISOString(),
+        updated_by: (await getCurrentProfile())?.id ?? null,
+      })
+    : await svc.from("customer_notes").delete().eq("customer_id", customerId);
+  if (erroreNota) redirect(`${back}?warn=${encodeURIComponent(`Note non salvate: ${erroreNota.message}`)}`);
+
+  revalidatePath(back);
+  revalidatePath("/admin/abbonati");
+  redirect(`${back}?ok=${encodeURIComponent("Anagrafica aggiornata.")}`);
+}
+
+/** Cambia l'email con cui il cliente accede.
+ *
+ *  Separata dal resto dell'anagrafica perché non è un dato come gli altri: è la
+ *  chiave di casa. Cambiandola, la vecchia smette di funzionare **subito** e
+ *  chi non è stato avvisato resta fuori. Per questo vuole una conferma
+ *  esplicita e non viaggia insieme al telefono. */
+export async function cambiaEmailAccesso(formData: FormData) {
+  await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  const back = `/admin/abbonati/${customerId}`;
+  if (!customerId) throw new Error("Cliente mancante");
+
+  const errore = (m: string) => redirect(`${back}?warn=${encodeURIComponent(m)}`);
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  if (!email || !email.includes("@")) errore("Scrivi un'email valida.");
+  if (formData.get("conferma") == null) errore("Spunta la conferma: cambiare l'email cambia il modo in cui il cliente entra.");
+
+  const svc = createServiceClient();
+  const { data: au } = await svc.auth.admin.getUserById(customerId);
+  const vecchia = au?.user?.email ?? null;
+  if (vecchia === email) errore("È già questa l'email di accesso.");
+
+  // `email_confirm: true` come in `createCustomer`: senza, Supabase manda al
+  // cliente una mail di verifica e finché non la apre l'indirizzo non cambia.
+  // Qui l'indirizzo lo sta cambiando l'amministrazione, di solito perché il
+  // cliente non riesce più a entrare — mandargli una mail all'indirizzo che
+  // non funziona sarebbe l'unica cosa peggiore.
+  const { error } = await svc.auth.admin.updateUserById(customerId, { email, email_confirm: true });
+  if (error) errore(`Email non cambiata: ${error.message}`);
+
+  revalidatePath(back);
+  redirect(`${back}?ok=${encodeURIComponent(`Email di accesso cambiata${vecchia ? ` da ${vecchia}` : ""} in ${email}. Avvisa il cliente: la vecchia non funziona più.`)}`);
+}

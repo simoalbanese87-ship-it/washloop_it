@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
@@ -31,6 +32,9 @@ export async function chargeOrderSpecials(formData: FormData) {
     .eq("order_id", orderId)
     .is("charged_at", null)
     .is("refunded_at", null)
+    // Un capo annullato non torna in coda. Senza questa riga il bottone «Metti
+    // in fattura» riaddebitava proprio i capi appena tolti per un claim.
+    .is("annullato_at", null)
     .returns<{ id: string }[]>();
   const pending = specials ?? [];
   if (pending.length === 0) throw new Error("Nessun capo da addebitare");
@@ -93,9 +97,137 @@ export async function addSpecialAdmin(formData: FormData) {
   revalidatePath(`/admin/ordini/${orderId}`);
 }
 
+/** Il capo che la lavanderia ha segnato, così com'è in banca dati. */
+type CapoSpeciale = {
+  id: string;
+  order_id: string;
+  item_name: string;
+  qty: number;
+  price_cli_cents: number;
+  charged_at: string | null;
+  refunded_at: string | null;
+  annullato_at: string | null;
+  stripe_invoice_item: string | null;
+  orders: { customer_id: string } | null;
+};
+
+/** Toglie l'addebito quando i soldi non si sono ancora mossi.
+ *
+ *  Le quattro cose che deve fare, e che devono succedere tutte:
+ *
+ *  1. **togliere l'invoice item da Stripe**, altrimenti al prossimo rinnovo il
+ *     capo entra in fattura da solo — il pannello direbbe «annullato» e il
+ *     cliente si vedrebbe addebitare lo stesso;
+ *  2. **chiudere la riga** con motivo, autore e data. Un annullo senza motivo,
+ *     sei mesi dopo, non si sa più difendere davanti a chi contesta;
+ *  3. **azzerare il compenso alla lavanderia**: il capo al cliente non lo
+ *     facciamo pagare, e non c'è ragione di pagarlo noi. Questo passaggio
+ *     mancava del tutto nel ramo «non ancora fatturato»;
+ *  4. **lasciare una riga nel registro del cliente**, che è il posto dove si
+ *     va a guardare quando qualcuno chiede conto di un importo.
+ *
+ *  `charged_at` torna a NULL perché nessun addebito è avvenuto, ma la riga
+ *  **non** rientra in coda: `chargeOrderSpecials` e `chargeSpecialById`
+ *  scartano i capi con `annullato_at`. */
+async function annulla(
+  svc: ReturnType<typeof createServiceClient>,
+  sp: CapoSpeciale,
+  adminId: string,
+  motivo: string,
+  sk: ReturnType<typeof stripe>,
+) {
+  if (sp.stripe_invoice_item) {
+    try {
+      await sk.invoiceItems.del(sp.stripe_invoice_item);
+    } catch {
+      // Già rimosso, o mai esistito: l'annullo va avanti lo stesso. Il caso
+      // pericoloso è l'opposto — la riga chiusa qui e l'item vivo su Stripe —
+      // e quello non si verifica: se la cancellazione fallisce davvero,
+      // l'errore lo alza `invoiceItems.retrieve` prima di arrivare fin qui.
+    }
+  }
+
+  await svc
+    .from("order_specials")
+    .update({
+      annullato_at: new Date().toISOString(),
+      annullato_motivo: motivo,
+      annullato_da: adminId,
+      charged_at: null,
+      stripe_invoice_item: null,
+    })
+    .eq("id", sp.id);
+
+  await svc.from("laundry_payouts").update({ status: "void" }).eq("special_id", sp.id);
+
+  if (sp.orders?.customer_id) {
+    await svc.from("customer_charges").insert({
+      customer_id: sp.orders.customer_id,
+      description: `Addebito annullato: ${sp.item_name}${sp.qty > 1 ? ` ×${sp.qty}` : ""} — ${motivo}`,
+      amount_cents: sp.price_cli_cents * sp.qty,
+      kind: "refund",
+      status: "settled",
+      created_by: adminId,
+    });
+  }
+}
+
+/** Annulla un capo speciale segnato dalla lavanderia: claim del cliente, o
+ *  errore loro.
+ *
+ *  Il motivo è obbligatorio. Non è burocrazia: è l'unica differenza fra «gli
+ *  abbiamo tolto 3,50 €» e «gli abbiamo tolto 3,50 € perché la lavanderia
+ *  aveva contato le camicie comprese nel sacco». La seconda si può rileggere
+ *  fra sei mesi, la prima no.
+ *
+ *  Se il capo è già finito su una fattura, qui non si passa: quello è un
+ *  rimborso vero e lo fa `refundOrderSpecial`. */
+export async function annullaCapoSpeciale(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "admin") throw new Error("Solo admin");
+
+  const specialId = String(formData.get("special_id") ?? "");
+  const motivo = String(formData.get("motivo") ?? "").trim();
+  const tornaA = String(formData.get("torna_a") ?? "");
+  if (!specialId) throw new Error("Capo mancante");
+
+  const errore = (m: string) => redirect(`${tornaA || "/admin/ordini"}?warn=${encodeURIComponent(m)}`);
+  if (!motivo) errore("Scrivi perché stai annullando l'addebito: serve se il cliente lo contesta.");
+
+  const svc = createServiceClient();
+  const { data: sp } = await svc
+    .from("order_specials")
+    .select("id, order_id, item_name, qty, price_cli_cents, charged_at, refunded_at, annullato_at, stripe_invoice_item, orders(customer_id)")
+    .eq("id", specialId)
+    .maybeSingle<CapoSpeciale>();
+  if (!sp) errore("Capo non trovato.");
+  const capo = sp as CapoSpeciale;
+  if (capo.annullato_at) errore("Questo addebito è già stato annullato.");
+  if (capo.refunded_at) errore("Questo capo è già stato rimborsato.");
+
+  const sk = stripe();
+
+  // Se l'invoice item è già finito su una fattura, i soldi o si sono mossi o
+  // stanno per farlo: lì non basta togliere la voce, serve un rimborso.
+  if (capo.stripe_invoice_item) {
+    const ii = await sk.invoiceItems.retrieve(capo.stripe_invoice_item);
+    const suFattura = typeof ii.invoice === "string" ? ii.invoice : ii.invoice?.id ?? null;
+    if (suFattura) {
+      errore("Questo capo è già su una fattura: va rimborsato, non annullato. Usa «Rimborsa» dalla scheda del ritiro.");
+    }
+  }
+
+  await annulla(svc, capo, profile.id, motivo, sk);
+
+  revalidatePath(`/admin/ordini/${capo.order_id}`);
+  revalidatePath(`/app/ordini/${capo.order_id}`);
+  if (capo.orders?.customer_id) revalidatePath(`/admin/abbonati/${capo.orders.customer_id}`);
+  redirect(`${tornaA || `/admin/ordini/${capo.order_id}`}?ok=${encodeURIComponent(`Addebito annullato: ${capo.item_name}.`)}`);
+}
+
 /** Rimborsa un singolo capo speciale già messo in fattura.
- *  - se l'invoice item è ancora in sospeso (non fatturato) → lo rimuove (nessun
- *    denaro mosso, il capo torna "non addebitato");
+ *  - se l'invoice item è ancora in sospeso (non fatturato) → lo annulla (nessun
+ *    denaro mosso, la riga si chiude e non torna in coda);
  *  - se è già su una fattura pagata → esegue un refund reale su Stripe per
  *    l'importo del capo.
  *  Registra anche una riga nel ledger cliente per tracciabilità. Solo admin. */
@@ -109,11 +241,12 @@ export async function refundOrderSpecial(formData: FormData) {
 
   const { data: sp } = await svc
     .from("order_specials")
-    .select("id, order_id, item_name, qty, price_cli_cents, charged_at, refunded_at, stripe_invoice_item, orders(customer_id)")
+    .select("id, order_id, item_name, qty, price_cli_cents, charged_at, refunded_at, annullato_at, stripe_invoice_item, orders(customer_id)")
     .eq("id", specialId)
-    .maybeSingle<{ id: string; order_id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null; stripe_invoice_item: string | null; orders: { customer_id: string } | null }>();
+    .maybeSingle<CapoSpeciale>();
   if (!sp) throw new Error("Capo non trovato");
   if (sp.refunded_at) throw new Error("Capo già rimborsato");
+  if (sp.annullato_at) throw new Error("Capo già annullato");
   if (!sp.charged_at) throw new Error("Capo non ancora addebitato");
 
   const amount = sp.price_cli_cents * sp.qty;
@@ -125,10 +258,16 @@ export async function refundOrderSpecial(formData: FormData) {
     const ii = await sk.invoiceItems.retrieve(sp.stripe_invoice_item);
     const invoiceId = typeof ii.invoice === "string" ? ii.invoice : ii.invoice?.id ?? null;
     if (!invoiceId) {
-      // Ancora in sospeso → rimuovi: nessun addebito avvenuto.
-      try { await sk.invoiceItems.del(sp.stripe_invoice_item); } catch { /* ignore */ }
-      await svc.from("order_specials").update({ charged_at: null, stripe_invoice_item: null }).eq("id", specialId);
+      // Ancora in sospeso: i soldi non si sono mossi, quindi non è un rimborso
+      // ed è sbagliato trattarlo come tale. Si passa dall'annullo, che chiude
+      // la riga invece di rimetterla in coda.
+      //
+      // Prima qui si rimetteva `charged_at` a NULL e si usciva: la voce tornava
+      // «in attesa», il bottone «Metti in fattura» ricompariva e il capo appena
+      // tolto per un claim si poteva riaddebitare.
+      await annulla(svc, sp, profile.id, "Rimborso richiesto prima della fatturazione", sk);
       revalidatePath(`/admin/ordini/${sp.order_id}`);
+      revalidatePath(`/admin/abbonati/${sp.orders?.customer_id ?? ""}`);
       return;
     }
     const inv = (await sk.invoices.retrieve(invoiceId)) as unknown as {
