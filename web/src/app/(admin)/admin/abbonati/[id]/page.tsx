@@ -496,29 +496,58 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             <p className="mt-3 text-sm font-medium text-muted">Nessun abbonamento.</p>
           )}
 
-          {/* Proposta in attesa: c'è un link di pagamento in mano al cliente e
-              nessun abbonamento attivo. Prima di questo riquadro, chi aveva
-              ricevuto un'offerta e non aveva ancora pagato era indistinguibile
-              da chi non era mai stato contattato. */}
-          {!active && offerta && (
+          {/* La proposta aperta, e il suo link.
+              Prima questo riquadro compariva **solo** se il cliente non aveva
+              un abbonamento attivo, e con lui spariva il link. Ma la proposta
+              di un piano nuovo si fa proprio a chi un abbonamento ce l'ha già —
+              chi sta cambiando taglia, o ha disdetto e va riportato dentro. In
+              quel caso il link veniva generato, salvato, e poi non lo si
+              trovava più da nessuna parte. */}
+          {offerta && (
             <div className="mt-4 rounded-[16px] border border-[#C9881F]/35 bg-[#C9881F]/8 p-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="font-display text-sm font-extrabold text-[#C9881F]">In attesa di pagamento</h3>
+                <h3 className="font-display text-sm font-extrabold text-[#C9881F]">
+                  {active ? "Proposta aperta" : "In attesa di pagamento"}
+                </h3>
                 <span className="font-display text-sm font-black text-[#C9881F]">{eur(offerta.amount_cents)}/mese</span>
               </div>
               <p className="mt-1 text-xs font-semibold text-[#C9881F]">
-                {offerta.description} · link inviato il {fmtDate(offerta.created_at)}
+                {offerta.description} · link creato il {fmtDate(offerta.created_at)}
                 {linkScaduto
                   ? " · il link è scaduto, generane uno nuovo qui sotto"
                   : offerta.expires_at
                     ? ` · valido fino al ${fmtDateTime(offerta.expires_at)}`
                     : ""}
               </p>
+              {active && !linkScaduto && (
+                <p className="mt-2 rounded-[10px] bg-white/70 px-2.5 py-1.5 text-[11px] font-bold text-[#C9881F]">
+                  Questo cliente ha già un abbonamento attivo. Se paga anche questo link si ritrova con
+                  <strong> due abbonamenti su Stripe</strong>: disdici il vecchio prima, o subito dopo.
+                </p>
+              )}
               {!linkScaduto && <LinkOfferta url={offerta.checkout_url} />}
             </div>
           )}
 
-          {!active && <CustomSubscriptionForm customerId={id} />}
+          {/* Il modulo per generarne uno nuovo. Anche questo era nascosto ai
+              clienti attivi: chi voleva proporre un piano diverso a un abbonato
+              non aveva nessun posto da cui farlo. Resta chiuso di default sugli
+              attivi, perché lì è un'operazione da fare sapendo cosa comporta. */}
+          {active ? (
+            <details className="mt-4">
+              <summary className="cursor-pointer font-display text-sm font-bold text-blue">
+                Proponi un piano diverso
+              </summary>
+              <p className="mt-2 rounded-[12px] bg-[#C0392B]/8 px-3 py-2 text-xs font-semibold text-[#C0392B]">
+                Attenzione: il link crea un <strong>secondo</strong> abbonamento su Stripe, non sostituisce
+                quello attuale. Se il cliente paga senza che il vecchio sia stato disdetto, gli arrivano due
+                addebiti al mese.
+              </p>
+              <CustomSubscriptionForm customerId={id} />
+            </details>
+          ) : (
+            <CustomSubscriptionForm customerId={id} />
+          )}
         </Card>
 
         {/* Fatturazione: chi la vuole va saputo QUI, sulla scheda di chi paga.
