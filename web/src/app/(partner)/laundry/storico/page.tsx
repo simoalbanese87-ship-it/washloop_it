@@ -34,7 +34,7 @@ type Ordine = {
   created_at: string;
 };
 type Capo = { id: string; order_id: string; item_name: string; qty: number; comp_lav_cents: number; created_at: string };
-type Compenso = { order_id: string | null; kind: string; amount_cents: number; status: string; created_at: string };
+type Compenso = { order_id: string | null; kind: string; amount_cents: number; status: string; created_at: string; paid_at: string | null };
 
 const eur = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 
@@ -89,7 +89,7 @@ export default async function StoricoLavanderia({
     // riepilogo è esattamente il lavoro non ancora chiuso.
     supabase
       .from("laundry_payouts")
-      .select("order_id, kind, amount_cents, status, created_at")
+      .select("order_id, kind, amount_cents, status, created_at, paid_at")
       .gte("created_at", dal)
       .lt("created_at", al)
       .neq("status", "void")
@@ -107,6 +107,12 @@ export default async function StoricoLavanderia({
   const totaleCapi = (capi ?? []).reduce((t, c) => t + c.qty, 0);
   const dovutoCents = (compensi ?? []).reduce((t, r) => t + r.amount_cents, 0);
   const daLiquidare = (compensi ?? []).filter((r) => r.status === "pending").reduce((t, r) => t + r.amount_cents, 0);
+  const pagate = (compensi ?? []).filter((r) => r.status === "settled");
+  const pagatoCents = pagate.reduce((t, r) => t + r.amount_cents, 0);
+  // Quando è stato fatto il pagamento. Le righe liquidate prima che esistesse
+  // questa data non ce l'hanno, e si dice invece di inventarla.
+  const datePagamento = [...new Set(pagate.map((r) => r.paid_at).filter(Boolean) as string[])].sort();
+  const pagateSenzaData = pagate.filter((r) => !r.paid_at).length;
   const daContare = righe.filter((o) => o.bags_arrivati == null && !STATI_CHIUSI.includes(o.status)).length;
 
   return (
@@ -130,9 +136,42 @@ export default async function StoricoLavanderia({
       <div className="mb-4 grid gap-3 sm:grid-cols-4">
         <Riquadro valore={String(totaleSacchi)} etichetta="sacchi lavati" />
         <Riquadro valore={String(totaleCapi)} etichetta="capi extra" />
-        <Riquadro valore={eur(dovutoCents)} etichetta="compenso registrato" />
-        <Riquadro valore={eur(daLiquidare)} etichetta="ancora da liquidare" tono={daLiquidare > 0 ? "attesa" : undefined} />
+        <Riquadro valore={eur(dovutoCents)} etichetta="compenso maturato" />
+        <Riquadro valore={eur(daLiquidare)} etichetta="ancora da pagare" tono={daLiquidare > 0 ? "attesa" : undefined} />
       </div>
+
+      {/* Quando i soldi sono stati mandati.
+          «Pagato» senza una data è una parola: chi aspetta il bonifico deve
+          poterla confrontare con l'estratto conto. */}
+      <Card className="mb-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <span className="font-display text-sm font-extrabold text-navy">Pagamenti</span>
+          <span className="font-display text-base font-black text-[#1F8A5B]">{eur(pagatoCents)} già pagati</span>
+        </div>
+        {pagate.length === 0 ? (
+          <p className="mt-1 text-sm font-medium text-muted">
+            In questo mese non è ancora stato pagato niente. {daLiquidare > 0 ? `Restano ${eur(daLiquidare)} maturati in attesa del bonifico.` : ""}
+          </p>
+        ) : (
+          <>
+            <p className="mt-1 text-sm font-medium text-muted">
+              {datePagamento.length > 0
+                ? `Segnati come pagati il ${datePagamento.map((d) => fmtDate(d)).join(", ")}.`
+                : "Segnati come pagati."}
+              {pagateSenzaData > 0 && ` ${pagateSenzaData} ${pagateSenzaData === 1 ? "riga è stata liquidata" : "righe sono state liquidate"} prima che registrassimo la data: non ce l'hanno.`}
+            </p>
+            {daLiquidare > 0 && (
+              <p className="mt-2 rounded-[12px] bg-[#C9881F]/12 px-3 py-2 text-sm font-semibold text-[#C9881F]">
+                Restano {eur(daLiquidare)} maturati e non ancora pagati.
+              </p>
+            )}
+          </>
+        )}
+        <p className="mt-2 text-xs font-medium text-muted">
+          Il pagamento lo segna WashLoop quando parte il bonifico: quello che vedi qui è il nostro registro,
+          non l&apos;estratto conto della banca. Se una cifra non corrisponde, scrivici con il mese.
+        </p>
+      </Card>
 
       <Card className="mb-4">
         <p className="text-sm font-medium text-muted">

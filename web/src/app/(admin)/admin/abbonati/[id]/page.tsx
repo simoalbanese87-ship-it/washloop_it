@@ -4,8 +4,9 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo } from "@/lib/actions/admin-customer";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
+import { addebitaCapoSpeciale } from "@/lib/actions/charge";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
 import { LinkOfferta } from "@/components/admin/LinkOfferta";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
@@ -22,7 +23,7 @@ const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
-type Sub = { id: string; status: string; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number } | null };
+type Sub = { id: string; status: string; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number } | null };
 type Addr = {
   id: string; label: string | null; street: string; cap: string | null; civico: string | null;
   intercom: string | null; floor: string | null; notes: string | null;
@@ -62,15 +63,18 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
   if (!profile) notFound();
 
-  const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: offerta }] = await Promise.all([
+  const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: proposte }] = await Promise.all([
     svc.auth.admin.getUserById(id),
-    svc.from("subscriptions").select("id, status, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street, cap, civico, intercom, floor, notes, access_mode, access_note, concierge_hours, lat, lng").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
     svc.from("recurring_pickups").select("id, weekday, hhmm, bags, active, needs_confirmation, delivery_hhmm, address_id, addresses(label), pending_weekday, pending_hhmm, pending_bags, pending_delivery_hhmm").eq("customer_id", id).order("created_at", { ascending: false }).returns<Rec[]>(),
     svc.from("slots").select("id, starts_at, ends_at, kind").is("archived_at", null).gte("starts_at", new Date().toISOString()).order("starts_at").limit(60).returns<Slot[]>(),
-    svc.from("subscription_offers").select("id, description, amount_cents, checkout_url, expires_at, created_at").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Offerta>(),
+    // Le ultime proposte, non solo l'ultima: se la più recente è scaduta ma
+    // una di prima è ancora valida, il link buono esiste e va mostrato. Con
+    // `limit(1)` si leggeva «scaduto» avendo in casa un link funzionante.
+    svc.from("subscription_offers").select("id, description, amount_cents, checkout_url, expires_at, created_at").eq("user_id", id).order("created_at", { ascending: false }).limit(5).returns<Offerta[]>(),
   ]);
   const email = userRes?.user?.email ?? "—";
 
@@ -98,6 +102,12 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   // senza spiegazione è indistinguibile da un addebito mai fatto, e alla
   // telefonata dopo nessuno sa più cos'era successo.
   const annullati = (capi ?? []).filter((c) => c.annullato_at);
+  // Capi registrati dalla lavanderia e **non ancora messi in fattura**. Non
+  // comparivano da nessuna parte in questa scheda: il riquadro giallo mostra
+  // solo quelli già in fattura, e per addebitare bisognava trovare l'ordine.
+  // La camicia di fabia è rimasta qui dentro per giorni senza che si vedesse.
+  const daAddebitare = (capi ?? []).filter((c) => !c.charged_at && !c.refunded_at && !c.annullato_at);
+  const daAddebitareCents = daAddebitare.reduce((t, c) => t + c.price_cli_cents * c.qty, 0);
   const inAttesaCents = inAttesa.reduce((t, c) => t + c.price_cli_cents * c.qty, 0);
   const addebitatoCents = charges?.filter((c) => c.kind !== "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
   const stornatoCents = charges?.filter((c) => c.kind === "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
@@ -109,9 +119,19 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const active = sub?.status === "active" || sub?.status === "trialing";
   const inSofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
   const disdetto = sub?.status === "canceled";
+  // Disdetto ma ancora in corso: il cliente ha pagato e il servizio gli spetta
+  // fino al rinnovo. Non è «attivo» e non è «disdetto», ed è lo stato in cui
+  // sta chi preme «Disdici» nel caso normale.
+  const disdettaProgrammata = !!sub?.cancel_at_period_end && !disdetto;
   // Le sessioni di Checkout scadono: un link morto mandato al cliente è peggio
   // che nessun link, quindi si dice invece di mostrarlo come se fosse buono.
-  const linkScaduto = !!offerta?.expires_at && new Date(offerta.expires_at) < new Date();
+  // Si mostra la proposta valida più recente; se non ce n'è nessuna valida,
+  // l'ultima in assoluto, per poter dire che è scaduta invece di far sparire
+  // tutto e lasciare chi guarda a chiedersi dove sia finito il link.
+  const adesso = new Date();
+  const valida = (proposte ?? []).find((o) => !o.expires_at || new Date(o.expires_at) > adesso);
+  const offerta = valida ?? (proposte ?? [])[0] ?? null;
+  const linkScaduto = !!offerta?.expires_at && new Date(offerta.expires_at) < adesso;
 
   // Cosa impedisce di eliminare il cliente. Va saputo PRIMA di premere il
   // bottone rosso: si arrivava in fondo alla conferma «sei sicuro» per poi
@@ -222,6 +242,42 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               sottratto la franchigia. Va chiesto a loro prima del rinnovo.
             </p>
           )}
+        </div>
+      )}
+
+      {daAddebitare.length > 0 && (
+        <div className="mb-4 rounded-[16px] border-2 border-[#2b7fd4]/35 bg-[#2b7fd4]/[0.06] p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-display text-base font-black text-blue">
+              {eur(daAddebitareCents)} da mettere in fattura
+            </span>
+            <span className="font-display text-sm font-bold text-navy">{daAddebitare.length} {daAddebitare.length === 1 ? "capo" : "capi"}</span>
+          </div>
+          <p className="mt-1 text-sm font-medium text-navy/75">
+            Capi registrati dalla lavanderia e <strong>non ancora addebitati</strong>: finché restano qui il
+            cliente non paga niente. Puoi metterli in fattura uno per uno, o toglierli.
+          </p>
+          <ul className="mt-3 space-y-1.5">
+            {daAddebitare.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-white px-3 py-2">
+                <span className="font-display text-sm font-bold text-navy">
+                  {c.qty}× {c.item_name}
+                  <a href={`/admin/ordini/${c.order_id}`} className="ml-2 text-xs font-bold text-blue hover:underline">vedi il ritiro →</a>
+                </span>
+                <span className="flex flex-wrap items-center gap-3">
+                  <span className="font-display text-sm font-extrabold text-navy">{eur(c.price_cli_cents * c.qty)}</span>
+                  <form action={addebitaCapoSpeciale}>
+                    <input type="hidden" name="special_id" value={c.id} />
+                    <input type="hidden" name="torna_a" value={`/admin/abbonati/${id}`} />
+                    <BottoneInvio className="rounded-full bg-blue px-3 py-1.5 font-display text-xs font-extrabold text-white">
+                      Addebita solo questo
+                    </BottoneInvio>
+                  </form>
+                  <AnnullaAddebito specialId={c.id} tornaA={`/admin/abbonati/${id}`} />
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -383,7 +439,14 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             <>
               <div className="mt-3 space-y-1 text-sm font-medium text-muted">
                 <div>Piano: <span className="font-bold text-navy">{sub.plans?.name ?? "—"}</span> · {priceLabel}/mese {sub.manual && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">manuale</span>}</div>
-                <div>Stato: <span className={`font-bold ${active ? "text-[#1F8A5B]" : "text-[#C9881F]"}`}>{statoAbbonamentoItaliano(sub.status)}</span></div>
+                <div>
+                  Stato: <span className={`font-bold ${active ? "text-[#1F8A5B]" : "text-[#C9881F]"}`}>{statoAbbonamentoItaliano(sub.status)}</span>
+                  {disdettaProgrammata && (
+                    <span className="ml-2 rounded-full bg-[#C9881F]/15 px-2 py-0.5 text-[11px] font-bold text-[#C9881F]">
+                      disdetto{sub.current_period_end ? ` · finisce il ${fmtDate(sub.current_period_end)}` : ""}, non si rinnova
+                    </span>
+                  )}
+                </div>
                 {sub.activated_at && <div>Attivato il: <span className="font-bold text-navy">{fmtDate(sub.activated_at)}</span></div>}
                 {sub.current_period_end && <div>Rinnovo: {fmtDate(sub.current_period_end)}</div>}
               </div>
@@ -487,8 +550,38 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                 {/* Niente "Disdici" su un abbonamento già disdetto: premerlo
                     rispondeva "Abbonamento disdetto" e sembrava che la
                     disdetta di prima non fosse mai avvenuta. */}
-                {!disdetto && (
-                  <form action={changeSubscription}><input type="hidden" name="sub_id" value={sub.id} /><input type="hidden" name="action" value="cancel" /><button type="submit" className="rounded-full border border-[#C0392B]/40 px-4 py-2 font-display text-sm font-bold text-[#C0392B]">Disdici</button></form>
+                {/* Disdire non è una cosa sola: «adesso» e «a fine periodo»
+                    sono due decisioni diverse, e prima ne facevamo una sola —
+                    per giunta diversa nei due posti. Su Stripe partiva la
+                    disdetta a fine periodo, da noi lo stato diventava subito
+                    «disdetto», e il webhook successivo riportava quello di
+                    Stripe («attivo») cancellando tutto. */}
+                {!disdetto && !disdettaProgrammata && (
+                  <>
+                    <form action={changeSubscription}>
+                      <input type="hidden" name="sub_id" value={sub.id} />
+                      <input type="hidden" name="action" value="cancel" />
+                      <input type="hidden" name="quando" value="fine_periodo" />
+                      <button type="submit" className="rounded-full border border-[#C0392B]/40 px-4 py-2 font-display text-sm font-bold text-[#C0392B]">
+                        Disdici a fine periodo{sub.current_period_end ? ` (${fmtDate(sub.current_period_end)})` : ""}
+                      </button>
+                    </form>
+                    <form action={changeSubscription}>
+                      <input type="hidden" name="sub_id" value={sub.id} />
+                      <input type="hidden" name="action" value="cancel" />
+                      <input type="hidden" name="quando" value="subito" />
+                      <button type="submit" className="rounded-full bg-[#C0392B] px-4 py-2 font-display text-sm font-bold text-white">
+                        Interrompi adesso
+                      </button>
+                    </form>
+                  </>
+                )}
+                {disdettaProgrammata && (
+                  <form action={changeSubscription}>
+                    <input type="hidden" name="sub_id" value={sub.id} />
+                    <input type="hidden" name="action" value="resume" />
+                    <Button type="submit" size="md" variant="ghost-navy">Annulla la disdetta</Button>
+                  </form>
                 )}
               </div>
             </>
@@ -829,6 +922,41 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           )}
         </div>
         <p className="mt-1 text-xs font-medium text-muted">Extra fuori ordine, modifiche, crediti. Gli addebiti su cliente con carta Stripe finiscono sulla prossima ricevuta. I rimborsi vanno confermati anche da Stripe.</p>
+
+        {/* Servizio a settimane.
+            I piani sono mensili e a sacchi fissi: chi chiede «una settimana con
+            tre sacchi» — chi trasloca, chi ha ospiti, chi vuole provare — non
+            entra in nessuno dei tre, e l'unico modo era scrivere a mano una
+            descrizione e un importo. Che funziona finché non si deve capire,
+            tre mesi dopo, cosa fossero quei 45 euro. Qui le due cose che
+            descrivono il servizio si scelgono, e la descrizione si compone da
+            sé; il prezzo resta a mano perché è una trattativa. */}
+        <details className="mt-4 rounded-[14px] border border-line bg-ice/50 p-3">
+          <summary className="cursor-pointer font-display text-sm font-bold text-navy">
+            Servizio a settimane (durata e sacchi a scelta)
+          </summary>
+          <form action={addebitoTemporaneo} className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_1fr_2fr_auto] sm:items-end">
+            <input type="hidden" name="customer_id" value={id} />
+            <label className="text-xs font-bold text-muted">Settimane
+              <input name="settimane" type="number" min={1} max={52} step={1} defaultValue={1} required className={input} />
+            </label>
+            <label className="text-xs font-bold text-muted">Sacchi a settimana
+              <input name="sacchi" type="number" min={1} max={20} step={1} defaultValue={1} required className={input} />
+            </label>
+            <label className="text-xs font-bold text-muted">Importo €
+              <input name="amount_eur" type="number" step="0.01" min="0" required className={input} />
+            </label>
+            <label className="text-xs font-bold text-muted">Nota (facoltativa)
+              <input name="nota" placeholder="es. prova prima dell'abbonamento" className={input} />
+            </label>
+            <Button type="submit" size="md">Addebita</Button>
+          </form>
+          <p className="mt-2 text-[11px] font-medium text-muted">
+            Registra un addebito, non crea un abbonamento e non genera ritiri: quelli si fanno da «Crea un
+            ritiro per il cliente». Se il cliente ha una carta collegata la voce entra nella prossima
+            fattura; altrimenti resta qui e va incassata a parte.
+          </p>
+        </details>
 
         <form action={addCustomerCharge} className="mt-4 grid gap-2 sm:grid-cols-[2fr_1fr_1fr_auto] sm:items-end">
           <input type="hidden" name="customer_id" value={id} />

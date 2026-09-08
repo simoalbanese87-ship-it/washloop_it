@@ -300,3 +300,49 @@ export async function refundOrderSpecial(formData: FormData) {
   }
   revalidatePath(`/admin/ordini/${sp.order_id}`);
 }
+
+/** Mette in fattura **un solo** capo speciale.
+ *
+ *  `chargeOrderSpecials` addebita tutti i capi in attesa di un ordine: giusto
+ *  quando si chiude un ritiro, sbagliato quando su tre capi ce n'è uno
+ *  contestato. Finora l'unica strada era addebitarli tutti e poi annullare
+ *  quello di troppo — cioè far comparire e sparire un importo sulla fattura di
+ *  un cliente per rimediare a un'operazione che non si voleva fare.
+ *
+ *  Torna dove si stava: questa riga si guarda sia dalla scheda del ritiro sia
+ *  da quella del cliente, e finire ogni volta sull'ordine costringeva a
+ *  ritrovare da capo la persona di cui si stava parlando. */
+export async function addebitaCapoSpeciale(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "admin") throw new Error("Solo admin");
+
+  const specialId = String(formData.get("special_id") ?? "");
+  const tornaA = String(formData.get("torna_a") ?? "");
+  if (!specialId) throw new Error("Capo mancante");
+
+  const svc = createServiceClient();
+  const { data: sp } = await svc
+    .from("order_specials")
+    .select("id, order_id, item_name, orders(customer_id)")
+    .eq("id", specialId)
+    .maybeSingle<{ id: string; order_id: string; item_name: string; orders: { customer_id: string } | null }>();
+  if (!sp) redirect(`${tornaA || "/admin/ordini"}?warn=${encodeURIComponent("Capo non trovato.")}`);
+
+  const res = await chargeSpecialById(svc, specialId);
+
+  const dove = tornaA || `/admin/ordini/${sp!.order_id}`;
+  if (!res.ok) {
+    const perche: Record<string, string> = {
+      not_found: "Capo non trovato.",
+      already_charged: "Questo capo è già stato messo in fattura, oppure è stato annullato o rimborsato.",
+      no_customer: "Questo ritiro non ha un cliente collegato.",
+      no_stripe_customer: "Il cliente non ha un profilo di pagamento su Stripe: non c'è dove appoggiare l'addebito.",
+    };
+    redirect(`${dove}?warn=${encodeURIComponent(perche[res.reason] ?? "Addebito non riuscito.")}`);
+  }
+
+  revalidatePath(`/admin/ordini/${sp!.order_id}`);
+  revalidatePath(`/app/ordini/${sp!.order_id}`);
+  if (sp!.orders?.customer_id) revalidatePath(`/admin/abbonati/${sp!.orders.customer_id}`);
+  redirect(`${dove}?ok=${encodeURIComponent(`${sp!.item_name} messo in fattura: entrerà nella prossima ricevuta.`)}`);
+}

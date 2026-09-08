@@ -31,6 +31,11 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
     stripe_customer_id: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
     stripe_subscription_id: sub.id,
     status: sub.status,
+    // Stripe lo sa e noi lo buttavamo via a ogni sincronizzazione: un
+    // abbonamento disdetto a fine periodo su Stripe è `active`, quindi
+    // riscrivendo solo lo stato la disdetta spariva e il bottone «Disdici»
+    // ricompariva pochi secondi dopo essere stato premuto.
+    cancel_at_period_end: sub.cancel_at_period_end === true,
     current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
   };
   const customCents = sub.metadata?.custom_price_cents ? parseInt(sub.metadata.custom_price_cents, 10) : NaN;
@@ -43,10 +48,15 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
 
   if (["active", "trialing"].includes(sub.status)) {
     await db.from("subscriptions")
-      .update({ activated_at: new Date().toISOString(), canceled_at: null })
+      .update({ activated_at: new Date().toISOString() })
       .eq("stripe_subscription_id", sub.id)
       .is("activated_at", null);
-    await db.from("subscriptions").update({ canceled_at: null }).eq("stripe_subscription_id", sub.id);
+    // `canceled_at` si azzera solo se la disdetta non è nemmeno programmata:
+    // è la data in cui è stata **chiesta**, e su un abbonamento che finisce a
+    // fine periodo quella data esiste eccome.
+    if (!sub.cancel_at_period_end) {
+      await db.from("subscriptions").update({ canceled_at: null }).eq("stripe_subscription_id", sub.id);
+    }
   } else if (sub.status === "canceled") {
     await db.from("subscriptions")
       .update({ canceled_at: new Date().toISOString() })

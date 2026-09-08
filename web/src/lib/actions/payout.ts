@@ -32,7 +32,9 @@ export async function segnaMesePagato(formData: FormData) {
   const svc = createServiceClient();
   const { error, count } = await svc
     .from("laundry_payouts")
-    .update({ status: "settled" }, { count: "exact" })
+    // La data del pagamento, non solo il fatto: la lavanderia deve poterla
+    // confrontare con l'estratto conto. «Pagato» senza quando non si verifica.
+    .update({ status: "settled", paid_at: new Date().toISOString() }, { count: "exact" })
     .eq("laundry_id", laundryId)
     .eq("status", "pending")
     .gte("created_at", inizio)

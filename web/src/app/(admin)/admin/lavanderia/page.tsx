@@ -60,9 +60,9 @@ export default async function LavanderiaPage({
     ordiniCitati.length
       ? svc
           .from("orders")
-          .select("id, bags, status, profiles!orders_customer_id_fkey(full_name, client_code)")
+          .select("id, bags, bags_arrivati, status, profiles!orders_customer_id_fkey(full_name, client_code)")
           .in("id", ordiniCitati)
-          .returns<{ id: string; bags: number | null; status: string; profiles: { full_name: string | null; client_code: string | null } | { full_name: string | null; client_code: string | null }[] | null }[]>()
+          .returns<{ id: string; bags: number | null; bags_arrivati: number | null; status: string; profiles: { full_name: string | null; client_code: string | null } | { full_name: string | null; client_code: string | null }[] | null }[]>()
       : Promise.resolve({ data: [] as never[] }),
     ordiniCitati.length
       ? svc
@@ -77,7 +77,10 @@ export default async function LavanderiaPage({
     (ordini ?? []).map((o) => {
       const rel = o.profiles;
       const pr = Array.isArray(rel) ? rel[0] : rel;
-      return [o.id, { bags: o.bags ?? 1, cliente: pr?.full_name ?? "Cliente", codice: pr?.client_code ?? "—" }];
+      // I sacchi contati dalla lavanderia, non quelli previsti: è il numero su
+      // cui si è calcolato il compenso, e mostrarne un altro qui farebbe sembrare
+      // sbagliata la cifra che si sta per pagare.
+      return [o.id, { bags: o.bags_arrivati ?? o.bags ?? 1, cliente: pr?.full_name ?? "Cliente", codice: pr?.client_code ?? "—" }];
     }),
   );
   const extraPerOrdine = new Map<string, string[]>();
@@ -134,17 +137,18 @@ export default async function LavanderiaPage({
   // guarda la cifra sta per fare un bonifico, e deve sapere che non è finita.
   const { data: inViaggio } = await svc
     .from("orders")
-    .select("bags, laundry_id, laundries(bag_comp_cents)")
+    .select("bags, bags_arrivati, laundry_id, laundries(bag_comp_cents)")
     .in("status", ["delivery_scheduled", "out_for_delivery"])
     .not("laundry_id", "is", null)
-    .returns<{ bags: number | null; laundry_id: string; laundries: { bag_comp_cents: number | null } | { bag_comp_cents: number | null }[] | null }[]>();
+    .returns<{ bags: number | null; bags_arrivati: number | null; laundry_id: string; laundries: { bag_comp_cents: number | null } | { bag_comp_cents: number | null }[] | null }[]>();
 
   let sacchiDaMaturare = 0;
   let importoDaMaturare = 0;
   for (const o of inViaggio ?? []) {
     const rel = o.laundries;
     const lav = Array.isArray(rel) ? rel[0] : rel;
-    const sacchi = o.bags ?? 1;
+    // Stessa regola del compenso: conta quello che è arrivato davvero.
+    const sacchi = o.bags_arrivati ?? o.bags ?? 1;
     sacchiDaMaturare += sacchi;
     importoDaMaturare += (lav?.bag_comp_cents ?? 1500) * sacchi;
   }

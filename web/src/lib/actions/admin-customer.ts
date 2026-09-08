@@ -205,6 +205,20 @@ export async function changeSubscription(formData: FormData) {
     redirect(`${backTo}?warn=${encodeURIComponent("Questo abbonamento era già disdetto: non ho cambiato niente.")}`);
   }
 
+  // Disdire **quando**: sono due cose diverse e vanno chieste.
+  //
+  //   fine_periodo → il cliente ha pagato fino al rinnovo e continua a usarlo
+  //                  fino a lì. È il caso normale, e su Stripe è
+  //                  `cancel_at_period_end`.
+  //   subito       → si chiude adesso. Il servizio si ferma oggi.
+  //
+  // Prima esisteva solo il primo su Stripe e solo il secondo da noi: la
+  // subscription restava attiva su Stripe fino al rinnovo mentre il nostro
+  // stato diceva già «disdetto». Poi il webhook riportava lo stato di Stripe —
+  // `active` — e la disdetta si annullava da sola dopo pochi secondi.
+  const quando = String(formData.get("quando") ?? "fine_periodo");
+  const subito = action === "cancel" && quando === "subito";
+
   const stripeId = sub.stripe_subscription_id;
   if (stripeId) {
     // Best-effort: se la subscription non esiste più nell'account/modalità Stripe
@@ -214,7 +228,10 @@ export async function changeSubscription(formData: FormData) {
       const sk = stripe();
       if (action === "pause") await sk.subscriptions.update(stripeId, { pause_collection: { behavior: "void" } });
       else if (action === "resume") await sk.subscriptions.update(stripeId, { pause_collection: null });
-      else if (action === "cancel") await sk.subscriptions.update(stripeId, { cancel_at_period_end: true });
+      else if (action === "cancel") {
+        if (subito) await sk.subscriptions.cancel(stripeId);
+        else await sk.subscriptions.update(stripeId, { cancel_at_period_end: true });
+      }
     } catch (e) {
       warn = "Stato aggiornato su WashLoop (Stripe non ha trovato l'abbonamento collegato).";
       console.error("[changeSubscription] Stripe error:", e);
@@ -227,19 +244,31 @@ export async function changeSubscription(formData: FormData) {
     await svc.from("subscriptions").update({ status: "active", current_period_end: periodEnd, canceled_at: null }).eq("id", subId);
     // Data attivazione: solo la prima volta (non sovrascrivere se già valorizzata).
     await svc.from("subscriptions").update({ activated_at: new Date().toISOString() }).eq("id", subId).is("activated_at", null);
+  } else if (action === "cancel" && !subito) {
+    // Disdetta programmata: lo stato resta **attivo**, perché lo è — il cliente
+    // ha pagato e il servizio gli spetta fino al rinnovo. Quello che cambia è
+    // che non si rinnoverà, ed è una cosa che va scritta in una colonna sua.
+    await svc
+      .from("subscriptions")
+      .update({ cancel_at_period_end: true, canceled_at: new Date().toISOString() })
+      .eq("id", subId);
   } else {
     const status = action === "pause" ? "paused" : action === "cancel" ? "canceled" : "active";
-    // Data di disdetta per il churn: valorizza su cancel, azzera su resume.
     const patch: Record<string, unknown> = { status };
     if (action === "cancel") patch.canceled_at = new Date().toISOString();
-    else if (action === "resume") patch.canceled_at = null;
+    else if (action === "resume") { patch.canceled_at = null; patch.cancel_at_period_end = false; }
     await svc.from("subscriptions").update(patch).eq("id", subId);
   }
 
+  const fine = sub.current_period_end
+    ? new Date(sub.current_period_end).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : null;
   const okMsg: Record<string, string> = {
     pause: "Abbonamento messo in pausa.",
-    resume: "Abbonamento ripreso.",
-    cancel: "Abbonamento disdetto.",
+    resume: "Abbonamento ripreso: si rinnoverà di nuovo.",
+    cancel: subito
+      ? "Abbonamento interrotto adesso: il servizio si ferma da oggi."
+      : `Disdetta registrata${fine ? `: resta attivo fino al ${fine}, poi non si rinnova` : ": non si rinnoverà"}.`,
     activate: "Abbonamento attivato.",
   };
   revalidatePath(backTo);
@@ -786,4 +815,90 @@ export async function cambiaEmailAccesso(formData: FormData) {
 
   revalidatePath(back);
   redirect(`${back}?ok=${encodeURIComponent(`Email di accesso cambiata${vecchia ? ` da ${vecchia}` : ""} in ${email}. Avvisa il cliente: la vecchia non funziona più.`)}`);
+}
+
+/** Un addebito per un periodo breve: tante settimane, tanti sacchi.
+ *
+ *  Perché serve
+ *  ------------
+ *  I piani sono mensili e a sacchi fissi. Chi chiede «una settimana con tre
+ *  sacchi» — chi trasloca, chi ha ospiti, chi vuole provare prima di
+ *  abbonarsi — non entra in nessuno dei tre, e finora l'unico modo era
+ *  inventare un addebito libero scrivendo a mano una descrizione e un importo.
+ *  Il che funziona finché non si deve capire, tre mesi dopo, cosa fossero quei
+ *  45 euro.
+ *
+ *  Qui le due cose che descrivono il servizio — **quante settimane** e **quanti
+ *  sacchi** — si scelgono, e da lì si compone da sé la descrizione che finirà
+ *  sulla fattura del cliente e nel registro. Il prezzo resta a mano: è una
+ *  trattativa, non una tariffa.
+ *
+ *  Non crea un abbonamento e non genera ritiri: è un addebito. I ritiri si
+ *  fanno con «Crea un ritiro per il cliente», che esiste già. */
+export async function addebitoTemporaneo(formData: FormData) {
+  const me = await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  const back = `/admin/abbonati/${customerId}`;
+  const errore = (m: string) => redirect(`${back}?warn=${encodeURIComponent(m)}`);
+  if (!customerId) throw new Error("Cliente mancante");
+
+  const settimane = Number(formData.get("settimane"));
+  const sacchi = Number(formData.get("sacchi"));
+  const importo = eurToCents(String(formData.get("amount_eur") ?? ""));
+  const nota = String(formData.get("nota") ?? "").trim();
+
+  if (!Number.isInteger(settimane) || settimane < 1 || settimane > 52) errore("Le settimane devono essere un numero da 1 a 52.");
+  if (!Number.isInteger(sacchi) || sacchi < 1 || sacchi > 20) errore("I sacchi devono essere un numero da 1 a 20.");
+  if (!Number.isFinite(importo) || importo <= 0) errore("Scrivi l'importo da addebitare.");
+
+  const descrizione =
+    `${settimane} ${settimane === 1 ? "settimana" : "settimane"} · ` +
+    `${sacchi} ${sacchi === 1 ? "sacco" : "sacchi"} a settimana` +
+    (nota ? ` · ${nota}` : "");
+
+  const svc = createServiceClient();
+  const { data: sub } = await svc
+    .from("subscriptions")
+    .select("stripe_customer_id, stripe_subscription_id, status")
+    .eq("user_id", customerId)
+    .not("stripe_customer_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ stripe_customer_id: string | null; stripe_subscription_id: string | null; status: string }>();
+
+  let status = "pending";
+  let stripeRef: string | null = null;
+  let coda = "Nessuna carta collegata: l'addebito resta registrato qui e va incassato a parte.";
+
+  if (sub?.stripe_customer_id) {
+    const attivo = ["active", "trialing"].includes(sub.status);
+    const ii = await stripe().invoiceItems.create({
+      customer: sub.stripe_customer_id,
+      amount: importo,
+      currency: "eur",
+      description: `WashLoop · ${descrizione}`,
+      // Agganciato all'abbonamento solo se è vivo: su uno disdetto l'invoice
+      // item resterebbe appeso al cliente senza una fattura che lo raccolga.
+      ...(sub.stripe_subscription_id && attivo ? { subscription: sub.stripe_subscription_id } : {}),
+      metadata: { kind: "servizio_temporaneo", customer_id: customerId, settimane: String(settimane), sacchi: String(sacchi) },
+    });
+    status = "invoiced";
+    stripeRef = ii.id;
+    coda = attivo
+      ? "Entrerà nella prossima fattura dell'abbonamento."
+      : "Registrato su Stripe come voce in attesa: serve una fattura che la raccolga, oppure incassalo a parte.";
+  }
+
+  await svc.from("customer_charges").insert({
+    customer_id: customerId,
+    description: descrizione,
+    amount_cents: importo,
+    kind: "charge",
+    status,
+    stripe_ref: stripeRef,
+    created_by: me.id,
+  });
+
+  revalidatePath(back);
+  redirect(`${back}?ok=${encodeURIComponent(`Addebito registrato: ${descrizione} — ${eur(importo)}. ${coda}`)}`);
 }

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatusBadge } from "@/components/app/StatusBadge";
@@ -228,7 +229,16 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
 
   return (
     <>
-      <PageTitle kicker={`Ordine #${order.id.slice(0, 8)}`} title={order.customer?.full_name ?? "Cliente"} />
+      <div>
+        <PageTitle kicker={`Ordine #${order.id.slice(0, 8)}`} title={order.customer?.full_name ?? "Cliente"} />
+        {/* Il nome portava da nessuna parte: per aprire la scheda della persona
+            bisognava tornare in Persone e ricercarla. Da qui, un clic. */}
+        {order.customer_id && (
+          <Link href={`/admin/abbonati/${order.customer_id}`} className="font-display text-sm font-bold text-blue hover:underline">
+            Apri la scheda cliente →
+          </Link>
+        )}
+      </div>
 
       {err && (
         <div className="mb-4 rounded-[16px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{err}</div>
