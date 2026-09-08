@@ -462,11 +462,10 @@ export async function addebitaSubitoCapo(formData: FormData) {
   const svc = createServiceClient();
   const { data: sp } = await svc
     .from("order_specials")
-    .select("id, order_id, item_name, qty, price_cli_cents, charged_at, refunded_at, annullato_at, orders(customer_id)")
+    .select("id, order_id, item_name, qty, price_cli_cents, charged_at, refunded_at, annullato_at, stripe_invoice_item, orders(customer_id)")
     .eq("id", specialId)
-    .maybeSingle<{ id: string; order_id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null; annullato_at: string | null; orders: { customer_id: string } | null }>();
+    .maybeSingle<{ id: string; order_id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null; annullato_at: string | null; stripe_invoice_item: string | null; orders: { customer_id: string } | null }>();
   if (!sp) esci("warn", "Capo non trovato.");
-  if (sp!.charged_at) esci("warn", "Questo capo è già in fattura.");
   if (sp!.refunded_at || sp!.annullato_at) esci("warn", "Questo capo è chiuso: non c'è niente da incassare.");
 
   const userId = sp!.orders?.customer_id;
@@ -486,6 +485,25 @@ export async function addebitaSubitoCapo(formData: FormData) {
   const importo = sp!.price_cli_cents * sp!.qty;
   const descrizione = `WashLoop · ${sp!.item_name}${sp!.qty > 1 ? ` ×${sp!.qty}` : ""} (ritiro ${sp!.order_id.slice(0, 8)})`;
   const sk = stripe();
+
+  // Il capo può essere già «messo in fattura», cioè in coda per il rinnovo. È
+  // lo stato peggiore di tutti: risulta addebitato — quindi non compare fra
+  // quelli da incassare — ma i soldi non si sono mossi, e si muoveranno solo se
+  // quel rinnovo arriva. Su un cliente che ha disdetto, mai.
+  //
+  // Da qui si può tirare fuori dalla coda e incassarlo adesso: si toglie la
+  // voce in sospeso e si rifà dentro una fattura sua. Se invece è già finita su
+  // una fattura, i soldi o si sono mossi o stanno per farlo, e non si tocca.
+  if (sp!.charged_at && sp!.stripe_invoice_item) {
+    const vecchia = await sk.invoiceItems.retrieve(sp!.stripe_invoice_item).catch(() => null);
+    const suFattura = vecchia && (typeof vecchia.invoice === "string" ? vecchia.invoice : vecchia.invoice?.id ?? null);
+    if (suFattura) {
+      esci("warn", "Questo capo è già su una fattura emessa: o è stato incassato, o lo sarà con quella. Da qui non si tocca.");
+    }
+    if (vecchia) await sk.invoiceItems.del(sp!.stripe_invoice_item).catch(() => null);
+  } else if (sp!.charged_at) {
+    esci("warn", "Questo capo risulta addebitato ma non ha una voce su Stripe: controlla la scheda del ritiro prima di incassarlo.");
+  }
 
   // 1. La fattura, vuota, che raccoglierà solo la voce qui sotto.
   const inv = await sk.invoices.create({

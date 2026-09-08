@@ -6,7 +6,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
 import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo } from "@/lib/actions/admin-customer";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
-import { addebitaCapoSpeciale } from "@/lib/actions/charge";
+import { addebitaCapoSpeciale, addebitaSubitoCapo } from "@/lib/actions/charge";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
 import { LinkOfferta } from "@/components/admin/LinkOfferta";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
@@ -204,7 +204,9 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           </div>
           <p className="mt-1 text-sm font-medium text-navy/75">
             Capi speciali già registrati su Stripe come voci della prossima fattura. <strong>Non sono soldi
-            già presi</strong>: si incassano al rinnovo, da soli, senza che tu debba confermare niente.
+            già presi</strong>: si incassano al rinnovo. Se il cliente disdice prima, quel rinnovo non
+            arriva e l&apos;importo non si incassa mai — con <strong>Incassa adesso</strong> lo tiri fuori
+            dalla coda e lo prelevi subito.
           </p>
           <ul className="mt-3 space-y-1.5">
             {inAttesa.map((c) => (
@@ -227,6 +229,21 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                     </span>
                   )}
                   <span className="font-display text-sm font-extrabold text-navy">{eur(c.price_cli_cents * c.qty)}</span>
+                  {/* Tirarlo fuori dalla coda e incassarlo adesso.
+                      Una voce in attesa del rinnovo diventa soldi solo se quel
+                      rinnovo arriva: su un cliente che ha disdetto, mai. E
+                      intanto risulta «addebitata», quindi non compare fra le
+                      cose da incassare e nessuno la guarda più. */}
+                  <form action={addebitaSubitoCapo}>
+                    <input type="hidden" name="special_id" value={c.id} />
+                    <input type="hidden" name="torna_a" value={`/admin/abbonati/${id}`} />
+                    <BottoneInvio
+                      attesa="Prelievo…"
+                      className="rounded-full bg-blue px-3 py-1.5 font-display text-xs font-extrabold text-white"
+                    >
+                      Incassa adesso
+                    </BottoneInvio>
+                  </form>
                   {/* Il bottone per toglierlo sta qui, dove si guarda quando il
                       cliente reclama. Prima esisteva solo nella scheda del
                       ritiro, e da questa pagina non c'era modo di arrivarci. */}
