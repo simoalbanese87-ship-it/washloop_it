@@ -1069,3 +1069,56 @@ export async function clienteDisdiceRitiro(formData: FormData) {
   revalidatePath("/courier");
   redirect(`/app/ordini?ok=${encodeURIComponent(`Ritiro annullato.${coda}`)}`);
 }
+
+/** L'amministrazione corregge il numero di sacchi arrivati.
+ *
+ *  Lo stesso numero che conferma la lavanderia dalla sua scheda, modificabile
+ *  anche da qui. Non è una scorciatoia: chi risponde al telefono quando un
+ *  cliente dice «ne ho lasciato uno, non due» deve poterlo sistemare senza
+ *  chiamare la lavanderia e farselo fare da loro.
+ *
+ *  Resta scritto chi l'ha messo (`bags_arrivati_by`): se il numero della
+ *  lavanderia e quello dell'amministrazione divergono, si vede chi ha detto
+ *  cosa invece di avere solo l'ultimo che ha scritto.
+ *
+ *  Svuotando il campo si torna a «da contare», che è diverso da zero: zero vuol
+ *  dire «non è arrivato niente», da contare vuol dire «non lo sappiamo ancora».
+ *  Confonderli farebbe pagare zero alla lavanderia su un ordine mai verificato. */
+export async function correggiSacchiArrivati(formData: FormData) {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
+  const id = String(formData.get("order_id") ?? "");
+  const grezzo = String(formData.get("bags_arrivati") ?? "").trim();
+  const dove = `/admin/ordini/${id}`;
+  if (!id) redirect(`${dove}?err=${encodeURIComponent("Ordine mancante.")}`);
+
+  const svc = createServiceClient();
+
+  if (grezzo === "") {
+    await svc
+      .from("orders")
+      .update({ bags_arrivati: null, bags_arrivati_at: null, bags_arrivati_by: null })
+      .eq("id", id);
+    revalidatePath(dove);
+    revalidatePath("/laundry");
+    redirect(`${dove}?ok=${encodeURIComponent("Conteggio azzerato: torna «da contare».")}`);
+  }
+
+  const n = Number(grezzo);
+  if (!Number.isInteger(n) || n < 0 || n > 50) {
+    redirect(`${dove}?err=${encodeURIComponent("Scrivi un numero intero di sacchi, oppure lascia vuoto per togliere il conteggio.")}`);
+  }
+
+  const { error } = await svc
+    .from("orders")
+    .update({ bags_arrivati: n, bags_arrivati_at: new Date().toISOString(), bags_arrivati_by: me.id })
+    .eq("id", id);
+  if (error) redirect(`${dove}?err=${encodeURIComponent(error.message)}`);
+
+  revalidatePath(dove);
+  revalidatePath("/admin/ordini");
+  revalidatePath("/laundry");
+  revalidatePath("/laundry/storico");
+  redirect(`${dove}?ok=${encodeURIComponent(`Sacchi arrivati: ${n}. È il numero con cui si paga la lavanderia.`)}`);
+}

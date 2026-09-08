@@ -76,3 +76,26 @@ test("fusi diversi non ingannano l'ordinamento", () => {
   const inverno = { ritardo: false, quando: "2026-09-02T08:00:00+00:00" };
   assert.deepEqual([inverno, estate].sort(confrontaUrgenza), [estate, inverno]);
 });
+
+test("un sacco in lavorazione resta in vista anche con il filtro «Oggi»", () => {
+  // È il caso dell'8 settembre: ritiro fatto la mattina, riconsegna il 10.
+  // La data del passaggio è nel futuro, ma il sacco è in lavanderia ADESSO e
+  // la colonna «In lavorazione» non può segnare zero mentre lo lavano.
+  for (const status of ["picked_up", "at_laundry", "washing"]) {
+    assert.equal(
+      passaPeriodo({ status, giorno: "2026-08-30" }, "oggi", OGGI, FINE_SETTIMANA),
+      true,
+      `${status} deve restare visibile`,
+    );
+  }
+});
+
+test("un ritiro futuro con il filtro «Oggi» resta fuori", () => {
+  // La regola sulle date continua a valere dove serve: un appuntamento di
+  // domani non è lavoro di oggi.
+  assert.equal(passaPeriodo({ status: "pickup_scheduled", giorno: "2026-08-30" }, "oggi", OGGI, FINE_SETTIMANA), false);
+});
+
+test("un ordine chiuso in una data futura non passa per via dello stato", () => {
+  assert.equal(passaPeriodo({ status: "delivered", giorno: "2026-08-30" }, "oggi", OGGI, FINE_SETTIMANA), false);
+});

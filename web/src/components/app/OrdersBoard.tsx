@@ -286,9 +286,30 @@ export function OrdersBoard({
           </button>
         ))}
         <span className="text-xs font-medium text-muted">
-          {periodo === "oggi" ? "I passaggi di oggi, più gli arretrati non ancora chiusi" : periodo === "settimana" ? "Da oggi a fra sei giorni, più gli arretrati" : "Tutti gli ordini aperti"}
+          {periodo === "oggi" ? "I passaggi di oggi, il lavoro in corso e gli arretrati non ancora chiusi" : periodo === "settimana" ? "Da oggi a fra sei giorni, più gli arretrati" : "Tutti gli ordini aperti"}
         </span>
       </div>
+
+      {/* Il filtro può nascondere tutto, e allora la pagina si contraddice: in
+          cima «6 ordini aperti», sotto quattro colonne vuote. Chi guarda pensa
+          che il board sia rotto — è successo l'8 settembre. Se il periodo
+          scelto non mostra niente ma degli ordini aperti esistono, si dice
+          quanti sono e come vederli. */}
+      {filtered.length === 0 && orders.length > 0 && periodo !== "tutti" && (
+        <div className="mb-5 rounded-[16px] border border-line bg-white px-4 py-3">
+          <p className="text-sm font-semibold text-navy">
+            Nessun passaggio {periodo === "oggi" ? "oggi" : "in questi sette giorni"}, ma ci sono{" "}
+            {orders.length} {orders.length === 1 ? "ordine aperto" : "ordini aperti"}.
+          </p>
+          <button
+            type="button"
+            onClick={() => setPeriodo("tutti")}
+            className="mt-1 font-display text-sm font-bold text-blue hover:underline"
+          >
+            Mostrali tutti →
+          </button>
+        </div>
+      )}
 
       {/* Carico dei prossimi giorni: serve a vedere i buchi prima che arrivino */}
       {periodo === "settimana" && oggi && (
@@ -353,7 +374,7 @@ export function OrdersBoard({
                 {items.map((o) => (
                   <BoardCard key={o.id} o={o} couriers={couriers} late={lateOf(o)} selected={selected.has(o.id)} onToggle={() => toggle(o.id)} />
                 ))}
-                {items.length === 0 && <div className="px-1 py-4 text-xs font-medium text-muted">Vuoto</div>}
+                {items.length === 0 && <div className="px-1 py-4 text-xs font-medium text-muted">Niente qui</div>}
               </div>
             </div>
           );

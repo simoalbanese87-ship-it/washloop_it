@@ -3,7 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { advanceStatus, assignOrder, setEta, scheduleDelivery, spostaRitiro } from "@/lib/actions/orders";
+import { advanceStatus, assignOrder, setEta, scheduleDelivery, spostaRitiro, correggiSacchiArrivati } from "@/lib/actions/orders";
 import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
 import { DeleteOrderButton } from "@/components/admin/DeleteOrderButton";
 import { chargeOrderSpecials, addSpecialAdmin } from "@/lib/actions/charge";
@@ -28,6 +28,10 @@ type Order = {
   laundry_id: string | null;
   customer_id: string | null;
   eta_ready_at: string | null;
+  /** Quanti sacchi ha contato chi li ha avuti sul banco. NULL = mai contati.
+   *  È il numero con cui si paga la lavanderia. */
+  bags_arrivati: number | null;
+  bags_arrivati_at: string | null;
   delivery_slot_id: string | null;
   delivery_slot: { starts_at: string; ends_at: string; archived_at: string | null } | null;
   pickup_slot_id: string | null;
@@ -111,7 +115,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }, { data: items }, { data: issues }] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, status, bags, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, pickup_slot_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at, archived_at), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at, archived_at)")
+      .select("id, status, bags, bags_arrivati, bags_arrivati_at, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, pickup_slot_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at, archived_at), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at, archived_at)")
       .eq("id", id)
       .maybeSingle<Order>(),
     supabase.from("order_events").select("id, status, created_at, note").eq("order_id", id).order("created_at", { ascending: false }).returns<Event[]>(),
@@ -167,6 +171,14 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
     fasceRitiro = (raw ?? []).map((s) => ({ ...s, presi: usati.get(s.id) ?? 0 }));
     fasceRitiro = conFasciaAttuale(fasceRitiro, order.pickup_slot_id, order.pickup_slot);
   }
+
+  // Quante borse ha registrato il rider: serve per far vedere, accanto al
+  // numero contato, da dove veniva quello di prima.
+  const { count: sacchiScansionati } = await supabase
+    .from("order_bags")
+    .select("id", { count: "exact", head: true })
+    .eq("order_id", id)
+    .not("pickup_scanned_at", "is", null);
 
   // Bucket privato: le foto prova si servono con link firmato a scadenza.
   const itemsFirmati = await Promise.all(
@@ -276,6 +288,42 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
                 Salva ETA
               </Button>
             </form>
+          </Card>
+
+          {/* I sacchi arrivati davvero.
+              `bags` è la stima presa in prenotazione giorni prima; questo è il
+              numero contato sul banco, ed è quello con cui si paga la
+              lavanderia. Di norma lo confermano loro dal portale, ma va potuto
+              correggere anche da qui: quando un cliente telefona per dire «ne
+              ho lasciato uno, non due», chi risponde deve poterlo sistemare
+              senza farlo fare a loro. */}
+          <Card>
+            <span className="font-display text-sm font-extrabold text-navy">Sacchi arrivati in lavanderia</span>
+            <p className="mt-1 text-xs font-medium text-muted">
+              Ne erano previsti <strong className="text-navy">{order.bags}</strong>
+              {sacchiScansionati != null && <> · il rider ne ha registrati <strong className="text-navy">{sacchiScansionati}</strong></>}.
+              {order.bags_arrivati == null
+                ? " Nessuno li ha ancora contati: finché è così il compenso si calcola sulle scansioni del rider."
+                : ` Contati: ${order.bags_arrivati}${order.bags_arrivati_at ? `, il ${fmtFull(order.bags_arrivati_at)}` : ""}.`}
+            </p>
+            <form action={correggiSacchiArrivati} className="mt-3 flex gap-3">
+              <input type="hidden" name="order_id" value={order.id} />
+              <input
+                name="bags_arrivati"
+                type="number"
+                min={0}
+                max={50}
+                step={1}
+                defaultValue={order.bags_arrivati ?? ""}
+                placeholder="da contare"
+                className={`${input} w-32`}
+              />
+              <Button type="submit" size="md" variant="ghost-navy">Salva</Button>
+            </form>
+            <p className="mt-2 text-[11px] font-medium text-muted">
+              Lascia vuoto per tornare a «da contare», che non è zero: zero vuol dire che non è arrivato
+              niente, da contare vuol dire che ancora non lo sappiamo.
+            </p>
           </Card>
 
           {ritiroSpostabile && (

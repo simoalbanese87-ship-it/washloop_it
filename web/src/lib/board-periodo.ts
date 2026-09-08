@@ -19,6 +19,19 @@ export type OrdinePerPeriodo = {
 /** Stati in cui non c'è più niente da fare: non sono arretrati, sono finiti. */
 const CHIUSI = ["delivered", "completed", "cancelled"];
 
+/** Il sacco è in lavanderia: non c'è un appuntamento, c'è del lavoro in corso.
+ *
+ *  Per questi ordini la "data del passaggio" è quella della **riconsegna**, che
+ *  è nel futuro — quindi con il filtro «Oggi» sparivano tutti. L'8 settembre il
+ *  board diceva «6 ordini aperti» in cima e quattro colonne vuote sotto, con
+ *  tre sacchi che in quel momento erano fisicamente in lavorazione e una
+ *  colonna intitolata «In lavorazione» che segnava zero.
+ *
+ *  Un sacco in casa d'altri non è un passaggio datato: è una cosa che sta
+ *  succedendo adesso, e deve restare in vista finché non esce. Il filtro sui
+ *  giorni serve al ritiro e alla riconsegna, che sono appuntamenti; qui no. */
+const IN_LAVORAZIONE = ["picked_up", "at_laundry", "washing"];
+
 /** Un passaggio previsto per un giorno già passato e ancora da chiudere. */
 export function arretrato(o: OrdinePerPeriodo, oggi: string): boolean {
   if (CHIUSI.includes(o.status)) return false;
@@ -37,6 +50,8 @@ export function passaPeriodo(
   // `oggi` vuoto = la pagina non si è ancora idratata: non si filtra niente,
   // altrimenti il primo render sarebbe un board vuoto.
   if (!oggi) return true;
+  // Il lavoro in corso non ha una data da confrontare: passa sempre.
+  if (IN_LAVORAZIONE.includes(o.status)) return true;
   if (arretrato(o, oggi)) return true;
   if (periodo === "oggi") return o.giorno === oggi;
   return o.giorno >= oggi && o.giorno <= fineSettimana;
