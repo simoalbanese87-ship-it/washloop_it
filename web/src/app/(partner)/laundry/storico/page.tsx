@@ -237,7 +237,11 @@ export default async function StoricoLavanderia({
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className="font-display font-extrabold text-navy">{sacchiDi(o)}</span>
-                        {o.bags_arrivati == null && (
+                        {/* «Non contati» solo dove contarli serve ancora: su un
+                            ritiro già chiuso è una cosa da fare che non si può
+                            più fare, e mettere un avviso arancione su tutto lo
+                            storico di agosto lo rende illeggibile. */}
+                        {o.bags_arrivati == null && !STATI_CHIUSI.includes(o.status) && (
                           <span className="block text-[11px] font-semibold text-[#C9881F]">non contati</span>
                         )}
                       </td>
