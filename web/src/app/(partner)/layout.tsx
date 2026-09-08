@@ -8,6 +8,7 @@ import { NotificationPrompt } from "@/components/app/NotificationPrompt";
 const partnerNav: NavItem[] = [
   { href: "/laundry", label: "Lavorazioni" },
   { href: "/laundry/listino", label: "Listino" },
+  { href: "/laundry/storico", label: "Storico" },
 ];
 
 export default async function PartnerLayout({ children }: { children: React.ReactNode }) {

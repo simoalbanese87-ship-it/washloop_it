@@ -368,3 +368,57 @@ export async function segnaRestituito(formData: FormData) {
   revalidatePath(`/laundry/${orderId}`);
   revalidatePath("/admin/segnalazioni");
 }
+
+/** La lavanderia conta i sacchi che ha davanti e lo scrive.
+ *
+ *  Perché lo chiediamo a loro
+ *  --------------------------
+ *  Il numero che avevamo era una previsione: `orders.bags` nasce in
+ *  prenotazione o dalla ricorrenza, giorni prima. L'8 settembre fabia aveva 2
+ *  sacchi dichiarati dall'abbonamento e ne ha consegnato uno; il portale
+ *  scriveva «2 SACCHI» e il compenso — che si calcola sui sacchi — sarebbe
+ *  uscito doppio.
+ *
+ *  Nemmeno le scansioni del rider bastano: quello stesso giorno alle 11:03, a
+ *  giro finito, sono comparse due letture a dodici secondi l'una dall'altra su
+ *  due clienti diversi. Una scansione si può fare per sbaglio, e dal database
+ *  non si distingue da quella buona.
+ *
+ *  Chi lo sa per certo è chi ha i sacchi sul banco, e li conta comunque per
+ *  aprirli. È anche la parte che viene pagata su quel numero: ha tutte le
+ *  ragioni per contarlo bene, e a noi resta un controllo incrociato sul rider
+ *  senza chiedere lavoro in più a nessuno.
+ *
+ *  Si può correggere finché l'ordine è in lavorazione: un conteggio sbagliato
+ *  digitato di fretta non deve diventare definitivo. */
+export async function confermaSacchiArrivati(formData: FormData) {
+  const profile = await requirePartner();
+  const orderId = String(formData.get("order_id") ?? "");
+  if (!orderId) throw new Error("Ordine mancante");
+  await assertOrderInLaundry(orderId, profile.laundry_id!);
+
+  const n = Number(formData.get("bags_arrivati"));
+  if (!Number.isInteger(n) || n < 0 || n > 50) {
+    throw new Error("Scrivi quanti sacchi sono arrivati (un numero intero).");
+  }
+
+  // Service role dopo le due guardie, come per le altre scritture del portale:
+  // la lavanderia non ha il permesso di UPDATE su `orders`, e una UPDATE che
+  // non passa la policy non fallisce — aggiorna zero righe in silenzio.
+  const svc = createServiceClient();
+  const { error } = await svc
+    .from("orders")
+    .update({
+      bags_arrivati: n,
+      bags_arrivati_at: new Date().toISOString(),
+      bags_arrivati_by: profile.id,
+    })
+    .eq("id", orderId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/laundry");
+  revalidatePath(`/laundry/${orderId}`);
+  revalidatePath("/laundry/storico");
+  revalidatePath("/admin/lavanderia");
+  revalidatePath(`/admin/ordini/${orderId}`);
+}

@@ -22,9 +22,9 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
 
     const { data: ordine } = await svc
       .from("orders")
-      .select("id, bags, laundry_id, laundries(bag_comp_cents)")
+      .select("id, bags, bags_arrivati, laundry_id, laundries(bag_comp_cents)")
       .eq("id", orderId)
-      .maybeSingle<{ id: string; bags: number | null; laundry_id: string | null; laundries: { bag_comp_cents: number | null } | null }>();
+      .maybeSingle<{ id: string; bags: number | null; bags_arrivati: number | null; laundry_id: string | null; laundries: { bag_comp_cents: number | null } | null }>();
 
     if (!ordine?.laundry_id) return; // ordine senza lavanderia: niente da pagare
 
@@ -39,7 +39,25 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
     const rel = ordine.laundries as unknown as { bag_comp_cents: number | null }[] | { bag_comp_cents: number | null } | null;
     const lav = Array.isArray(rel) ? rel[0] : rel;
     const compenso = lav?.bag_comp_cents ?? 1500;
-    const sacchi = ordine.bags ?? 1;
+
+    // Quanti sacchi si pagano, in ordine di attendibilità.
+    //
+    // 1. **Quelli contati dalla lavanderia**, se li ha confermati: è l'unico
+    //    numero osservato sul banco invece che previsto o dedotto.
+    // 2. **Quelli scansionati dal rider**, se nessuno ha contato: almeno
+    //    corrisponde a un gesto fatto davanti alla porta.
+    // 3. `bags`, solo se non c'è stata nessuna scansione — ritiro segnato a
+    //    mano senza scanner. Senza questo terzo scalino pagheremmo zero.
+    //
+    // Prima si pagava sempre `bags`, cioè la stima fatta in prenotazione giorni
+    // prima: l'8 settembre fabia aveva 2 sacchi dichiarati dall'abbonamento e
+    // ne ha consegnato uno, e il compenso sarebbe uscito doppio.
+    const { count: scansionati } = await svc
+      .from("order_bags")
+      .select("id", { count: "exact", head: true })
+      .eq("order_id", orderId)
+      .not("pickup_scanned_at", "is", null);
+    const sacchi = ordine.bags_arrivati ?? (scansionati && scansionati > 0 ? scansionati : ordine.bags ?? 1);
 
     const { error } = await svc.from("laundry_payouts").insert({
       laundry_id: ordine.laundry_id,

@@ -15,7 +15,12 @@ import type { OrderStatus } from "@/lib/orders";
 export type PartnerOrder = {
   order_id: string;
   client_code: string | null;
+  /** Quanti ne aspettavamo, dalla prenotazione. Una stima di giorni prima. */
   bags: number;
+  /** Quante borse ha registrato il rider passando. */
+  bags_scansionati?: number;
+  /** Quanti ne ha contati la lavanderia. NULL finché non conferma. */
+  bags_arrivati?: number | null;
   service: string | null;
   fragrance: string | null;
   status: OrderStatus;
@@ -82,8 +87,19 @@ function DraggableCard({ o }: { o: PartnerOrder }) {
                 {o.segnalazioni} segnal.
               </span>
             )}
-            <span className="rounded-full bg-ice px-2.5 py-1 font-display text-[10px] font-extrabold uppercase tracking-wider text-blue">
-              {o.bags} {o.bags === 1 ? "sacco" : "sacchi"}
+            {/* Il numero che conta è quello contato sul banco. Finché la
+                lavanderia non l'ha confermato si mostra quello del rider — mai
+                più la stima della prenotazione, che l'8 settembre diceva 2 su
+                un sacco solo. */}
+            <span
+              className={`rounded-full px-2.5 py-1 font-display text-[10px] font-extrabold uppercase tracking-wider ${
+                o.bags_arrivati == null ? "bg-[#C9881F]/15 text-[#C9881F]" : "bg-ice text-blue"
+              }`}
+            >
+              {(() => {
+                const n = o.bags_arrivati ?? (o.bags_scansionati || o.bags);
+                return `${n} ${n === 1 ? "sacco" : "sacchi"}${o.bags_arrivati == null ? " · da contare" : ""}`;
+              })()}
             </span>
             {/* Maniglia di trascinamento (touch + mouse) */}
             <button

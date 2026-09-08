@@ -10,7 +10,7 @@ export default async function LaundryBoard() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("partner_orders")
-    .select("order_id, client_code, bags, service, fragrance, status, eta_ready_at, created_at")
+    .select("order_id, client_code, bags, bags_scansionati, bags_arrivati, service, fragrance, status, eta_ready_at, created_at")
     .order("created_at", { ascending: true })
     .returns<(PartnerOrder & { created_at: string })[]>();
 

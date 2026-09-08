@@ -7,7 +7,8 @@ import { AddSpecialForm, type ListItem } from "@/components/app/AddSpecialForm";
 import { SegnalazioneForm } from "@/components/app/SegnalazioneForm";
 import { SegnalazioneRiga, type Segnalazione } from "@/components/app/SegnalazioneRiga";
 import { createClient } from "@/lib/supabase/server";
-import { advanceStatus, removeSpecial } from "@/lib/actions/partner";
+import { advanceStatus, removeSpecial, confermaSacchiArrivati } from "@/lib/actions/partner";
+import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { LAVORAZIONE_APERTA, signedProofUrl, type OrderStatus } from "@/lib/orders";
 import { SEGNALABILE } from "@/lib/segnalazioni";
 import { fmtFull } from "@/lib/format";
@@ -15,10 +16,20 @@ import { createServiceClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
+/** Gli stati in cui il conteggio dei sacchi si può ancora fare o correggere:
+ *  finché il lavoro è in casa loro. Dopo la riconsegna il compenso è già
+ *  scritto e il numero non si tocca più da qui. */
+const CONTABILI: OrderStatus[] = ["picked_up", "at_laundry", "washing", "ready", "delivery_scheduled"];
+
 type PartnerOrder = {
   order_id: string;
   client_code: string | null;
+  /** Quanti ne aspettavamo: stima presa in prenotazione, giorni prima. */
   bags: number;
+  /** Quante borse ha registrato il rider passando. */
+  bags_scansionati: number;
+  /** Quanti ne ha contati la lavanderia sul banco. NULL finché non conferma. */
+  bags_arrivati: number | null;
   service: string | null;
   fragrance: string | null;
   status: OrderStatus;
@@ -51,7 +62,7 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
   const [{ data: order }, { data: specials }, { data: listino }, { data: issues }] = await Promise.all([
     supabase
       .from("partner_orders")
-      .select("order_id, client_code, bags, service, fragrance, status, eta_ready_at, created_at")
+      .select("order_id, client_code, bags, bags_scansionati, bags_arrivati, service, fragrance, status, eta_ready_at, created_at")
       .eq("order_id", orderId)
       .maybeSingle<PartnerOrder>(),
     supabase
@@ -108,11 +119,51 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
         <Card>
           <h2 className="font-display text-lg font-extrabold text-navy">Lavorazione</h2>
           <dl className="mt-3 space-y-2 text-sm font-medium text-muted">
-            <div className="flex justify-between"><dt>Sacchi</dt><dd className="font-bold text-navy">{order.bags}</dd></div>
+            <div className="flex justify-between">
+              <dt>Sacchi</dt>
+              <dd className="font-bold text-navy">
+                {order.bags_arrivati ?? (order.bags_scansionati || order.bags)}
+                {order.bags_arrivati == null && <span className="ml-1 text-xs font-semibold text-[#C9881F]">da confermare</span>}
+              </dd>
+            </div>
             {order.service && <div className="flex justify-between"><dt>Servizio</dt><dd className="font-bold text-navy">{order.service}</dd></div>}
             {order.fragrance && <div className="flex justify-between"><dt>Profumo</dt><dd className="font-bold text-navy">{order.fragrance}</dd></div>}
             {order.eta_ready_at && <div className="flex justify-between"><dt>Pronto entro</dt><dd className="font-bold text-navy">{fmtFull(order.eta_ready_at)}</dd></div>}
           </dl>
+
+          {/* Quanti sacchi sono arrivati davvero.
+              È l'unico punto della catena in cui il numero è un fatto
+              osservato: qui i sacchi sono sul banco e si contano comunque per
+              aprirli. Prima si usava quello previsto in prenotazione — e l'8
+              settembre un cliente con abbonamento da 2 sacchi ne ha consegnato
+              1, mentre il portale ne mostrava 2 e il compenso sarebbe uscito
+              doppio. È il numero con cui vi paghiamo. */}
+          {CONTABILI.includes(order.status) && (
+            <form action={confermaSacchiArrivati} className="mt-5 rounded-[14px] border border-[#C9881F]/35 bg-[#C9881F]/8 p-3">
+              <input type="hidden" name="order_id" value={order.order_id} />
+              <div className="font-display text-sm font-extrabold text-[#C9881F]">Quanti sacchi sono arrivati?</div>
+              <p className="mt-1 text-xs font-medium text-navy/75">
+                {order.bags_arrivati == null
+                  ? `Ne aspettavamo ${order.bags}, il rider ne ha registrati ${order.bags_scansionati}. Conta quelli che hai sul banco: è il numero con cui ti paghiamo.`
+                  : `Hai contato ${order.bags_arrivati}. Se ti sei accorto di un errore puoi correggerlo finché il lavoro è in corso.`}
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  name="bags_arrivati"
+                  type="number"
+                  min={0}
+                  max={50}
+                  step={1}
+                  required
+                  defaultValue={order.bags_arrivati ?? (order.bags_scansionati || order.bags)}
+                  className="h-11 w-24 rounded-[12px] border border-line bg-white px-3 text-center font-display text-base font-extrabold text-navy outline-none focus:border-blue"
+                />
+                <BottoneInvio className="h-11 flex-1 rounded-full bg-[#C9881F] px-4 font-display text-sm font-extrabold text-white">
+                  {order.bags_arrivati == null ? "Conferma il conteggio" : "Correggi"}
+                </BottoneInvio>
+              </div>
+            </form>
+          )}
 
           {cta && (
             <form action={advanceStatus} className="mt-5">
