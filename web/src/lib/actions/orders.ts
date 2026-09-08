@@ -13,6 +13,7 @@ import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
 import { registraSacchiLavanderia } from "@/lib/laundry-payout";
 import { deliveryCounts, slotFullMessage } from "@/lib/slots";
 import { riconsegnaDopoSpostamento } from "@/lib/riconsegna";
+import { lavanderiaPredefinita } from "@/lib/lavanderia";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
  *  Calcola l'ETA "pronto" = inizio ritiro + turnaround del piano attivo. */
@@ -25,7 +26,10 @@ export async function createPickup(formData: FormData) {
 
   const address_id = String(formData.get("address_id") ?? "");
   const pickup_slot_id = String(formData.get("pickup_slot_id") ?? "");
-  const laundry_id = String(formData.get("laundry_id") ?? "") || null;
+  // Se nessuno l'ha scelta e di lavanderia ne abbiamo una sola, si aggancia da
+  // sé: un ordine senza lavanderia non compare nel loro portale, e arriva sul
+  // banco senza che nessuno l'abbia visto.
+  const laundry_id = String(formData.get("laundry_id") ?? "") || (await lavanderiaPredefinita(supabase));
   const bags = Number(formData.get("bags") ?? 1);
   if (!address_id || !pickup_slot_id) throw new Error("Indirizzo e slot obbligatori");
 
@@ -89,7 +93,7 @@ export async function bookPickup(input: {
 
   const { address_id, pickup_slot_id } = input;
   const delivery_slot_id = input.delivery_slot_id || null;
-  const laundry_id = input.laundry_id || null;
+  const laundry_id = input.laundry_id || (await lavanderiaPredefinita(supabase));
   const bags = Number.isFinite(input.bags) && input.bags > 0 ? input.bags : 1;
   if (!address_id || !pickup_slot_id) return { ok: false, error: "Indirizzo e slot obbligatori" };
 

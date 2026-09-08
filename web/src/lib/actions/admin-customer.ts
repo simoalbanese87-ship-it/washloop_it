@@ -12,6 +12,7 @@ import { zoneIdForCap } from "@/lib/zones";
 import { geocodeAddress } from "@/lib/geo";
 import { ORDER_STATUS_LABEL, STATI_CHIUSI, type OrderStatus } from "@/lib/orders";
 import { slotFullMessage } from "@/lib/slots";
+import { lavanderiaPredefinita } from "@/lib/lavanderia";
 import { inviaSollecito } from "@/lib/dunning";
 import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
 
@@ -626,7 +627,8 @@ export async function adminCreatePickup(formData: FormData) {
       address_id: addressId,
       pickup_slot_id: pickupSlotId,
       delivery_slot_id: deliverySlotId || null,
-      laundry_id: slot!.laundry_id,
+      // La fascia può non avere lavanderia: l'unica attiva fa da ripiego.
+      laundry_id: slot!.laundry_id ?? (await lavanderiaPredefinita(svc)),
       eta_ready_at: eta,
       bags,
       notes: notes || null,

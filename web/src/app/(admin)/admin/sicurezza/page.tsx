@@ -88,7 +88,7 @@ export default async function SicurezzaPage() {
   const oraIso = adesso.toISOString();
   const fraUnaSettimana = new Date(adesso.getTime() + 7 * 86_400_000).toISOString();
 
-  const [ritiri, consegne, zoneAttive, lavanderie, deposito, indirizziSenzaGeo, ordiniAperti, ricorrenze, fasceRitiroFuture] = await Promise.all([
+  const [ritiri, consegne, zoneAttive, lavanderie, deposito, indirizziSenzaGeo, ordiniAperti, ricorrenze, fasceRitiroFuture, senzaLavanderia] = await Promise.all([
     svc.from("slots").select("id", { count: "exact", head: true }).eq("kind", "pickup").is("archived_at", null).gte("starts_at", oraIso).lte("starts_at", fraUnaSettimana),
     svc.from("slots").select("id", { count: "exact", head: true }).eq("kind", "delivery").is("archived_at", null).gte("starts_at", oraIso).lte("starts_at", fraUnaSettimana),
     svc.from("zones").select("name, courier_id").eq("active", true).returns<{ name: string; courier_id: string | null }[]>(),
@@ -110,6 +110,15 @@ export default async function SicurezzaPage() {
     // costato un cliente». Qui la stessa domanda si vede senza doverla cercare.
     svc.from("recurring_pickups").select("id, weekday, hhmm, cliente:profiles!recurring_pickups_customer_id_fkey(is_test)").eq("active", true).returns<{ id: string; weekday: number; hhmm: string; cliente: { is_test: boolean } | null }[]>(),
     svc.from("slots").select("starts_at").eq("kind", "pickup").is("archived_at", null).gte("starts_at", oraIso).returns<{ starts_at: string }[]>(),
+    // Ordini aperti senza lavanderia: il portale filtra per lavanderia, quindi
+    // un ordine così **non lo vede nessuno** — il sacco arriva sul banco senza
+    // comparire in nessuna lista, e ce ne si accorge quando chiama il cliente.
+    svc
+      .from("orders")
+      .select("id, cliente:profiles!orders_customer_id_fkey(is_test)")
+      .is("laundry_id", null)
+      .not("status", "in", `(${STATI_CHIUSI.join(",")})`)
+      .returns<{ id: string; cliente: { is_test: boolean } | null }[]>(),
   ]);
 
   // --- Stripe, chiesto a Stripe. ---
@@ -159,6 +168,9 @@ export default async function SicurezzaPage() {
   );
   const ricorrenzeOrfane = ricorrenzeSenzaFascia.filter((r) => !unoSolo(r.cliente)?.is_test).length;
   const ricorrenzeOrfaneProva = ricorrenzeSenzaFascia.length - ricorrenzeOrfane;
+
+  const senzaLav = (senzaLavanderia.data ?? []).filter((o) => !unoSolo(o.cliente)?.is_test).length;
+  const senzaLavProva = (senzaLavanderia.data ?? []).length - senzaLav;
 
   const ops: Check[] = [
     {
@@ -229,6 +241,13 @@ export default async function SicurezzaPage() {
       detail: orfani === 0
         ? `Nessun cliente vero è rimasto su una fascia archiviata.${codaProva(orfaniProva)}`.trim()
         : `${orfani} ${orfani === 1 ? "ordine è rimasto" : "ordini sono rimasti"} su una fascia archiviata: quel giorno non passa nessuno. Si sistemano dal board ordini.${codaProva(orfaniProva)}`,
+    },
+    {
+      label: "Ordini agganciati a una lavanderia",
+      status: gravita(senzaLav, senzaLavProva),
+      detail: senzaLav === 0
+        ? `Ogni ordine aperto ha la sua lavanderia.${codaProva(senzaLavProva)}`.trim()
+        : `${senzaLav} ${senzaLav === 1 ? "ordine aperto non ha" : "ordini aperti non hanno"} una lavanderia: il portale filtra per lavanderia, quindi loro non li vedono affatto.${codaProva(senzaLavProva)}`,
     },
     {
       label: "Ricorrenze con la loro fascia",

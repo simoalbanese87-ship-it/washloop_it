@@ -346,3 +346,67 @@ export async function addebitaCapoSpeciale(formData: FormData) {
   if (sp!.orders?.customer_id) revalidatePath(`/admin/abbonati/${sp!.orders.customer_id}`);
   redirect(`${dove}?ok=${encodeURIComponent(`${sp!.item_name} messo in fattura: entrerà nella prossima ricevuta.`)}`);
 }
+
+/** Corregge a mano i due prezzi di un capo speciale non ancora addebitato.
+ *
+ *  Perché serve, e perché solo prima dell'addebito
+ *  -----------------------------------------------
+ *  Ogni capo porta con sé la fotografia dei prezzi di quando è stato
+ *  registrato. È il comportamento giusto: un importo comunicato al cliente non
+ *  deve cambiargli sotto i piedi. Ma se il listino cambia dopo — o se il
+ *  listino era sbagliato, com'è stato per la camicia a 3,00 quando il contratto
+ *  dice 2,05 — quella fotografia resta vecchia, e finora l'unico modo di
+ *  correggerla era togliere il capo e rifarlo dalla scheda del ritiro.
+ *
+ *  Finché nessuno ha pagato niente, quel numero è ancora una nostra bozza e si
+ *  deve poter correggere. Dal momento in cui è in fattura non si tocca più: lì
+ *  esiste un cliente che ha visto un importo e una lavanderia che ha maturato
+ *  un compenso, e riscrivere sotto è come cambiare una ricevuta già data.
+ *
+ *  La riga del compenso lavanderia segue, se è ancora da pagare. */
+export async function correggiPrezzoCapo(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "admin") throw new Error("Solo admin");
+
+  const specialId = String(formData.get("special_id") ?? "");
+  const tornaA = String(formData.get("torna_a") ?? "/admin/extra");
+  const errore = (m: string) => redirect(`${tornaA}?warn=${encodeURIComponent(m)}`);
+  if (!specialId) errore("Capo mancante.");
+
+  const inCentesimi = (v: string) => Math.round(parseFloat(v.replace(",", ".")) * 100);
+  const prezzoCli = inCentesimi(String(formData.get("price_cli_eur") ?? ""));
+  const compLav = inCentesimi(String(formData.get("comp_lav_eur") ?? ""));
+  if (!Number.isFinite(prezzoCli) || prezzoCli < 0) errore("Il prezzo al cliente non è un numero valido.");
+  if (!Number.isFinite(compLav) || compLav < 0) errore("Il compenso alla lavanderia non è un numero valido.");
+
+  const svc = createServiceClient();
+  const { data: sp } = await svc
+    .from("order_specials")
+    .select("id, order_id, item_name, qty, charged_at, refunded_at, annullato_at, orders(customer_id)")
+    .eq("id", specialId)
+    .maybeSingle<{ id: string; order_id: string; item_name: string; qty: number; charged_at: string | null; refunded_at: string | null; annullato_at: string | null; orders: { customer_id: string } | null }>();
+  if (!sp) errore("Capo non trovato.");
+  if (sp!.charged_at) errore("Questo capo è già in fattura: il prezzo non si riscrive più. Se è sbagliato va rimborsato e rifatto.");
+  if (sp!.refunded_at || sp!.annullato_at) errore("Questo capo è chiuso: non c'è un prezzo da correggere.");
+
+  const { error } = await svc
+    .from("order_specials")
+    .update({ price_cli_cents: prezzoCli, comp_lav_cents: compLav })
+    .eq("id", specialId);
+  if (error) errore(error.message);
+
+  // Il compenso alla lavanderia segue il prezzo, ma solo se non è già uscito
+  // dal conto: una cifra bonificata è concordata e non si riscrive.
+  await svc
+    .from("laundry_payouts")
+    .update({ amount_cents: compLav * sp!.qty })
+    .eq("special_id", specialId)
+    .eq("status", "pending")
+    .is("paid_at", null);
+
+  revalidatePath("/admin/extra");
+  revalidatePath(`/admin/ordini/${sp!.order_id}`);
+  revalidatePath("/admin/lavanderia");
+  if (sp!.orders?.customer_id) revalidatePath(`/admin/abbonati/${sp!.orders.customer_id}`);
+  redirect(`${tornaA}?ok=${encodeURIComponent(`${sp!.item_name}: prezzi aggiornati.`)}`);
+}

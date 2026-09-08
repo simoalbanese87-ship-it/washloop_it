@@ -3,7 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { createServiceClient } from "@/lib/supabase/server";
-import { addebitaCapoSpeciale } from "@/lib/actions/charge";
+import { addebitaCapoSpeciale, correggiPrezzoCapo } from "@/lib/actions/charge";
 import { fmtFull } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -169,23 +169,42 @@ export default async function ExtraDaAddebitare({
                 </div>
 
                 {/* Il confronto con il listino, che è la ragione per cui questa
-                    pagina esiste: si guarda prima di premere, non dopo. */}
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <div className={`rounded-[12px] px-3 py-2 text-sm ${prezzoDiverso ? "bg-[#C9881F]/12" : "bg-ice"}`}>
-                    <div className="text-xs font-bold text-muted">Al cliente (IVA inclusa)</div>
-                    <div className="font-display font-extrabold text-navy">
-                      {eur(r.price_cli_cents)}
-                      {prezzoDiverso && <span className="ml-2 text-xs font-bold text-[#C9881F]">a listino ora: {eur(l!.price_cli_cents)}</span>}
-                    </div>
-                  </div>
-                  <div className={`rounded-[12px] px-3 py-2 text-sm ${compDiverso ? "bg-[#C9881F]/12" : "bg-ice"}`}>
-                    <div className="text-xs font-bold text-muted">Alla lavanderia (imponibile)</div>
-                    <div className="font-display font-extrabold text-navy">
-                      {eur(r.comp_lav_cents)}
-                      {compDiverso && <span className="ml-2 text-xs font-bold text-[#C9881F]">a listino ora: {eur(l!.comp_lav_cents)}</span>}
-                    </div>
-                  </div>
-                </div>
+                    pagina esiste: si guarda prima di premere, non dopo. E i due
+                    numeri si correggono qui, finché nessuno ha pagato niente:
+                    prima l'unico modo era togliere il capo e rifarlo. */}
+                <form action={correggiPrezzoCapo} className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                  <input type="hidden" name="special_id" value={r.id} />
+                  <input type="hidden" name="torna_a" value="/admin/extra" />
+                  <label className={`block rounded-[12px] px-3 py-2 text-xs font-bold ${prezzoDiverso ? "bg-[#C9881F]/12 text-[#C9881F]" : "bg-ice text-muted"}`}>
+                    Al cliente (IVA inclusa)
+                    {prezzoDiverso && <span className="ml-1 normal-case">· a listino ora {eur(l!.price_cli_cents)}</span>}
+                    <input
+                      name="price_cli_eur"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      defaultValue={(r.price_cli_cents / 100).toFixed(2)}
+                      className="mt-1 h-10 w-full rounded-[10px] border border-line bg-white px-3 font-display text-base font-extrabold text-navy outline-none focus:border-blue"
+                    />
+                  </label>
+                  <label className={`block rounded-[12px] px-3 py-2 text-xs font-bold ${compDiverso ? "bg-[#C9881F]/12 text-[#C9881F]" : "bg-ice text-muted"}`}>
+                    Alla lavanderia (imponibile)
+                    {compDiverso && <span className="ml-1 normal-case">· a listino ora {eur(l!.comp_lav_cents)}</span>}
+                    <input
+                      name="comp_lav_eur"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      defaultValue={(r.comp_lav_cents / 100).toFixed(2)}
+                      className="mt-1 h-10 w-full rounded-[10px] border border-line bg-white px-3 font-display text-base font-extrabold text-navy outline-none focus:border-blue"
+                    />
+                  </label>
+                  <BottoneInvio className="h-10 rounded-full border-2 border-navy px-4 font-display text-sm font-extrabold text-navy">
+                    Correggi i prezzi
+                  </BottoneInvio>
+                </form>
 
                 {!l && (
                   <p className="mt-2 rounded-[12px] bg-[#C0392B]/8 px-3 py-2 text-xs font-semibold text-[#C0392B]">

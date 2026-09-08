@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { romeWeekday, romeHHMM } from "@/lib/format";
 import { notifyOrderStatus } from "@/lib/notify";
 import { registraGuasto } from "@/lib/incidenti";
+import { lavanderiaPredefinita } from "@/lib/lavanderia";
 
 /** Cron giornaliero: genera gli ordini delle ricorrenze settimanali attive,
  *  agganciandoli a uno slot reale con stesso giorno+ora (Europe/Rome) nei
@@ -37,6 +38,10 @@ export async function GET(req: Request) {
     // riconsegna cade dopo la lavorazione (48h, o 24h sui piani veloci).
     sb.from("slots").select("id, starts_at, laundry_id, capacity").eq("kind", "delivery").is("archived_at", null).gte("starts_at", now.toISOString()).lte("starts_at", new Date(until.getTime() + 4 * 86_400_000).toISOString()),
   ]);
+
+  // Le fasce generate dal calendario non hanno lavanderia: senza questo
+  // ripiego ogni ritiro nato dalle ricorrenze sarebbe invisibile al portale.
+  const lavanderiaDiRipiego = await lavanderiaPredefinita(sb);
 
   let created = 0;
   let skippedFull = 0;
@@ -127,7 +132,7 @@ export async function GET(req: Request) {
         address_id: rec.address_id,
         pickup_slot_id: slot.id,
         delivery_slot_id: deliverySlotId,
-        laundry_id: slot.laundry_id,
+        laundry_id: slot.laundry_id ?? lavanderiaDiRipiego,
         eta_ready_at: eta,
         bags: rec.bags,
         notes: rec.notes,
