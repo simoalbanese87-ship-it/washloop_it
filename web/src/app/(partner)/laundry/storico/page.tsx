@@ -117,7 +117,11 @@ export default async function StoricoLavanderia({
   // I sacchi che contano: quelli contati sul banco. Dove il conteggio non c'è
   // ancora si usa quello del rider, e in mancanza di scansioni la previsione.
   const sacchiDi = (o: Ordine) => o.bags_arrivati ?? (o.bags_scansionati || o.bags);
-  const totaleSacchi = righe.reduce((t, o) => t + sacchiDi(o), 0);
+  // I sacchi del mese sono quelli dei ritiri del mese. Gli ordini più vecchi
+  // stanno in tabella solo perché nel mese hanno avuto un capo extra: i loro
+  // sacchi sono già stati contati nel mese in cui sono arrivati, e sommarli qui
+  // li conterebbe due volte.
+  const totaleSacchi = (ordiniDelMese ?? []).reduce((t, o) => t + sacchiDi(o), 0);
   const totaleCapi = (capi ?? []).reduce((t, c) => t + c.qty, 0);
   const dovutoCents = (compensi ?? []).reduce((t, r) => t + r.amount_cents, 0);
   const daLiquidare = (compensi ?? []).filter((r) => r.status === "pending").reduce((t, r) => t + r.amount_cents, 0);
