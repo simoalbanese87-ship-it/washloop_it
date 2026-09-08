@@ -34,7 +34,10 @@ export type AbbonamentoStripe = {
   statoItaliano: string;
   prezzoCents: number | null;
   periodoFino: string | null;
-  prossimoAddebito: { data: string; importoCents: number } | null;
+  /** Quanto verrà addebitato al rinnovo, voci extra in coda comprese.
+   *  `soloPiano` è vero quando l'anteprima di Stripe non è arrivata e questo è
+   *  il solo prezzo del piano: va detto invece di far credere che sia il totale. */
+  prossimoAddebito: { data: string; importoCents: number; soloPiano?: boolean } | null;
   disdettaAFinePeriodo: boolean;
   creatoIl: string | null;
   pagamentiRiusciti: number;
@@ -109,6 +112,30 @@ export async function abbonamentoDaStripe(subId: string, customerId?: string | n
     const fine =
       (sub as unknown as { current_period_end?: number }).current_period_end ??
       (sub.items?.data?.[0] as unknown as { current_period_end?: number } | undefined)?.current_period_end;
+
+    // Quanto verrà davvero addebitato al rinnovo, chiesto a Stripe.
+    //
+    // Prima qui c'era il prezzo del **piano**, e basta. Su un cliente con dei
+    // capi extra in coda la scheda finiva per dire due numeri che si
+    // contraddicono: «10,50 € entreranno nella prossima fattura» in cima, e
+    // «prossimo addebito 160,00 €» poco sotto. Nessuno dei due era il totale, e
+    // chi legge non sa a quale credere.
+    //
+    // L'anteprima della prossima fattura le voci in sospeso le comprende: è
+    // l'unico numero che il cliente si vedrà davvero sull'estratto conto.
+    let prossimoTotale: number | null = null;
+    if (customerId && sub.status === "active" && !sub.cancel_at_period_end) {
+      try {
+        const anteprima = await stripe().invoices.createPreview({ customer: customerId, subscription: sub.id });
+        prossimoTotale = anteprima.amount_due ?? anteprima.total ?? null;
+      } catch {
+        // Se l'anteprima non è disponibile si ripiega sul prezzo del piano, che
+        // è comunque meglio di niente — ma resta il caso in cui i due numeri
+        // divergono, ed è per questo che la scheda dice da dove viene.
+        prossimoTotale = null;
+      }
+    }
+
     return {
       stato: sub.status,
       statoItaliano: statoAbbonamentoItaliano(sub.status),
@@ -116,7 +143,11 @@ export async function abbonamentoDaStripe(subId: string, customerId?: string | n
       periodoFino: fine ? new Date(fine * 1000).toISOString() : null,
       prossimoAddebito:
         sub.status === "active" && !sub.cancel_at_period_end && fine
-          ? { data: new Date(fine * 1000).toISOString(), importoCents: prezzo ?? 0 }
+          ? {
+              data: new Date(fine * 1000).toISOString(),
+              importoCents: prossimoTotale ?? prezzo ?? 0,
+              soloPiano: prossimoTotale == null,
+            }
           : null,
       disdettaAFinePeriodo: sub.cancel_at_period_end === true,
       creatoIl: sub.created ? new Date(sub.created * 1000).toISOString() : null,

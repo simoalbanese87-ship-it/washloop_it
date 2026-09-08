@@ -82,9 +82,15 @@ export default async function RegistroExtra({
   const nonRiusciti = tutte.filter((r) => r.incasso_fallito_at && !r.refunded_at && !r.annullato_at);
   const inAttesa = tutte.filter((r) => !r.charged_at && !r.refunded_at && !r.annullato_at);
   const chiusi = tutte.filter((r) => r.refunded_at || r.annullato_at);
-  const incassati = tutte.filter((r) => r.charged_at && !r.incasso_fallito_at && !r.refunded_at && !r.annullato_at);
+  const chiusiOk = (r: Riga) => !r.incasso_fallito_at && !r.refunded_at && !r.annullato_at;
+  const incassati = tutte.filter((r) => r.incassato_at && chiusiOk(r));
+  // Chiesti a Stripe ma senza conferma che i soldi siano arrivati: sono le voci
+  // in coda per un rinnovo, come le camicie di Giulia. Non sono incassi e non
+  // sono errori — sono soldi promessi, ed è la categoria che prima non esisteva.
+  const daConfermare = tutte.filter((r) => r.charged_at && !r.incassato_at && chiusiOk(r));
 
-  const totIncassato = incassati.filter((r) => r.incassato_at).reduce((t, r) => t + r.price_cli_cents * r.qty, 0);
+  const totIncassato = incassati.reduce((t, r) => t + r.price_cli_cents * r.qty, 0);
+  const totDaConfermare = daConfermare.reduce((t, r) => t + r.price_cli_cents * r.qty, 0);
   const totNonRiuscito = nonRiusciti.reduce((t, r) => t + r.price_cli_cents * r.qty, 0);
 
   return (
@@ -92,7 +98,7 @@ export default async function RegistroExtra({
       <PageTitle
         kicker="Finanza"
         title="Capi extra"
-        sub={`${eur(totIncassato)} incassati${totNonRiuscito > 0 ? ` · ${eur(totNonRiuscito)} non riusciti` : ""}`}
+        sub={`${eur(totIncassato)} incassati${totDaConfermare > 0 ? ` · ${eur(totDaConfermare)} chiesti e non ancora arrivati` : ""}${totNonRiuscito > 0 ? ` · ${eur(totNonRiuscito)} non riusciti` : ""}`}
       />
 
       {ok && <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
@@ -176,12 +182,31 @@ export default async function RegistroExtra({
         </div>
       )}
 
+      {daConfermare.length > 0 && (
+        <div className="mb-5 rounded-[16px] border-2 border-[#C9881F]/45 bg-[#C9881F]/[0.08] p-4">
+          <span className="font-display text-base font-black text-[#C9881F]">
+            {eur(totDaConfermare)} chiesti, non ancora arrivati
+          </span>
+          <p className="mt-1 text-sm font-medium text-navy/75">
+            Voci in coda per la prossima fattura dell&apos;abbonamento: diventano soldi solo se quel
+            rinnovo arriva. <strong>Incassa adesso</strong> le tira fuori dalla coda e le preleva subito.
+          </p>
+          <div className="mt-3 space-y-3">
+            {daConfermare.map((r) => (
+              <div key={r.id} className="rounded-[12px] bg-white p-3">
+                <Voce r={r} l={aListino.get(r.item_name)} incassabile />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <Card className="!p-0">
         <div className="border-b border-line px-4 py-3 font-display text-sm font-extrabold text-navy">
-          Registro · {incassati.length} {incassati.length === 1 ? "capo addebitato" : "capi addebitati"}
+          Registro · {incassati.length} {incassati.length === 1 ? "capo incassato" : "capi incassati"}
         </div>
         {incassati.length === 0 ? (
-          <p className="px-4 py-4 text-sm font-medium text-muted">Nessun capo addebitato finora.</p>
+          <p className="px-4 py-4 text-sm font-medium text-muted">Nessun capo incassato finora.</p>
         ) : (
           <div className="divide-y divide-line/60">
             {incassati.map((r) => (
@@ -219,7 +244,7 @@ export default async function RegistroExtra({
 /** Una voce del registro: chi, quanto, quando, e se il prezzo è ancora quello
  *  del listino. I due prezzi si correggono solo finché non è stato chiesto
  *  niente — dopo, l'unica strada onesta è lo storno. */
-function Voce({ r, l, modificabile }: { r: Riga; l?: Listino; modificabile?: boolean }) {
+function Voce({ r, l, modificabile, incassabile }: { r: Riga; l?: Listino; modificabile?: boolean; incassabile?: boolean }) {
   const cliente = uno(uno(r.orders)?.profiles);
   const prezzoDiverso = !!l && l.price_cli_cents !== r.price_cli_cents;
   const compDiverso = !!l && l.comp_lav_cents !== r.comp_lav_cents;
@@ -283,13 +308,27 @@ function Voce({ r, l, modificabile }: { r: Riga; l?: Listino; modificabile?: boo
             <AnnullaAddebito specialId={r.id} tornaA="/admin/extra" />
           </>
         ) : (
-          <form action={stornaCapoSpeciale}>
-            <input type="hidden" name="special_id" value={r.id} />
-            <input type="hidden" name="torna_a" value="/admin/extra" />
-            <BottoneInvio className="font-display text-xs font-bold text-[#C0392B] hover:underline">
-              Storna
-            </BottoneInvio>
-          </form>
+          <>
+            {/* Il bottone sta qui, dove si guarda. Prima per incassare una voce
+                in coda bisognava sapere di doverla cercare nella scheda del
+                cliente — e per arrivarci bisognava sapere quale cliente. */}
+            {incassabile && (
+              <form action={addebitaSubitoCapo}>
+                <input type="hidden" name="special_id" value={r.id} />
+                <input type="hidden" name="torna_a" value="/admin/extra" />
+                <BottoneInvio attesa="Prelievo…" className="rounded-full bg-blue px-4 py-1.5 font-display text-xs font-extrabold text-white">
+                  Incassa adesso {eur(r.price_cli_cents * r.qty)}
+                </BottoneInvio>
+              </form>
+            )}
+            <form action={stornaCapoSpeciale}>
+              <input type="hidden" name="special_id" value={r.id} />
+              <input type="hidden" name="torna_a" value="/admin/extra" />
+              <BottoneInvio className="font-display text-xs font-bold text-[#C0392B] hover:underline">
+                Storna
+              </BottoneInvio>
+            </form>
+          </>
         )}
       </div>
     </>

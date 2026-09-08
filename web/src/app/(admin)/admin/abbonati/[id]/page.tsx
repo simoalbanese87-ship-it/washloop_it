@@ -540,7 +540,15 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                         {stripeSub.pagamentiRiusciti > 0 && <> · totale {eur(stripeSub.totalePagatoCents)} · ultimo {fmtDate(stripeSub.ultimoPagamento!)}</>}
                       </div>
                       {stripeSub.prossimoAddebito ? (
-                        <div>Prossimo addebito: <span className="font-bold text-navy">{fmtDate(stripeSub.prossimoAddebito.data)}</span> · {eur(stripeSub.prossimoAddebito.importoCents)}</div>
+                        <div>
+                          Prossimo addebito: <span className="font-bold text-navy">{fmtDate(stripeSub.prossimoAddebito.data)}</span> ·{" "}
+                          <span className="font-bold text-navy">{eur(stripeSub.prossimoAddebito.importoCents)}</span>
+                          <span className="ml-1 text-xs">
+                            {stripeSub.prossimoAddebito.soloPiano
+                              ? "(solo il piano: l'anteprima di Stripe non ha risposto, le voci extra in coda non sono comprese)"
+                              : "(totale, voci extra in coda comprese)"}
+                          </span>
+                        </div>
                       ) : (
                         <div>Nessun addebito futuro programmato.</div>
                       )}
