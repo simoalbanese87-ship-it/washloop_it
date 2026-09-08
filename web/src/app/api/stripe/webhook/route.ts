@@ -85,6 +85,18 @@ export async function POST(request: NextRequest) {
         // app a chi ha appena pagato, è peggio che non averlo mai messo.
         after(() => chiudiRecupero(inv.customer));
 
+        // I capi extra su questa fattura: qui, e solo qui, si sa che i soldi
+        // sono arrivati. `charged_at` diceva «l'ho chiesto a Stripe», che è
+        // un'altra cosa — e finora era l'unica traccia, per cui un capo in coda
+        // per un rinnovo mai avvenuto risultava indistinguibile da uno pagato.
+        after(async () => {
+          await db
+            .from("order_specials")
+            .update({ incassato_at: new Date().toISOString(), incasso_fallito_at: null, incasso_errore: null, link_pagamento: null })
+            .eq("stripe_invoice_id", inv.id)
+            .is("incassato_at", null);
+        });
+
         // Registro fatturazione: la riga si scrive sempre, anche a ponte FIC
         // spento, così il giorno in cui si decide il regime fiscale gli incassi
         // già avvenuti sono tutti tracciati e non vanno ricostruiti da Stripe.

@@ -504,3 +504,64 @@ export async function notifySegnalazioneOps(issueId: string) {
     console.error(`[notify] notifySegnalazioneOps(${issueId}) fallita:`, err);
   }
 }
+
+/** «Abbiamo addebitato i capi extra di questo ritiro»: una email, non una per capo.
+ *
+ *  Sostituisce `notifySpecialAdded` nel flusso normale, e cambia il tempo del
+ *  verbo perché è cambiato il fatto: prima si scriveva «verrà addebitato sulla
+ *  prossima fattura mensile», che era vero solo se il rinnovo arrivava. Ora i
+ *  soldi sono stati prelevati, e dirlo al futuro sarebbe una bugia.
+ *
+ *  Una sola per ritiro: su tre camicie partivano tre email per un solo
+ *  prelievo, e chi le riceveva pensava a tre addebiti. */
+export async function notificaExtraIncassati(orderId: string, totaleCents: number) {
+  try {
+    const svc = createServiceClient();
+    const { data: ordine } = await svc
+      .from("orders")
+      .select("customer_id")
+      .eq("id", orderId)
+      .maybeSingle<{ customer_id: string | null }>();
+    if (!ordine?.customer_id) return;
+
+    // I capi appena messi in fattura: quelli chiesti e non tolti. L'incasso è
+    // avvenuto un istante fa, quindi sono esattamente questi.
+    const { data: capi } = await svc
+      .from("order_specials")
+      .select("item_name, qty, price_cli_cents")
+      .eq("order_id", orderId)
+      .not("charged_at", "is", null)
+      .is("refunded_at", null)
+      .is("annullato_at", null)
+      .order("created_at")
+      .returns<{ item_name: string; qty: number; price_cli_cents: number }[]>();
+
+    const totale = "€" + (totaleCents / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const righe = (capi ?? [])
+      .map((c) => `<li>${c.qty}× ${c.item_name} — €${((c.price_cli_cents * c.qty) / 100).toFixed(2).replace(".", ",")}</li>`)
+      .join("");
+
+    const email = await userEmail(svc, ordine.customer_id);
+    if (email) {
+      const html = renderEmail({
+        title: "Capi speciali addebitati",
+        body:
+          `Nel tuo sacco abbiamo riconosciuto dei capi che non rientrano nell'abbonamento. ` +
+          `Li abbiamo addebitati sulla carta che usi per WashLoop, per un totale di <strong>${totale}</strong>.` +
+          (righe ? `<ul>${righe}</ul>` : "") +
+          `Trovi il dettaglio nella tua area personale. Se qualcosa non ti torna scrivici: si sistema.`,
+        emoji: "✨",
+        preheader: `Capi speciali · ${totale} addebitati`,
+        cta: { label: "Vedi i dettagli", href: `${site()}/app/ordini/${orderId}` },
+      });
+      await sendMail({ to: email, subject: `Capi speciali addebitati · ${totale}`, html });
+    }
+    await sendPush(ordine.customer_id, {
+      title: "Capi speciali addebitati ✨",
+      body: `${totale} sul tuo metodo di pagamento`,
+      url: `/app/ordini/${orderId}`,
+    });
+  } catch (err) {
+    console.error(`[notify] notificaExtraIncassati(${orderId}) fallita:`, err);
+  }
+}

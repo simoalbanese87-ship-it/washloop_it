@@ -2,48 +2,50 @@ import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
+import { LinkOfferta } from "@/components/admin/LinkOfferta";
 import { createServiceClient } from "@/lib/supabase/server";
-import { addebitaCapoSpeciale, addebitaSubitoCapo, correggiPrezzoCapo } from "@/lib/actions/charge";
+import { addebitaSubitoCapo, correggiPrezzoCapo, stornaCapoSpeciale } from "@/lib/actions/charge";
 import { fmtFull } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-/** I capi extra, prima che diventino soldi.
+/** Il registro dei capi extra: cosa è stato incassato, cosa no, cosa è stato tolto.
  *
- *  Perché serve una pagina sola
- *  ----------------------------
- *  Un capo speciale vive sparso in tre schede: quella del ritiro, quella del
- *  cliente e il portale della lavanderia. Per sapere «cosa sto per addebitare
- *  oggi» bisognava aprirle una per una, e infatti la camicia di fabia è rimasta
- *  in sospeso per giorni senza che nessuno la vedesse. Qui stanno tutte
- *  insieme, con accanto le due cose che servono a decidere: **quanto** e **da
- *  dove viene quel numero**.
+ *  Perché è cambiata
+ *  -----------------
+ *  Nasceva come elenco dei capi in attesa di addebito. Ma da quando l'incasso
+ *  parte da solo quando la lavanderia segna il sacco pronto, di capi in attesa
+ *  non ce ne sono più: la pagina sarebbe rimasta vuota per sempre.
  *
- *  Il controllo del prezzo
- *  -----------------------
- *  Ogni capo porta con sé una fotografia dei prezzi del momento in cui è stato
- *  registrato. È giusto — così un addebito comunicato non cambia sotto i piedi
- *  del cliente — ma vuol dire che se il listino cambia dopo, la fotografia
- *  resta vecchia e non lo dice a nessuno. È successo con la camicia: registrata
- *  a 3,00 € di compenso quando il contratto dice 2,05.
+ *  Quello che serve adesso è un altro mestiere: **il posto dove si va quando un
+ *  cliente reclama**, e quello dove si vede subito se un prelievo non è
+ *  riuscito. Prima quell'informazione non esisteva da nessuna parte — un capo
+ *  con `charged_at` valorizzato risultava «fatto» che i soldi fossero arrivati
+ *  o no, ed è per questo che le camicie di Giulia sono rimaste per giorni con
+ *  zero euro incassati senza che nessuno se ne accorgesse.
  *
- *  Qui il confronto è fatto e messo in faccia: se il prezzo congelato è diverso
- *  da quello a listino, la riga lo segnala **prima** che si prema addebita. */
+ *  In cima i non riusciti, perché sono l'unica cosa su cui agire oggi. Sotto il
+ *  registro, con il confronto col listino: nessuno guarda più il prezzo prima
+ *  che parta, quindi almeno lo si deve poter vedere dopo. */
 
 type Riga = {
   id: string;
   order_id: string;
   item_name: string;
   qty: number;
-  qty_totale: number | null;
-  qty_inclusa: number | null;
   price_cli_cents: number;
   comp_lav_cents: number;
   created_at: string;
-  autore: { full_name: string | null; role: string } | null;
+  charged_at: string | null;
+  incassato_at: string | null;
+  incasso_fallito_at: string | null;
+  incasso_errore: string | null;
+  link_pagamento: string | null;
+  refunded_at: string | null;
+  annullato_at: string | null;
+  annullato_motivo: string | null;
   orders: {
     customer_id: string | null;
-    status: string;
     profiles: { full_name: string | null; client_code: string | null; is_test: boolean } | null;
   } | null;
 };
@@ -52,7 +54,7 @@ type Listino = { name: string; price_cli_cents: number; comp_lav_cents: number }
 const eur = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 const uno = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);
 
-export default async function ExtraDaAddebitare({
+export default async function RegistroExtra({
   searchParams,
 }: {
   searchParams: Promise<{ ok?: string; warn?: string }>;
@@ -64,35 +66,33 @@ export default async function ExtraDaAddebitare({
     svc
       .from("order_specials")
       .select(
-        "id, order_id, item_name, qty, qty_totale, qty_inclusa, price_cli_cents, comp_lav_cents, created_at, " +
-          "autore:profiles!order_specials_added_by_fkey(full_name, role), " +
-          "orders(customer_id, status, profiles!orders_customer_id_fkey(full_name, client_code, is_test))",
+        "id, order_id, item_name, qty, price_cli_cents, comp_lav_cents, created_at, charged_at, " +
+          "incassato_at, incasso_fallito_at, incasso_errore, link_pagamento, refunded_at, annullato_at, annullato_motivo, " +
+          "orders(customer_id, profiles!orders_customer_id_fkey(full_name, client_code, is_test))",
       )
-      .is("charged_at", null)
-      .is("refunded_at", null)
-      .is("annullato_at", null)
       .order("created_at", { ascending: false })
+      .limit(200)
       .returns<Riga[]>(),
     svc.from("special_items").select("name, price_cli_cents, comp_lav_cents").returns<Listino[]>(),
   ]);
 
   const aListino = new Map((listino ?? []).map((l) => [l.name, l]));
-  // I capi dei profili di prova non sono lavoro da fare: sporcherebbero
-  // l'elenco delle cose che stanno per diventare soldi veri.
   const tutte = (righe ?? []).filter((r) => !uno(uno(r.orders)?.profiles)?.is_test);
 
-  const conProblema = tutte.filter((r) => {
-    const l = aListino.get(r.item_name);
-    return !l || l.price_cli_cents !== r.price_cli_cents || l.comp_lav_cents !== r.comp_lav_cents;
-  });
-  const totale = tutte.reduce((t, r) => t + r.price_cli_cents * r.qty, 0);
+  const nonRiusciti = tutte.filter((r) => r.incasso_fallito_at && !r.refunded_at && !r.annullato_at);
+  const inAttesa = tutte.filter((r) => !r.charged_at && !r.refunded_at && !r.annullato_at);
+  const chiusi = tutte.filter((r) => r.refunded_at || r.annullato_at);
+  const incassati = tutte.filter((r) => r.charged_at && !r.incasso_fallito_at && !r.refunded_at && !r.annullato_at);
+
+  const totIncassato = incassati.filter((r) => r.incassato_at).reduce((t, r) => t + r.price_cli_cents * r.qty, 0);
+  const totNonRiuscito = nonRiusciti.reduce((t, r) => t + r.price_cli_cents * r.qty, 0);
 
   return (
     <>
       <PageTitle
         kicker="Finanza"
-        title="Extra da addebitare"
-        sub={`${tutte.length} ${tutte.length === 1 ? "capo registrato e non ancora messo in fattura" : "capi registrati e non ancora messi in fattura"} · ${eur(totale)}`}
+        title="Capi extra"
+        sub={`${eur(totIncassato)} incassati${totNonRiuscito > 0 ? ` · ${eur(totNonRiuscito)} non riusciti` : ""}`}
       />
 
       {ok && <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
@@ -100,160 +100,197 @@ export default async function ExtraDaAddebitare({
 
       <Card className="mb-4">
         <p className="text-sm font-medium text-muted">
-          Ogni capo porta con sé il <strong className="text-navy">prezzo del momento in cui è stato
-          registrato</strong>: è giusto, così un importo comunicato al cliente non cambia sotto i suoi
-          piedi. Ma se il listino cambia dopo, quella fotografia resta vecchia e non lo dice a nessuno —
-          è successo con la camicia. Qui il confronto è fatto: le righe fuori listino sono marcate, e
-          conviene sistemarle <strong className="text-navy">prima</strong> di addebitare.
+          I capi si incassano <strong className="text-navy">quando la lavanderia segna il sacco pronto</strong>,
+          in un unico prelievo per ritiro. Se la carta rifiuta, la fattura resta aperta con il suo link:
+          l&apos;importo non è perso, va mandato al cliente. Il prezzo di ogni capo è quello del momento in
+          cui è stato registrato — qui accanto trovi quello a listino oggi, per accorgerti se è andato fuori.
         </p>
-        {conProblema.length > 0 && (
-          <p className="mt-2 rounded-[12px] bg-[#C9881F]/12 px-3 py-2 text-sm font-semibold text-[#C9881F]">
-            {conProblema.length} {conProblema.length === 1 ? "riga ha un prezzo diverso" : "righe hanno un prezzo diverso"} da
-            quello a listino. Il listino si cambia da{" "}
-            <Link href="/admin/listino" className="underline">Impostazioni → Listino</Link>; il prezzo già
-            congelato su una riga si corregge togliendola e rifacendola dalla scheda del ritiro.
-          </p>
-        )}
       </Card>
 
-      {tutte.length === 0 ? (
-        <Card>
-          <p className="text-sm font-medium text-muted">
-            Nessun capo in attesa: tutto quello che la lavanderia ha registrato è già in fattura, oppure è
-            stato annullato.
+      {/* Prima cosa in pagina: i soldi che non sono entrati. È l'unica riga su
+          cui si può agire oggi, e prima non compariva da nessuna parte. */}
+      {nonRiusciti.length > 0 && (
+        <div className="mb-5 rounded-[16px] border-2 border-[#C0392B]/40 bg-[#C0392B]/[0.05] p-4">
+          <span className="font-display text-base font-black text-[#C0392B]">
+            {eur(totNonRiuscito)} non incassati · {nonRiusciti.length} {nonRiusciti.length === 1 ? "capo" : "capi"}
+          </span>
+          <p className="mt-1 text-sm font-medium text-navy/75">
+            Il prelievo è stato rifiutato. La fattura resta aperta: manda al cliente il link qui sotto,
+            oppure riprova.
           </p>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {tutte.map((r) => {
-            const ordine = uno(r.orders);
-            const cliente = uno(ordine?.profiles);
-            const l = aListino.get(r.item_name);
-            const prezzoDiverso = !!l && l.price_cli_cents !== r.price_cli_cents;
-            const compDiverso = !!l && l.comp_lav_cents !== r.comp_lav_cents;
-            const a = uno(r.autore);
-            const chi =
-              a?.role === "partner" ? "dalla lavanderia" :
-              a?.role === "admin" ? "dal pannello" :
-              a?.role === "courier" ? "dal rider" : null;
-
-            return (
-              <Card key={r.id} className={prezzoDiverso || compDiverso || !l ? "!border-[#C9881F]/45" : ""}>
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="font-display text-base font-extrabold text-navy">
-                    {r.qty}× {r.item_name}
-                    {r.qty_totale != null && (
-                      <span className="ml-2 text-xs font-medium text-muted">
-                        ({r.qty_totale} trovate, {r.qty_inclusa ?? 0} comprese)
-                      </span>
-                    )}
-                  </span>
-                  <span className="font-display text-lg font-black text-navy">{eur(r.price_cli_cents * r.qty)}</span>
+          <div className="mt-3 space-y-3">
+            {nonRiusciti.map((r) => {
+              const cliente = uno(uno(r.orders)?.profiles);
+              return (
+                <div key={r.id} className="rounded-[12px] bg-white p-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-display text-sm font-bold text-navy">
+                      {r.qty}× {r.item_name} ·{" "}
+                      <Link href={`/admin/abbonati/${uno(r.orders)?.customer_id}`} className="text-blue hover:underline">
+                        {cliente?.full_name ?? "Cliente"}
+                      </Link>
+                    </span>
+                    <span className="font-display text-sm font-black text-[#C0392B]">{eur(r.price_cli_cents * r.qty)}</span>
+                  </div>
+                  <p className="mt-1 text-xs font-semibold text-[#C0392B]">{r.incasso_errore}</p>
+                  {r.link_pagamento && <LinkOfferta url={r.link_pagamento} />}
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <form action={addebitaSubitoCapo}>
+                      <input type="hidden" name="special_id" value={r.id} />
+                      <input type="hidden" name="torna_a" value="/admin/extra" />
+                      <BottoneInvio attesa="Prelievo…" className="rounded-full bg-blue px-4 py-1.5 font-display text-xs font-extrabold text-white">
+                        Riprova il prelievo
+                      </BottoneInvio>
+                    </form>
+                    <form action={stornaCapoSpeciale}>
+                      <input type="hidden" name="special_id" value={r.id} />
+                      <input type="hidden" name="torna_a" value="/admin/extra" />
+                      <BottoneInvio className="font-display text-xs font-bold text-[#C0392B] hover:underline">
+                        Storna
+                      </BottoneInvio>
+                    </form>
+                  </div>
                 </div>
-
-                <div className="mt-1 text-sm font-medium text-muted">
-                  {cliente?.full_name ? (
-                    <Link href={`/admin/abbonati/${ordine?.customer_id}`} className="font-bold text-blue hover:underline">
-                      {cliente.full_name}
-                    </Link>
-                  ) : "Cliente"}
-                  {cliente?.client_code ? ` · ${cliente.client_code}` : ""} ·{" "}
-                  <Link href={`/admin/ordini/${r.order_id}`} className="font-bold text-blue hover:underline">
-                    vedi il ritiro →
-                  </Link>
-                </div>
-
-                <div className="mt-1 text-xs font-medium text-muted">
-                  registrato {chi ?? "da qualcuno non più risalibile"}
-                  {a?.full_name ? ` (${a.full_name})` : ""} · {fmtFull(r.created_at)}
-                </div>
-
-                {/* Il confronto con il listino, che è la ragione per cui questa
-                    pagina esiste: si guarda prima di premere, non dopo. E i due
-                    numeri si correggono qui, finché nessuno ha pagato niente:
-                    prima l'unico modo era togliere il capo e rifarlo. */}
-                <form action={correggiPrezzoCapo} className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-                  <input type="hidden" name="special_id" value={r.id} />
-                  <input type="hidden" name="torna_a" value="/admin/extra" />
-                  <label className={`block rounded-[12px] px-3 py-2 text-xs font-bold ${prezzoDiverso ? "bg-[#C9881F]/12 text-[#C9881F]" : "bg-ice text-muted"}`}>
-                    Al cliente (IVA inclusa)
-                    {prezzoDiverso && <span className="ml-1 normal-case">· a listino ora {eur(l!.price_cli_cents)}</span>}
-                    <input
-                      name="price_cli_eur"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      required
-                      defaultValue={(r.price_cli_cents / 100).toFixed(2)}
-                      className="mt-1 h-10 w-full rounded-[10px] border border-line bg-white px-3 font-display text-base font-extrabold text-navy outline-none focus:border-blue"
-                    />
-                  </label>
-                  <label className={`block rounded-[12px] px-3 py-2 text-xs font-bold ${compDiverso ? "bg-[#C9881F]/12 text-[#C9881F]" : "bg-ice text-muted"}`}>
-                    Alla lavanderia (imponibile)
-                    {compDiverso && <span className="ml-1 normal-case">· a listino ora {eur(l!.comp_lav_cents)}</span>}
-                    <input
-                      name="comp_lav_eur"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      required
-                      defaultValue={(r.comp_lav_cents / 100).toFixed(2)}
-                      className="mt-1 h-10 w-full rounded-[10px] border border-line bg-white px-3 font-display text-base font-extrabold text-navy outline-none focus:border-blue"
-                    />
-                  </label>
-                  <BottoneInvio className="h-10 rounded-full border-2 border-navy px-4 font-display text-sm font-extrabold text-navy">
-                    Correggi i prezzi
-                  </BottoneInvio>
-                </form>
-
-                {!l && (
-                  <p className="mt-2 rounded-[12px] bg-[#C0392B]/8 px-3 py-2 text-xs font-semibold text-[#C0392B]">
-                    Questo capo non è più a listino: controlla il prezzo prima di addebitarlo.
-                  </p>
-                )}
-
-                <div className="mt-3 flex flex-wrap items-center gap-3">
-                  {/* Prima scelta: si incassa adesso. Aspettare il rinnovo vuol
-                      dire scommettere che ci sia un rinnovo — e su un cliente
-                      che ha disdetto quella fattura non arriverà mai, mentre
-                      alla lavanderia il capo lo paghiamo comunque. */}
-                  <form action={addebitaSubitoCapo}>
-                    <input type="hidden" name="special_id" value={r.id} />
-                    <input type="hidden" name="torna_a" value="/admin/extra" />
-                    <BottoneInvio
-                      attesa="Prelievo in corso…"
-                      className="rounded-full bg-blue px-5 py-2 font-display text-sm font-extrabold text-white"
-                    >
-                      Incassa subito {eur(r.price_cli_cents * r.qty)}
-                    </BottoneInvio>
-                  </form>
-                  <form action={addebitaCapoSpeciale}>
-                    <input type="hidden" name="special_id" value={r.id} />
-                    <input type="hidden" name="torna_a" value="/admin/extra" />
-                    <BottoneInvio className="rounded-full border-2 border-navy/30 px-4 py-2 font-display text-sm font-bold text-navy">
-                      Metti sulla prossima fattura
-                    </BottoneInvio>
-                  </form>
-                  <AnnullaAddebito specialId={r.id} tornaA="/admin/extra" />
-                </div>
-              </Card>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 
-      <div className="mt-4 rounded-[14px] border border-line bg-white p-4 text-xs font-medium text-muted">
-        <p>
-          <strong className="text-navy">Incassa subito</strong> emette una fattura con quel solo capo e la
-          preleva dalla carta del cliente. Se la carta chiede la conferma del titolare il prelievo può
-          essere rifiutato: in quel caso la fattura <strong>resta aperta</strong> con il suo link di
-          pagamento, e te lo scrivo qui sopra da mandare al cliente. L&apos;importo non si perde.
-        </p>
-        <p className="mt-2">
-          <strong className="text-navy">Metti sulla prossima fattura</strong> è la strada di prima: la voce
-          aspetta il rinnovo dell&apos;abbonamento. Va bene su un cliente che continua; su uno che ha
-          disdetto quella fattura non arriverà mai, mentre alla lavanderia il capo lo paghiamo comunque.
-        </p>
+      {inAttesa.length > 0 && (
+        <div className="mb-5 rounded-[16px] border-2 border-[#2b7fd4]/35 bg-[#2b7fd4]/[0.06] p-4">
+          <span className="font-display text-base font-black text-blue">
+            {inAttesa.length} {inAttesa.length === 1 ? "capo ancora da incassare" : "capi ancora da incassare"}
+          </span>
+          <p className="mt-1 text-sm font-medium text-navy/75">
+            Registrati ma non ancora chiesti al cliente: succede sui ritiri già segnati pronti prima di
+            questa modifica, o su un capo aggiunto a mano dopo. Controlla il prezzo e incassa.
+          </p>
+          <div className="mt-3 space-y-3">
+            {inAttesa.map((r) => (
+              <div key={r.id} className="rounded-[12px] bg-white p-3">
+                <Voce r={r} l={aListino.get(r.item_name)} modificabile />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Card className="!p-0">
+        <div className="border-b border-line px-4 py-3 font-display text-sm font-extrabold text-navy">
+          Registro · {incassati.length} {incassati.length === 1 ? "capo addebitato" : "capi addebitati"}
+        </div>
+        {incassati.length === 0 ? (
+          <p className="px-4 py-4 text-sm font-medium text-muted">Nessun capo addebitato finora.</p>
+        ) : (
+          <div className="divide-y divide-line/60">
+            {incassati.map((r) => (
+              <div key={r.id} className="px-4 py-3">
+                <Voce r={r} l={aListino.get(r.item_name)} />
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {chiusi.length > 0 && (
+        <Card className="mt-4">
+          <span className="font-display text-sm font-extrabold text-navy">Stornati e annullati</span>
+          <ul className="mt-2 space-y-1.5">
+            {chiusi.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-ice px-3 py-2 text-sm">
+                <span className="font-semibold text-navy/70">
+                  <span className="line-through">{r.qty}× {r.item_name}</span>
+                  <span className="ml-2 text-xs font-medium text-muted">
+                    {uno(uno(r.orders)?.profiles)?.full_name ?? "Cliente"}
+                    {r.annullato_motivo ? ` · ${r.annullato_motivo}` : r.refunded_at ? " · rimborsato" : ""}
+                  </span>
+                </span>
+                <span className="font-display text-sm font-bold text-muted line-through">{eur(r.price_cli_cents * r.qty)}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+    </>
+  );
+}
+
+/** Una voce del registro: chi, quanto, quando, e se il prezzo è ancora quello
+ *  del listino. I due prezzi si correggono solo finché non è stato chiesto
+ *  niente — dopo, l'unica strada onesta è lo storno. */
+function Voce({ r, l, modificabile }: { r: Riga; l?: Listino; modificabile?: boolean }) {
+  const cliente = uno(uno(r.orders)?.profiles);
+  const prezzoDiverso = !!l && l.price_cli_cents !== r.price_cli_cents;
+  const compDiverso = !!l && l.comp_lav_cents !== r.comp_lav_cents;
+  const campo = "mt-1 h-9 w-24 rounded-[10px] border border-line bg-white px-2 font-display text-sm font-extrabold text-navy outline-none focus:border-blue";
+
+  return (
+    <>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="font-display text-sm font-bold text-navy">
+          {r.qty}× {r.item_name} ·{" "}
+          <Link href={`/admin/abbonati/${uno(r.orders)?.customer_id}`} className="text-blue hover:underline">
+            {cliente?.full_name ?? "Cliente"}
+          </Link>
+          {cliente?.client_code ? <span className="ml-1 text-xs font-medium text-muted">{cliente.client_code}</span> : null}
+        </span>
+        <span className="font-display text-sm font-black text-navy">{eur(r.price_cli_cents * r.qty)}</span>
+      </div>
+
+      <div className="mt-0.5 text-xs font-medium text-muted">
+        {r.incassato_at ? (
+          <span className="font-bold text-[#1F8A5B]">incassato il {fmtFull(r.incassato_at)}</span>
+        ) : r.charged_at ? (
+          <span className="font-bold text-[#C9881F]">chiesto il {fmtFull(r.charged_at)}, incasso non ancora confermato</span>
+        ) : (
+          <>registrato il {fmtFull(r.created_at)}</>
+        )}
+        {" · "}
+        <Link href={`/admin/ordini/${r.order_id}`} className="font-bold text-blue hover:underline">vedi il ritiro →</Link>
+        {(prezzoDiverso || compDiverso) && (
+          <span className="ml-2 rounded-full bg-[#C9881F]/15 px-2 py-0.5 font-bold text-[#C9881F]">
+            fuori listino: oggi {l ? eur(l.price_cli_cents) : "—"} al cliente, {l ? eur(l.comp_lav_cents) : "—"} alla lavanderia
+          </span>
+        )}
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        {modificabile ? (
+          <>
+            <form action={correggiPrezzoCapo} className="flex flex-wrap items-end gap-2">
+              <input type="hidden" name="special_id" value={r.id} />
+              <input type="hidden" name="torna_a" value="/admin/extra" />
+              <label className="text-[11px] font-bold text-muted">
+                Cliente €
+                <input name="price_cli_eur" type="number" step="0.01" min="0" required defaultValue={(r.price_cli_cents / 100).toFixed(2)} className={campo} />
+              </label>
+              <label className="text-[11px] font-bold text-muted">
+                Lavanderia €
+                <input name="comp_lav_eur" type="number" step="0.01" min="0" required defaultValue={(r.comp_lav_cents / 100).toFixed(2)} className={campo} />
+              </label>
+              <BottoneInvio className="h-9 rounded-full border-2 border-navy px-3 font-display text-xs font-extrabold text-navy">
+                Correggi
+              </BottoneInvio>
+            </form>
+            <form action={addebitaSubitoCapo}>
+              <input type="hidden" name="special_id" value={r.id} />
+              <input type="hidden" name="torna_a" value="/admin/extra" />
+              <BottoneInvio attesa="Prelievo…" className="rounded-full bg-blue px-4 py-1.5 font-display text-xs font-extrabold text-white">
+                Incassa {eur(r.price_cli_cents * r.qty)}
+              </BottoneInvio>
+            </form>
+            <AnnullaAddebito specialId={r.id} tornaA="/admin/extra" />
+          </>
+        ) : (
+          <form action={stornaCapoSpeciale}>
+            <input type="hidden" name="special_id" value={r.id} />
+            <input type="hidden" name="torna_a" value="/admin/extra" />
+            <BottoneInvio className="font-display text-xs font-bold text-[#C0392B] hover:underline">
+              Storna
+            </BottoneInvio>
+          </form>
+        )}
       </div>
     </>
   );

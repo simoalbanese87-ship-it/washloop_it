@@ -65,13 +65,13 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     ordiniVeri().is("courier_id", null),
     abbonamentiVeri(),
     segnalazioniAperte(),
-    // Capi registrati dalla lavanderia e non ancora incassati. Da quando
-    // l'addebito non parte più da solo, questo numero è l'unica cosa che
-    // impedisce a un capo di restare lì per sempre senza che nessuno lo veda.
+    // Capi il cui prelievo è stato rifiutato. La fattura resta aperta e il
+    // link di pagamento c'è: questi soldi si recuperano, ma solo se qualcuno
+    // sa che esistono. Prima quell'informazione non c'era da nessuna parte.
     svc
       .from("order_specials")
       .select("id, orders!inner(profiles!orders_customer_id_fkey(is_test))", { count: "exact", head: false })
-      .is("charged_at", null)
+      .not("incasso_fallito_at", "is", null)
       .is("refunded_at", null)
       .is("annullato_at", null)
       .returns<{ id: string; orders: { profiles: { is_test: boolean } | null } | null }[]>(),
@@ -100,14 +100,14 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
       tono: "text-[#C0392B]",
     },
     {
-      // Da quando la lavanderia non addebita più da sola, questi capi aspettano
-      // che qualcuno controlli il prezzo e incassi. Se il numero resta lì,
-      // sono soldi lavati e mai chiesti.
-      label: "Extra da incassare",
+      // Il prelievo automatico è stato rifiutato: la carta chiedeva la conferma
+      // del titolare, o i fondi non bastavano. L'importo non è perso — la
+      // fattura è aperta — ma qualcuno deve mandare il link.
+      label: "Extra non incassati",
       n: nExtra,
-      sub: "capi in attesa, prezzo da controllare",
+      sub: "prelievo rifiutato, link da mandare",
       href: "/admin/extra",
-      tono: "text-[#2b7fd4]",
+      tono: "text-[#C0392B]",
     },
     {
       label: "Da contattare",

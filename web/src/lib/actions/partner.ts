@@ -7,6 +7,8 @@ import { notifyOrderStatus, notifySegnalazioneCliente, notifySegnalazioneOps } f
 import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
 import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione } from "@/lib/segnalazioni";
 import { conteggiaConFranchigia } from "@/lib/franchigia";
+import { incassaExtraDelRitiro } from "@/lib/incasso-extra";
+import { notificaExtraIncassati } from "@/lib/notify";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
 const PARTNER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -107,6 +109,25 @@ export async function advanceStatus(formData: FormData) {
 
   const { error } = await scriviStato(orderId, next);
   if (error) throw new Error(error);
+
+  // Il sacco è finito: è il momento in cui il totale dei capi extra è completo
+  // e non può più arrivarne un altro. Da qui parte l'incasso, in un colpo solo.
+  //
+  // Prima l'addebito era una voce agganciata all'abbonamento, che diventava
+  // soldi solo alla fattura di rinnovo: su un cliente che disdice prima, mai.
+  //
+  // Non fa fallire il «pronto» in nessun caso — `incassaExtraDelRitiro` cattura
+  // tutto e registra: il lavoro fisico è già stato fatto, e un sacco pronto che
+  // resta «in lavorazione» sul tabellone è un danno peggiore di un incasso
+  // mancato, che almeno si vede e si rimedia.
+  if (next === "ready") {
+    const esito = await incassaExtraDelRitiro(createServiceClient(), orderId);
+    if (esito.esito === "incassato") {
+      await notificaExtraIncassati(orderId, esito.totaleCents);
+    }
+    revalidatePath("/admin/extra");
+    revalidatePath("/admin");
+  }
 
   const daNotificare = next === "ready" ? await programmaRiconsegnaSeScelta(orderId) : next;
   await notifyOrderStatus(orderId, daNotificare);

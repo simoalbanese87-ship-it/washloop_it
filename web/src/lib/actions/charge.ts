@@ -565,3 +565,51 @@ export async function addebitaSubitoCapo(formData: FormData) {
     esci("warn", `Non sono riuscito a prelevare subito (${motivo}). La fattura resta aperta${link ? ` e il cliente la può pagare da qui: ${link}` : ""}.`);
   }
 }
+
+/** Storna un capo in un clic.
+ *
+ *  `refundOrderSpecial` fa già la cosa giusta e distingue i due casi — voce
+ *  ancora in sospeso → si annulla, fattura già pagata → rimborso vero su Stripe
+ *  — ma vuole un percorso di ritorno e non ne aveva uno: finiva sempre sulla
+ *  scheda del ritiro, cioè lontano da dove si stava guardando.
+ *
+ *  Qui non si chiede un motivo. È una scelta, non una dimenticanza: sul
+ *  registro degli incassi lo storno si fa mentre il cliente è al telefono, e un
+ *  campo obbligatorio in mezzo trasforma un clic in una pratica. Il motivo
+ *  resta obbligatorio dove serve davvero — sull'annullo di un capo mai
+ *  addebitato, dove non c'è nessun movimento di denaro a raccontare il fatto. */
+export async function stornaCapoSpeciale(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "admin") throw new Error("Solo admin");
+
+  const specialId = String(formData.get("special_id") ?? "");
+  const tornaA = String(formData.get("torna_a") ?? "/admin/extra");
+  if (!specialId) redirect(`${tornaA}?warn=${encodeURIComponent("Capo mancante.")}`);
+
+  const svc = createServiceClient();
+  const { data: sp } = await svc
+    .from("order_specials")
+    .select("id, item_name, qty, price_cli_cents, charged_at, refunded_at, annullato_at")
+    .eq("id", specialId)
+    .maybeSingle<{ id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null; annullato_at: string | null }>();
+  if (!sp) redirect(`${tornaA}?warn=${encodeURIComponent("Capo non trovato.")}`);
+  if (sp!.refunded_at || sp!.annullato_at) redirect(`${tornaA}?warn=${encodeURIComponent("Questo capo è già stato chiuso.")}`);
+
+  const dati = new FormData();
+  dati.set("special_id", specialId);
+
+  if (sp!.charged_at) {
+    await refundOrderSpecial(dati);
+  } else {
+    // Mai chiesto niente al cliente: non è un rimborso, è un annullo. Il motivo
+    // qui lo mette il sistema, perché il gesto è lo stesso e chi preme sta
+    // dicendo la stessa cosa.
+    dati.set("motivo", "Stornato dal registro dei capi extra");
+    dati.set("torna_a", tornaA);
+    await annullaCapoSpeciale(dati);
+  }
+
+  const importo = (sp!.price_cli_cents * sp!.qty / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+  revalidatePath("/admin/extra");
+  redirect(`${tornaA}?ok=${encodeURIComponent(`${sp!.item_name} stornato: ${importo} tolti al cliente e alla lavanderia.`)}`);
+}
