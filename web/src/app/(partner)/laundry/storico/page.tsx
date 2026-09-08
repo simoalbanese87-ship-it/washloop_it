@@ -69,7 +69,7 @@ export default async function StoricoLavanderia({
   const etichettaMese = new Date(anno, numMese - 1, 1).toLocaleDateString("it-IT", { month: "long", year: "numeric" });
 
   const supabase = await createClient();
-  const [{ data: ordini }, { data: capi }, { data: compensi }] = await Promise.all([
+  const [{ data: ordiniDelMese }, { data: capi }, { data: compensi }] = await Promise.all([
     supabase
       .from("partner_orders")
       .select("order_id, client_code, bags, bags_scansionati, bags_arrivati, status, created_at")
@@ -96,7 +96,21 @@ export default async function StoricoLavanderia({
       .returns<Compenso[]>(),
   ]);
 
-  const righe = ordini ?? [];
+  // Un capo registrato a settembre può stare su un ritiro di fine agosto: il
+  // riepilogo lo contava e la tabella no, quindi la pagina diceva «5 capi
+  // extra» e sotto mostrava solo trattini. Si recuperano anche quegli ordini.
+  const idDelMese = new Set((ordiniDelMese ?? []).map((o) => o.order_id));
+  const mancanti = [...new Set((capi ?? []).map((c) => c.order_id))].filter((id) => !idDelMese.has(id));
+  const { data: ordiniDeiCapi } = mancanti.length
+    ? await supabase
+        .from("partner_orders")
+        .select("order_id, client_code, bags, bags_scansionati, bags_arrivati, status, created_at")
+        .in("order_id", mancanti)
+        .returns<Ordine[]>()
+    : { data: [] as Ordine[] };
+
+  const righe = [...(ordiniDelMese ?? []), ...(ordiniDeiCapi ?? [])]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
   const capiPerOrdine = new Map<string, Capo[]>();
   for (const c of capi ?? []) capiPerOrdine.set(c.order_id, [...(capiPerOrdine.get(c.order_id) ?? []), c]);
 
@@ -175,10 +189,10 @@ export default async function StoricoLavanderia({
 
       <Card className="mb-4">
         <p className="text-sm font-medium text-muted">
-          Il <strong className="text-navy">compenso registrato</strong> si scrive alla riconsegna: gli
+          Il <strong className="text-navy">compenso maturato</strong> si scrive alla riconsegna: gli
           ordini ancora sul banco non compaiono ancora in quella cifra, ma i loro sacchi sì. I{" "}
-          <strong className="text-navy">sacchi</strong> sono quelli che hai contato tu all&apos;arrivo — è
-          quel numero che fa il compenso, non quello previsto in prenotazione.
+          <strong className="text-navy">sacchi</strong> sono quelli che hai contato tu all&apos;arrivo:
+          è quel numero che fa il compenso, non quello previsto in prenotazione.
         </p>
         {daContare > 0 && (
           <p className="mt-2 rounded-[12px] bg-[#C9881F]/12 px-3 py-2 text-sm font-semibold text-[#C9881F]">
