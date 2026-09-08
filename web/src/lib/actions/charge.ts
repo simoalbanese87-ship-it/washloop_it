@@ -6,6 +6,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
 import { chargeSpecialById } from "@/lib/billing-specials";
+import { notifySpecialAdded } from "@/lib/notify";
 
 /** Mette in addebito i capi speciali non ancora fatturati di un ordine.
  *
@@ -341,8 +342,20 @@ export async function addebitaCapoSpeciale(formData: FormData) {
     redirect(`${dove}?warn=${encodeURIComponent(perche[res.reason] ?? "Addebito non riuscito.")}`);
   }
 
+  // Il cliente si avvisa qui, dove l'importo diventa suo: prima la mail partiva
+  // al momento in cui la lavanderia registrava il capo, cioè prima che qualcuno
+  // avesse guardato il prezzo.
+  if (res.ok) {
+    try {
+      await notifySpecialAdded(res.customerId, { itemName: res.itemName, priceCents: res.priceCents, orderId: sp!.order_id });
+    } catch (err) {
+      console.error(`[charge] notifica capo ${specialId} non inviata:`, err);
+    }
+  }
+
   revalidatePath(`/admin/ordini/${sp!.order_id}`);
   revalidatePath(`/app/ordini/${sp!.order_id}`);
+  revalidatePath("/admin/extra");
   if (sp!.orders?.customer_id) revalidatePath(`/admin/abbonati/${sp!.orders.customer_id}`);
   redirect(`${dove}?ok=${encodeURIComponent(`${sp!.item_name} messo in fattura: entrerà nella prossima ricevuta.`)}`);
 }
@@ -409,4 +422,128 @@ export async function correggiPrezzoCapo(formData: FormData) {
   revalidatePath("/admin/lavanderia");
   if (sp!.orders?.customer_id) revalidatePath(`/admin/abbonati/${sp!.orders.customer_id}`);
   redirect(`${tornaA}?ok=${encodeURIComponent(`${sp!.item_name}: prezzi aggiornati.`)}`);
+}
+
+/** Incassa **subito** un capo speciale, invece di aspettare il rinnovo.
+ *
+ *  Il rischio che toglie
+ *  ---------------------
+ *  La strada normale è un invoice item agganciato all'abbonamento: entra nella
+ *  prossima fattura e i soldi si muovono lì. Funziona finché il rinnovo arriva.
+ *  Se il cliente disdice prima — è il caso di fabia, che chiude il 30/09 — la
+ *  fattura successiva non esiste, e l'extra resta appeso al cliente senza
+ *  nessuno che lo raccolga. Non è un caso di scuola: quel capo lo abbiamo già
+ *  lavato e alla lavanderia lo paghiamo comunque.
+ *
+ *  Perché non era già così
+ *  -----------------------
+ *  Un prelievo fuori sessione può essere rifiutato con `authentication_required`
+ *  sulle carte che chiedono la conferma del titolare (SCA). Era la ragione per
+ *  cui si preferiva la fattura di rinnovo, dove Stripe usa il mandato firmato
+ *  all'iscrizione.
+ *
+ *  Il rifiuto però non è una catastrofe, **se lo si gestisce**: la fattura resta
+ *  aperta con il suo link di pagamento, e al cliente si manda quello. Peggio è
+ *  la situazione di prima, in cui l'importo semplicemente non veniva mai
+ *  chiesto a nessuno.
+ *
+ *  La fattura contiene **solo questo capo**: si crea prima la fattura e la voce
+ *  ci si aggancia dentro. Creandola dopo, Stripe raccoglierebbe anche tutte le
+ *  altre voci in sospeso del cliente e si incasserebbe roba non decisa qui. */
+export async function addebitaSubitoCapo(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "admin") throw new Error("Solo admin");
+
+  const specialId = String(formData.get("special_id") ?? "");
+  const tornaA = String(formData.get("torna_a") ?? "/admin/extra");
+  const esci = (chiave: "ok" | "warn", m: string) => redirect(`${tornaA}?${chiave}=${encodeURIComponent(m)}`);
+  if (!specialId) esci("warn", "Capo mancante.");
+
+  const svc = createServiceClient();
+  const { data: sp } = await svc
+    .from("order_specials")
+    .select("id, order_id, item_name, qty, price_cli_cents, charged_at, refunded_at, annullato_at, orders(customer_id)")
+    .eq("id", specialId)
+    .maybeSingle<{ id: string; order_id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null; annullato_at: string | null; orders: { customer_id: string } | null }>();
+  if (!sp) esci("warn", "Capo non trovato.");
+  if (sp!.charged_at) esci("warn", "Questo capo è già in fattura.");
+  if (sp!.refunded_at || sp!.annullato_at) esci("warn", "Questo capo è chiuso: non c'è niente da incassare.");
+
+  const userId = sp!.orders?.customer_id;
+  if (!userId) esci("warn", "Questo ritiro non ha un cliente collegato.");
+
+  const { data: sub } = await svc
+    .from("subscriptions")
+    .select("stripe_customer_id")
+    .eq("user_id", userId!)
+    .not("stripe_customer_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ stripe_customer_id: string | null }>();
+  const customerId = sub?.stripe_customer_id;
+  if (!customerId) esci("warn", "Il cliente non ha un profilo di pagamento su Stripe: non c'è una carta da cui prelevare.");
+
+  const importo = sp!.price_cli_cents * sp!.qty;
+  const descrizione = `WashLoop · ${sp!.item_name}${sp!.qty > 1 ? ` ×${sp!.qty}` : ""} (ritiro ${sp!.order_id.slice(0, 8)})`;
+  const sk = stripe();
+
+  // 1. La fattura, vuota, che raccoglierà solo la voce qui sotto.
+  const inv = await sk.invoices.create({
+    customer: customerId!,
+    collection_method: "charge_automatically",
+    auto_advance: false,
+    description: `Capo fuori abbonamento · ${sp!.item_name}`,
+    metadata: { kind: "order_specials_subito", special_id: sp!.id, order_id: sp!.order_id },
+  });
+
+  // 2. La voce, dentro quella fattura e non in coda per la prossima.
+  const ii = await sk.invoiceItems.create({
+    customer: customerId!,
+    invoice: inv.id,
+    amount: importo,
+    currency: "eur",
+    description: descrizione,
+    metadata: { order_id: sp!.order_id, special_id: sp!.id, kind: "order_specials" },
+  });
+
+  // Da qui in poi la voce esiste su Stripe: si segna subito, altrimenti un
+  // errore nel prelievo la lascerebbe viva là fuori e invisibile qui — che è
+  // esattamente il modo in cui un cliente si vede addebitare qualcosa che nel
+  // pannello risulta «da addebitare».
+  await svc
+    .from("order_specials")
+    .update({ charged_at: new Date().toISOString(), stripe_invoice_item: ii.id })
+    .eq("id", sp!.id);
+
+  const rivedi = () => {
+    revalidatePath("/admin/extra");
+    revalidatePath(`/admin/ordini/${sp!.order_id}`);
+    revalidatePath(`/admin/abbonati/${userId}`);
+    revalidatePath(`/app/ordini/${sp!.order_id}`);
+  };
+
+  try {
+    await sk.invoices.finalizeInvoice(inv.id!);
+    const pagata = await sk.invoices.pay(inv.id!);
+    rivedi();
+    if (pagata.status === "paid") {
+      try {
+        await notifySpecialAdded(userId!, { itemName: sp!.item_name, priceCents: importo, orderId: sp!.order_id });
+      } catch (err) {
+        console.error(`[charge] notifica capo ${specialId} non inviata:`, err);
+      }
+      // La ricevuta e la riga in `invoices` le scrive il webhook
+      // `invoice.payment_succeeded`, come per ogni altro incasso.
+      esci("ok", `Incassati ${(importo / 100).toFixed(2)} € per ${sp!.item_name}. La ricevuta parte da sola.`);
+    }
+    esci("warn", `Fattura emessa ma non ancora pagata (stato: ${pagata.status}). Il link di pagamento è nella scheda del cliente su Stripe.`);
+  } catch (e) {
+    // Prelievo rifiutato: quasi sempre è la carta che chiede la conferma del
+    // titolare. La fattura resta aperta con il suo link, quindi l'importo non è
+    // perso — va mandato al cliente.
+    rivedi();
+    const link = await sk.invoices.retrieve(inv.id!).then((i) => i.hosted_invoice_url).catch(() => null);
+    const motivo = e instanceof Error ? e.message : "prelievo rifiutato";
+    esci("warn", `Non sono riuscito a prelevare subito (${motivo}). La fattura resta aperta${link ? ` e il cliente la può pagare da qui: ${link}` : ""}.`);
+  }
 }

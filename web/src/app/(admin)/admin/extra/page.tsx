@@ -3,7 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { createServiceClient } from "@/lib/supabase/server";
-import { addebitaCapoSpeciale, correggiPrezzoCapo } from "@/lib/actions/charge";
+import { addebitaCapoSpeciale, addebitaSubitoCapo, correggiPrezzoCapo } from "@/lib/actions/charge";
 import { fmtFull } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -213,11 +213,25 @@ export default async function ExtraDaAddebitare({
                 )}
 
                 <div className="mt-3 flex flex-wrap items-center gap-3">
+                  {/* Prima scelta: si incassa adesso. Aspettare il rinnovo vuol
+                      dire scommettere che ci sia un rinnovo — e su un cliente
+                      che ha disdetto quella fattura non arriverà mai, mentre
+                      alla lavanderia il capo lo paghiamo comunque. */}
+                  <form action={addebitaSubitoCapo}>
+                    <input type="hidden" name="special_id" value={r.id} />
+                    <input type="hidden" name="torna_a" value="/admin/extra" />
+                    <BottoneInvio
+                      attesa="Prelievo in corso…"
+                      className="rounded-full bg-blue px-5 py-2 font-display text-sm font-extrabold text-white"
+                    >
+                      Incassa subito {eur(r.price_cli_cents * r.qty)}
+                    </BottoneInvio>
+                  </form>
                   <form action={addebitaCapoSpeciale}>
                     <input type="hidden" name="special_id" value={r.id} />
                     <input type="hidden" name="torna_a" value="/admin/extra" />
-                    <BottoneInvio className="rounded-full bg-blue px-5 py-2 font-display text-sm font-extrabold text-white">
-                      Addebita {eur(r.price_cli_cents * r.qty)}
+                    <BottoneInvio className="rounded-full border-2 border-navy/30 px-4 py-2 font-display text-sm font-bold text-navy">
+                      Metti sulla prossima fattura
                     </BottoneInvio>
                   </form>
                   <AnnullaAddebito specialId={r.id} tornaA="/admin/extra" />
@@ -228,10 +242,19 @@ export default async function ExtraDaAddebitare({
         </div>
       )}
 
-      <p className="mt-4 text-xs font-medium text-muted">
-        «Addebita» crea la voce su Stripe: non preleva subito, entra nella prossima fattura
-        dell&apos;abbonamento. Da lì in poi si toglie solo con un rimborso.
-      </p>
+      <div className="mt-4 rounded-[14px] border border-line bg-white p-4 text-xs font-medium text-muted">
+        <p>
+          <strong className="text-navy">Incassa subito</strong> emette una fattura con quel solo capo e la
+          preleva dalla carta del cliente. Se la carta chiede la conferma del titolare il prelievo può
+          essere rifiutato: in quel caso la fattura <strong>resta aperta</strong> con il suo link di
+          pagamento, e te lo scrivo qui sopra da mandare al cliente. L&apos;importo non si perde.
+        </p>
+        <p className="mt-2">
+          <strong className="text-navy">Metti sulla prossima fattura</strong> è la strada di prima: la voce
+          aspetta il rinnovo dell&apos;abbonamento. Va bene su un cliente che continua; su uno che ha
+          disdetto quella fattura non arriverà mai, mentre alla lavanderia il capo lo paghiamo comunque.
+        </p>
+      </div>
     </>
   );
 }

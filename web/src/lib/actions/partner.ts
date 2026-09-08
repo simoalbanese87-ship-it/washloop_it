@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
-import { notifyOrderStatus, notifySpecialAdded, notifySegnalazioneCliente, notifySegnalazioneOps } from "@/lib/notify";
-import { chargeSpecialById } from "@/lib/billing-specials";
+import { notifyOrderStatus, notifySegnalazioneCliente, notifySegnalazioneOps } from "@/lib/notify";
 import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
 import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione } from "@/lib/segnalazioni";
 import { conteggiaConFranchigia } from "@/lib/franchigia";
@@ -222,17 +221,24 @@ export async function addSpecial(formData: FormData) {
     status: "pending",
   });
 
-  // Auto-addebito al cliente (invoice item sulla prossima fattura) + notifica
-  // immediata. Best-effort: se Stripe fallisce, il capo resta e l'admin può
-  // addebitarlo dopo. L'admin può annullare l'addebito finché la fattura è aperta.
-  try {
-    const res = await chargeSpecialById(svc, inserted.id);
-    if (res.ok) await notifySpecialAdded(res.customerId, { itemName: res.itemName, priceCents: res.priceCents, orderId });
-  } catch (err) {
-    console.error(`[partner] auto-charge special ${inserted.id} fallito:`, err);
-  }
-
+  // **Nessun addebito da qui.**
+  //
+  // Prima il capo veniva addebitato nell'istante in cui la lavanderia lo
+  // registrava, con il prezzo che aveva il listino in quel momento. Due
+  // conseguenze, entrambe verificate: un prezzo sbagliato a listino diventava
+  // subito un addebito sbagliato — è successo con la camicia a 3,00 quando il
+  // contratto dice 2,05 — e non esisteva nessun momento in cui qualcuno potesse
+  // guardare l'importo prima che partisse.
+  //
+  // Ora il capo resta in attesa e compare in `/admin/extra`, dove il prezzo si
+  // confronta con il listino, si corregge se serve, e poi si incassa. Il
+  // prezzo congelato qui sopra resta la fotografia del momento: è quello che si
+  // vede in quella pagina.
+  //
+  // Il contro, che va saputo: se nessuno apre quella pagina, non si incassa
+  // niente. Per questo il numero dei capi in attesa sta in cima alla Home.
   revalidatePath(`/laundry/${orderId}`);
+  revalidatePath("/admin/extra");
 }
 
 /** Rimuove un capo speciale, solo se non ancora addebitato al cliente. */

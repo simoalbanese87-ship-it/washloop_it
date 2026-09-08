@@ -54,7 +54,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     return includiProva ? q : q.eq("orders.profiles.is_test", false);
   };
 
-  const [daRichiamare, inRitardo, senzaRider, pagamentiKo, segnalazioni, rev, laundry, subs, customers, mesiIncassi] = await Promise.all([
+  const [daRichiamare, inRitardo, senzaRider, pagamentiKo, segnalazioni, extraInAttesa, rev, laundry, subs, customers, mesiIncassi] = await Promise.all([
     // Non una query sui soli `leads`: quella contava anche chi nel frattempo è
     // diventato cliente. `daContattare` passa dalla stessa deduplica di Persone,
     // così il numero e la pagina che apre dicono la stessa cosa.
@@ -65,12 +65,29 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     ordiniVeri().is("courier_id", null),
     abbonamentiVeri(),
     segnalazioniAperte(),
+    // Capi registrati dalla lavanderia e non ancora incassati. Da quando
+    // l'addebito non parte più da solo, questo numero è l'unica cosa che
+    // impedisce a un capo di restare lì per sempre senza che nessuno lo veda.
+    svc
+      .from("order_specials")
+      .select("id, orders!inner(profiles!orders_customer_id_fkey(is_test))", { count: "exact", head: false })
+      .is("charged_at", null)
+      .is("refunded_at", null)
+      .is("annullato_at", null)
+      .returns<{ id: string; orders: { profiles: { is_test: boolean } | null } | null }[]>(),
     revenueMetrics(includiProva),
     laundryMetrics(includiProva),
     subscriberMetrics(includiProva),
     customersList(includiProva),
     incassiMensili(includiProva),
   ]);
+
+  // I capi dei profili di prova non sono soldi da incassare.
+  const nExtra = (extraInAttesa.data ?? []).filter((r) => {
+    const o = Array.isArray(r.orders) ? r.orders[0] : r.orders;
+    const p = Array.isArray(o?.profiles) ? o?.profiles[0] : o?.profiles;
+    return includiProva || !p?.is_test;
+  }).length;
 
   const blocchi: Blocco[] = [
     {
@@ -81,6 +98,16 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
       sub: "dalla lavanderia, da gestire",
       href: "/admin/segnalazioni",
       tono: "text-[#C0392B]",
+    },
+    {
+      // Da quando la lavanderia non addebita più da sola, questi capi aspettano
+      // che qualcuno controlli il prezzo e incassi. Se il numero resta lì,
+      // sono soldi lavati e mai chiesti.
+      label: "Extra da incassare",
+      n: nExtra,
+      sub: "capi in attesa, prezzo da controllare",
+      href: "/admin/extra",
+      tono: "text-[#2b7fd4]",
     },
     {
       label: "Da contattare",
