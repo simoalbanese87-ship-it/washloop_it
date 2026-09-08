@@ -17,6 +17,7 @@ const adminNav: NavItem[] = [
   { href: "/admin/ordini", label: "Ordini" },
   { href: "/admin/calendario", label: "Calendario" },
   { href: "/admin/incassi", label: "Incassi" },
+  { href: "/admin/extra", label: "Extra" },
   { href: "/admin/impostazioni", label: "Impostazioni" },
 ];
 

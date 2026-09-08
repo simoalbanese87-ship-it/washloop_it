@@ -184,7 +184,7 @@ export default async function LavanderiaPage({
           </p>
         )}
         <p className="mt-1 text-sm font-medium text-muted">
-          Il compenso per i sacchi matura alla consegna; quello dei capi speciali quando la lavanderia li aggiunge.
+          I capi speciali ancora da addebitare, con il controllo del prezzo, stanno in Extra. Il compenso per i sacchi matura alla consegna; quello dei capi speciali quando la lavanderia li aggiunge.
           Il compenso a sacco si imposta in Catalogo, sulla scheda della lavanderia.
         </p>
       </Card>
