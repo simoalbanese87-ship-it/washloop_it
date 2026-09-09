@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { stripe } from "@/lib/stripe";
 import { registraGuasto } from "@/lib/incidenti";
+import { metodoDiPagamento } from "@/lib/metodo-pagamento";
 import { capiDaIncassare, totaleCents } from "@/lib/extra-selezione";
 
 /** Incassa in un colpo solo i capi speciali di un ritiro.
@@ -78,12 +79,12 @@ export async function incassaExtraDelRitiro(svc: SupabaseClient, orderId: string
 
     const { data: sub } = await svc
       .from("subscriptions")
-      .select("stripe_customer_id")
+      .select("stripe_customer_id, stripe_subscription_id")
       .eq("user_id", ordine.customer_id)
       .not("stripe_customer_id", "is", null)
       .order("created_at", { ascending: false })
       .limit(1)
-      .maybeSingle<{ stripe_customer_id: string | null }>();
+      .maybeSingle<{ stripe_customer_id: string | null; stripe_subscription_id: string | null }>();
 
     if (!sub?.stripe_customer_id) {
       // Non è un guasto tecnico, è un fatto da mostrare: senza un profilo di
@@ -95,9 +96,22 @@ export async function incassaExtraDelRitiro(svc: SupabaseClient, orderId: string
     }
 
     const sk = stripe();
+
+    // Con quale carta. La fattura dei capi extra nasce sul Customer, e lì di
+    // carte predefinite non ce n'è: il metodo va indicato a mano, altrimenti
+    // Stripe rifiuta con «There is no default_payment_method set on this
+    // Customer or Invoice» — che è quello che ha bloccato il primo incasso.
+    const carta = await metodoDiPagamento(sub.stripe_customer_id, sub.stripe_subscription_id);
+    if (!carta) {
+      const motivo = "Il cliente non ha nessuna carta salvata su Stripe: non c'è da dove prelevare.";
+      await segnaFallito(motivo, null, null);
+      return { esito: "fallito", totaleCents: totale, capi: capi.length, motivo, link: null };
+    }
+
     const inv = await sk.invoices.create({
       customer: sub.stripe_customer_id,
       collection_method: "charge_automatically",
+      default_payment_method: carta,
       auto_advance: false,
       description: `Capi fuori abbonamento · ritiro ${orderId.slice(0, 8)}`,
       metadata: { kind: "extra_ritiro", order_id: orderId, capi: String(capi.length) },
@@ -125,7 +139,7 @@ export async function incassaExtraDelRitiro(svc: SupabaseClient, orderId: string
 
     try {
       await sk.invoices.finalizeInvoice(inv.id!);
-      const pagata = await sk.invoices.pay(inv.id!);
+      const pagata = await sk.invoices.pay(inv.id!, { payment_method: carta });
       if (pagata.status === "paid") {
         // `incassato_at` lo scrive il webhook `invoice.payment_succeeded`, che è
         // l'unico punto in cui Stripe conferma che i soldi si sono mossi. Qui si

@@ -43,3 +43,12 @@ test("un capo annullato non entra nel totale nemmeno se ha un prezzo", () => {
   const capi = [capo({ price_cli_cents: 630 }), capo({ annullato_at: "2026-09-08T10:00:00Z", price_cli_cents: 350 })];
   assert.equal(totaleCents(capiDaIncassare(capi)), 630);
 });
+
+test("un capo tutto compreso nell'abbonamento non si addebita", () => {
+  // La riga esiste per tenere il conto della franchigia — senza, registrando
+  // le camicie una per volta la quarta e la quinta risulterebbero ancora
+  // «incluse» — ma non deve diventare una voce da zero euro su Stripe.
+  const capi = [capo({ qty: 0 }), capo({ qty: 2 })];
+  assert.equal(capiDaIncassare(capi).length, 1);
+  assert.equal(totaleCents(capiDaIncassare(capi)), 700);
+});

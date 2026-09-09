@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus, notifySegnalazioneCliente, notifySegnalazioneOps } from "@/lib/notify";
@@ -208,12 +209,26 @@ export async function addSpecial(formData: FormData) {
 
   const conto = conteggiaConFranchigia(qty, item.incluse_per_sacco ?? 0, ordine?.bags ?? 1, giaConteggiate);
 
-  if (conto.daAddebitare === 0) {
-    // Niente da addebitare: non si scrive una riga da zero euro, si dice
-    // perché. Una riga a zero in fattura è una domanda del cliente in arrivo.
-    revalidatePath(`/laundry/${orderId}`);
-    return;
-  }
+  // La riga si scrive **sempre**, anche quando non c'è niente da addebitare.
+  //
+  // Prima, con `daAddebitare === 0`, la funzione usciva in silenzio senza
+  // scrivere niente. Due guai, e il secondo è peggiore del primo:
+  //
+  //  1. **A schermo non succedeva nulla.** La lavanderia premeva «Aggiungi
+  //     capo», la pagina si ricaricava uguale, e il capo non compariva. Da lì
+  //     dentro è indistinguibile da un pulsante rotto — ed è esattamente il
+  //     motivo per cui si sono fermati.
+  //
+  //  2. **La franchigia non si consumava mai.** Il conto delle già registrate
+  //     legge le righe esistenti: se non se ne scrive nessuna, la volta dopo
+  //     riparte da zero. Registrando le camicie una per volta su un sacco che
+  //     ne comprende tre, la quarta, la quinta e la sesta risultavano ancora
+  //     «incluse». Si potevano lavare dieci camicie senza addebitarne una.
+  //
+  // Ora la riga c'è, con `qty = 0`: non è un addebito da zero euro in fattura
+  // — chi incassa scarta le righe a zero — è la traccia che quel capo è stato
+  // trovato e che la franchigia è stata usata.
+  const daAddebitare = conto.daAddebitare;
 
   const { data: inserted, error } = await svc
     .from("order_specials")
@@ -221,7 +236,7 @@ export async function addSpecial(formData: FormData) {
       order_id: orderId,
       item_id: item.id,
       item_name: item.name, // snapshot
-      qty: conto.daAddebitare,
+      qty: daAddebitare,
       qty_totale: qty,
       qty_inclusa: conto.incluse,
       comp_lav_cents: item.comp_lav_cents, // snapshot col. D
@@ -232,15 +247,18 @@ export async function addSpecial(formData: FormData) {
     .single<{ id: string }>();
   if (error || !inserted) throw new Error(error?.message ?? "Errore inserimento capo");
 
-  // Ledger: costo dovuto alla lavanderia per l'extra (comp_lav, IVA escl.). Best-effort.
-  await svc.from("laundry_payouts").insert({
-    laundry_id: profile.laundry_id,
-    order_id: orderId,
-    special_id: inserted.id,
-    kind: "special",
-    amount_cents: item.comp_lav_cents * conto.daAddebitare,
-    status: "pending",
-  });
+  // Compenso alla lavanderia, solo se c'è davvero qualcosa da pagare: un capo
+  // compreso nell'abbonamento non lo paga il cliente e non lo paghiamo noi.
+  if (daAddebitare > 0) {
+    await svc.from("laundry_payouts").insert({
+      laundry_id: profile.laundry_id,
+      order_id: orderId,
+      special_id: inserted.id,
+      kind: "special",
+      amount_cents: item.comp_lav_cents * daAddebitare,
+      status: "pending",
+    });
+  }
 
   // **Nessun addebito da qui.**
   //
@@ -260,6 +278,22 @@ export async function addSpecial(formData: FormData) {
   // niente. Per questo il numero dei capi in attesa sta in cima alla Home.
   revalidatePath(`/laundry/${orderId}`);
   revalidatePath("/admin/extra");
+
+  // Si dice cosa è successo. Senza, l'unico riscontro era la pagina che si
+  // ricaricava uguale — e con la franchigia di mezzo «uguale» è la risposta
+  // giusta e quella sbagliata allo stesso tempo.
+  const nome = qty > 1 ? `${qty}× ${item.name}` : item.name;
+  redirect(
+    daAddebitare > 0
+      ? `/laundry/${orderId}?ok=${encodeURIComponent(
+          conto.incluse > 0
+            ? `${nome} registrato: ${conto.incluse} ${conto.incluse === 1 ? "compreso" : "compresi"} nell'abbonamento, ${daAddebitare} da addebitare.`
+            : `${nome} registrato.`,
+        )}`
+      : `/laundry/${orderId}?ok=${encodeURIComponent(
+          `${nome} registrato: ${conto.incluse === 1 ? "è compreso" : "sono compresi"} nell'abbonamento, al cliente non si addebita niente.`,
+        )}`,
+  );
 }
 
 /** Rimuove un capo speciale, solo se non ancora addebitato al cliente. */

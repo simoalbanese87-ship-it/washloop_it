@@ -7,6 +7,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
 import { chargeSpecialById } from "@/lib/billing-specials";
 import { notifySpecialAdded } from "@/lib/notify";
+import { metodoDiPagamento } from "@/lib/metodo-pagamento";
 
 /** Mette in addebito i capi speciali non ancora fatturati di un ordine.
  *
@@ -36,6 +37,10 @@ export async function chargeOrderSpecials(formData: FormData) {
     // Un capo annullato non torna in coda. Senza questa riga il bottone «Metti
     // in fattura» riaddebitava proprio i capi appena tolti per un claim.
     .is("annullato_at", null)
+    // Le righe a zero registrano i capi coperti dalla franchigia: esistono per
+    // tenere il conto, non per farsi pagare. Una voce da zero centesimi su una
+    // fattura Stripe verrebbe comunque rifiutata.
+    .gt("qty", 0)
     .returns<{ id: string }[]>();
   const pending = specials ?? [];
   if (pending.length === 0) throw new Error("Nessun capo da addebitare");
@@ -473,14 +478,21 @@ export async function addebitaSubitoCapo(formData: FormData) {
 
   const { data: sub } = await svc
     .from("subscriptions")
-    .select("stripe_customer_id")
+    .select("stripe_customer_id, stripe_subscription_id")
     .eq("user_id", userId!)
     .not("stripe_customer_id", "is", null)
     .order("created_at", { ascending: false })
     .limit(1)
-    .maybeSingle<{ stripe_customer_id: string | null }>();
+    .maybeSingle<{ stripe_customer_id: string | null; stripe_subscription_id: string | null }>();
   const customerId = sub?.stripe_customer_id;
   if (!customerId) esci("warn", "Il cliente non ha un profilo di pagamento su Stripe: non c'è una carta da cui prelevare.");
+
+  // La carta va indicata: una fattura creata sul Customer non ne eredita
+  // nessuna, e Stripe rifiuta con «There is no default_payment_method set on
+  // this Customer or Invoice». La carta c'è — è quella dell'abbonamento — ma
+  // sta attaccata alla subscription, non al cliente.
+  const carta = await metodoDiPagamento(customerId!, sub!.stripe_subscription_id);
+  if (!carta) esci("warn", "Il cliente non ha nessuna carta salvata su Stripe: non c'è da dove prelevare.");
 
   const importo = sp!.price_cli_cents * sp!.qty;
   const descrizione = `WashLoop · ${sp!.item_name}${sp!.qty > 1 ? ` ×${sp!.qty}` : ""} (ritiro ${sp!.order_id.slice(0, 8)})`;
@@ -509,6 +521,7 @@ export async function addebitaSubitoCapo(formData: FormData) {
   const inv = await sk.invoices.create({
     customer: customerId!,
     collection_method: "charge_automatically",
+    default_payment_method: carta!,
     auto_advance: false,
     description: `Capo fuori abbonamento · ${sp!.item_name}`,
     metadata: { kind: "order_specials_subito", special_id: sp!.id, order_id: sp!.order_id },
@@ -542,7 +555,7 @@ export async function addebitaSubitoCapo(formData: FormData) {
 
   try {
     await sk.invoices.finalizeInvoice(inv.id!);
-    const pagata = await sk.invoices.pay(inv.id!);
+    const pagata = await sk.invoices.pay(inv.id!, { payment_method: carta! });
     rivedi();
     if (pagata.status === "paid") {
       try {

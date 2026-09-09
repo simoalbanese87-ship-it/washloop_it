@@ -55,7 +55,14 @@ function eur(c: number) {
   return (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 }
 
-export default async function LaundryOrderDetail({ params }: { params: Promise<{ orderId: string }> }) {
+export default async function LaundryOrderDetail({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ orderId: string }>;
+  searchParams: Promise<{ ok?: string; warn?: string }>;
+}) {
+  const { ok, warn } = await searchParams;
   const { orderId } = await params;
   const supabase = await createClient();
 
@@ -113,6 +120,16 @@ export default async function LaundryOrderDetail({ params }: { params: Promise<{
         <PageTitle kicker="Ordine" title={order.client_code ?? "—"} />
         <StatusBadge status={order.status} />
       </div>
+
+      {/* Il riscontro di quello che si è appena fatto. Senza, registrando un
+          capo tutto compreso nell'abbonamento la pagina si ricaricava identica
+          e il pulsante sembrava rotto. */}
+      {ok && (
+        <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>
+      )}
+      {warn && (
+        <div className="mb-4 rounded-[14px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
         {/* Dati operativi (anonimi) */}

@@ -80,7 +80,9 @@ export default async function RegistroExtra({
   const tutte = (righe ?? []).filter((r) => !uno(uno(r.orders)?.profiles)?.is_test);
 
   const nonRiusciti = tutte.filter((r) => r.incasso_fallito_at && !r.refunded_at && !r.annullato_at);
-  const inAttesa = tutte.filter((r) => !r.charged_at && !r.refunded_at && !r.annullato_at);
+  // `qty > 0`: le righe a zero sono capi compresi nell'abbonamento, registrati
+  // per tenere il conto della franchigia. Non sono lavoro da fare.
+  const inAttesa = tutte.filter((r) => r.qty > 0 && !r.charged_at && !r.refunded_at && !r.annullato_at);
   const chiusi = tutte.filter((r) => r.refunded_at || r.annullato_at);
   const chiusiOk = (r: Riga) => !r.incasso_fallito_at && !r.refunded_at && !r.annullato_at;
   const incassati = tutte.filter((r) => r.incassato_at && chiusiOk(r));

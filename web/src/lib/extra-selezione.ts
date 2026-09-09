@@ -11,14 +11,22 @@
  *  vuota ed esce senza creare una seconda fattura. */
 
 export type CapoSelezionabile = {
+  /** Quante unità si addebitano. Zero = tutte comprese nell'abbonamento: la
+   *  riga esiste per tenere il conto della franchigia, non per farsi pagare. */
+  qty: number;
   charged_at: string | null;
   refunded_at: string | null;
   annullato_at: string | null;
 };
 
-/** I capi che nessuno ha ancora chiesto, tolto o rimborsato. */
+/** I capi che nessuno ha ancora chiesto, tolto o rimborsato — e che hanno
+ *  qualcosa da farsi pagare.
+ *
+ *  Il filtro su `qty` non è una precauzione teorica: le righe a zero esistono
+ *  apposta, per registrare i capi coperti dalla franchigia, e una voce da zero
+ *  centesimi su una fattura Stripe verrebbe rifiutata. */
 export function capiDaIncassare<T extends CapoSelezionabile>(capi: T[]): T[] {
-  return capi.filter((c) => !c.charged_at && !c.refunded_at && !c.annullato_at);
+  return capi.filter((c) => c.qty > 0 && !c.charged_at && !c.refunded_at && !c.annullato_at);
 }
 
 /** Il totale, quantità comprese. */
