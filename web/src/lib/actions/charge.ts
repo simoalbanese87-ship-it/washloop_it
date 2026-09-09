@@ -9,6 +9,20 @@ import { chargeSpecialById } from "@/lib/billing-specials";
 import { notifySpecialAdded } from "@/lib/notify";
 import { metodoDiPagamento } from "@/lib/metodo-pagamento";
 
+/** `redirect()` di Next **lancia** un'eccezione per interrompere l'esecuzione.
+ *
+ *  Non è un errore: è il modo in cui la navigazione viene segnalata allo stack.
+ *  Ma un `catch` che prende tutto la raccoglie come qualsiasi altra, e quello
+ *  che ne esce è un messaggio falso — il prelievo di Giulia è riuscito, i soldi
+ *  sono arrivati, e a schermo compariva «Non sono riuscito a prelevare
+ *  (NEXT_REDIRECT)». Il caso peggiore: un incasso vero raccontato come un
+ *  fallimento, con qualcuno che va a rincorrere soldi già presi.
+ *
+ *  Va rilanciata prima di trattare l'eccezione come un guasto. */
+function eUnRedirect(e: unknown): boolean {
+  return typeof e === "object" && e !== null && "digest" in e && String((e as { digest?: unknown }).digest).startsWith("NEXT_REDIRECT");
+}
+
 /** Mette in addebito i capi speciali non ancora fatturati di un ordine.
  *
  *  Strategia "come i migliori": NON un prelievo immediato off-session (che su
@@ -548,6 +562,7 @@ export async function addebitaSubitoCapo(formData: FormData) {
           }
           esci("warn", `La fattura risulta ${pagata.status}: controllala su Stripe.`);
         } catch (e) {
+          if (eUnRedirect(e)) throw e;
           const motivo = e instanceof Error ? e.message : "prelievo rifiutato";
           const link = await sk.invoices.retrieve(suFattura).then((i) => i.hosted_invoice_url ?? null).catch(() => null);
           await svc
@@ -619,6 +634,7 @@ export async function addebitaSubitoCapo(formData: FormData) {
     }
     esci("warn", `Fattura emessa ma non ancora pagata (stato: ${pagata.status}). Il link di pagamento è nella scheda del cliente su Stripe.`);
   } catch (e) {
+    if (eUnRedirect(e)) throw e;
     // Prelievo rifiutato: quasi sempre è la carta che chiede la conferma del
     // titolare. La fattura resta aperta con il suo link, quindi l'importo non è
     // perso — va mandato al cliente.
