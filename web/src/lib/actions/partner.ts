@@ -196,7 +196,20 @@ export async function addSpecial(formData: FormData) {
   // registrati addebiti che, guardando i numeri, non si può dire se fossero
   // giusti — perché non era scritto da nessuna parte quante camicie ci fossero.
   // Ora si dichiara quante ce n'erano e il conto lo fa la macchina.
-  const { data: ordine } = await svc.from("orders").select("bags").eq("id", orderId).maybeSingle<{ bags: number | null }>();
+  // I sacchi che contano per la franchigia sono quelli **arrivati davvero**,
+  // non quelli previsti in prenotazione. Stessa regola del compenso: si guarda
+  // cosa c'è sul banco.
+  //
+  // Su un abbonamento da 2 sacchi con 1 solo consegnato, `orders.bags` dà una
+  // franchigia di 6 camicie invece di 3 — cioè tre camicie regalate su un
+  // sacco che il cliente non ha portato. Verificato registrandone quattro: la
+  // quarta risultava ancora «compresa».
+  const { data: ordine } = await svc
+    .from("orders")
+    .select("bags, bags_arrivati")
+    .eq("id", orderId)
+    .maybeSingle<{ bags: number | null; bags_arrivati: number | null }>();
+  const sacchiVeri = ordine?.bags_arrivati ?? ordine?.bags ?? 1;
   const { data: precedenti } = await svc
     .from("order_specials")
     .select("qty, qty_totale")
@@ -207,7 +220,7 @@ export async function addSpecial(formData: FormData) {
   // registrazioni separate userebbero la franchigia due volte.
   const giaConteggiate = (precedenti ?? []).reduce((t, r) => t + (r.qty_totale ?? r.qty), 0);
 
-  const conto = conteggiaConFranchigia(qty, item.incluse_per_sacco ?? 0, ordine?.bags ?? 1, giaConteggiate);
+  const conto = conteggiaConFranchigia(qty, item.incluse_per_sacco ?? 0, sacchiVeri, giaConteggiate);
 
   // La riga si scrive **sempre**, anche quando non c'è niente da addebitare.
   //
