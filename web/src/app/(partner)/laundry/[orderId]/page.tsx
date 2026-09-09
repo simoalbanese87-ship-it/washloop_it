@@ -205,14 +205,18 @@ export default async function LaundryOrderDetail({
             </p>
           ) : (
             <>
-              <p className="mt-1 text-sm font-medium text-muted">Aggiungi i capi fuori listino base ricevuti: l&apos;addebito al cliente è automatico.</p>
-              {/* La regola delle camicie non era scritta da nessuna parte lato
-                  lavanderia: chi apre il sacco non poteva sapere quante fossero
-                  incluse, quindi o le contava tutte o non ne contava nessuna.
-                  Va detta qui, davanti al modulo con cui si contano. */}
+              <p className="mt-1 text-sm font-medium text-muted">Aggiungi i capi fuori listino base che hai ricevuto.</p>
+              {/* Due istruzioni opposte, nella stessa schermata.
+                  Questo riquadro diceva «conta solo quelle in più», il modulo
+                  qui sotto dice «scrivi quante ne hai trovate». È esattamente
+                  l'ambiguità che il 1° settembre ha reso impossibile capire, dai
+                  numeri registrati, se l'addebito fosse giusto o doppio.
+                  La regola vera è una: si scrive quello che si è trovato, la
+                  sottrazione la fa il sistema. */}
               <p className="mt-2 rounded-[12px] bg-[#C9881F]/10 px-3 py-2 text-sm font-semibold text-[#C9881F]">
-                Camicie: le prime <strong>3 per sacco</strong> sono comprese nell&apos;abbonamento e non si aggiungono.
-                Conta solo quelle in più — dalla quarta in poi, una riga per ciascuna.
+                Scrivi sempre <strong>quanti capi hai trovato</strong>, anche se sono compresi
+                nell&apos;abbonamento. Le camicie incluse — <strong>3 per sacco</strong> — le toglie il
+                sistema: tu conta e basta.
               </p>
               <div className="mt-4">
                 <AddSpecialForm orderId={order.order_id} items={listino ?? []} />
