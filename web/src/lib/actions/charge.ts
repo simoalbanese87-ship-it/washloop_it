@@ -509,10 +509,60 @@ export async function addebitaSubitoCapo(formData: FormData) {
   if (sp!.charged_at && sp!.stripe_invoice_item) {
     const vecchia = await sk.invoiceItems.retrieve(sp!.stripe_invoice_item).catch(() => null);
     const suFattura = vecchia && (typeof vecchia.invoice === "string" ? vecchia.invoice : vecchia.invoice?.id ?? null);
+
     if (suFattura) {
-      esci("warn", "Questo capo è già su una fattura emessa: o è stato incassato, o lo sarà con quella. Da qui non si tocca.");
+      // Una fattura c'è già. Ma «c'è una fattura» e «è stata pagata» sono due
+      // cose diverse, e trattarle come una sola è quello che ha bloccato il
+      // ritentativo: il tentativo di ieri aveva creato la fattura, il prelievo
+      // era fallito per la carta non indicata, e la fattura era rimasta lì
+      // **aperta** — cioè ancora pagabilissima. La guardia rispondeva «da qui
+      // non si tocca» su soldi che si potevano ancora prendere.
+      const fattura = await sk.invoices.retrieve(suFattura).catch(() => null);
+      if (!fattura) esci("warn", "La fattura collegata non si trova su Stripe: controlla la scheda del cliente.");
+      if (fattura!.status === "paid") {
+        esci("warn", "Questo capo è già stato incassato con una fattura pagata: non c'è niente da prelevare.");
+      }
+      if (fattura!.status === "void" || fattura!.status === "uncollectible") {
+        // Fattura chiusa senza incasso: la voce è persa con lei, si rifà.
+        await svc.from("order_specials").update({ charged_at: null, stripe_invoice_item: null, stripe_invoice_id: null }).eq("id", sp!.id);
+      } else {
+        // Aperta o in bozza: si riprova a pagare **quella**, con la carta
+        // giusta. Crearne una seconda lascerebbe la prima aperta e il cliente
+        // con due richieste di pagamento per lo stesso capo.
+        try {
+          if (fattura!.status === "draft") await sk.invoices.finalizeInvoice(suFattura);
+          const pagata = await sk.invoices.pay(suFattura, { payment_method: carta! });
+          await svc
+            .from("order_specials")
+            .update({ stripe_invoice_id: suFattura, incasso_fallito_at: null, incasso_errore: null, link_pagamento: null })
+            .eq("id", sp!.id);
+          revalidatePath("/admin/extra");
+          revalidatePath(`/admin/abbonati/${userId}`);
+          if (pagata.status === "paid") {
+            try {
+              await notifySpecialAdded(userId!, { itemName: sp!.item_name, priceCents: importo, orderId: sp!.order_id });
+            } catch (err) {
+              console.error(`[charge] notifica capo ${specialId} non inviata:`, err);
+            }
+            esci("ok", `Incassati ${(importo / 100).toFixed(2)} € per ${sp!.item_name}. La ricevuta parte da sola.`);
+          }
+          esci("warn", `La fattura risulta ${pagata.status}: controllala su Stripe.`);
+        } catch (e) {
+          const motivo = e instanceof Error ? e.message : "prelievo rifiutato";
+          const link = await sk.invoices.retrieve(suFattura).then((i) => i.hosted_invoice_url ?? null).catch(() => null);
+          await svc
+            .from("order_specials")
+            .update({ stripe_invoice_id: suFattura, incasso_fallito_at: new Date().toISOString(), incasso_errore: motivo, link_pagamento: link })
+            .eq("id", sp!.id);
+          revalidatePath("/admin/extra");
+          esci("warn", `Non sono riuscito a prelevare (${motivo}). La fattura resta aperta e il link è nel registro.`);
+        }
+      }
+    } else if (vecchia) {
+      // Voce in coda per il rinnovo, non ancora su nessuna fattura: si toglie
+      // e si rifà dentro una fattura sua.
+      await sk.invoiceItems.del(sp!.stripe_invoice_item).catch(() => null);
     }
-    if (vecchia) await sk.invoiceItems.del(sp!.stripe_invoice_item).catch(() => null);
   } else if (sp!.charged_at) {
     esci("warn", "Questo capo risulta addebitato ma non ha una voce su Stripe: controlla la scheda del ritiro prima di incassarlo.");
   }
@@ -543,7 +593,7 @@ export async function addebitaSubitoCapo(formData: FormData) {
   // pannello risulta «da addebitare».
   await svc
     .from("order_specials")
-    .update({ charged_at: new Date().toISOString(), stripe_invoice_item: ii.id })
+    .update({ charged_at: new Date().toISOString(), stripe_invoice_item: ii.id, stripe_invoice_id: inv.id })
     .eq("id", sp!.id);
 
   const rivedi = () => {
@@ -572,10 +622,17 @@ export async function addebitaSubitoCapo(formData: FormData) {
     // Prelievo rifiutato: quasi sempre è la carta che chiede la conferma del
     // titolare. La fattura resta aperta con il suo link, quindi l'importo non è
     // perso — va mandato al cliente.
-    rivedi();
-    const link = await sk.invoices.retrieve(inv.id!).then((i) => i.hosted_invoice_url).catch(() => null);
+    const link = await sk.invoices.retrieve(inv.id!).then((i) => i.hosted_invoice_url ?? null).catch(() => null);
     const motivo = e instanceof Error ? e.message : "prelievo rifiutato";
-    esci("warn", `Non sono riuscito a prelevare subito (${motivo}). La fattura resta aperta${link ? ` e il cliente la può pagare da qui: ${link}` : ""}.`);
+    // L'esito si scrive, altrimenti la riga resta «chiesta ma non arrivata» —
+    // indistinguibile da una voce in coda per il rinnovo — e il link di
+    // pagamento si perde. È successo con il primo tentativo su Giulia.
+    await svc
+      .from("order_specials")
+      .update({ incasso_fallito_at: new Date().toISOString(), incasso_errore: motivo, link_pagamento: link })
+      .eq("id", sp!.id);
+    rivedi();
+    esci("warn", `Non sono riuscito a prelevare subito (${motivo}). La fattura resta aperta e il link è nel registro.`);
   }
 }
 
