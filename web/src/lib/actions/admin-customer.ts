@@ -15,6 +15,7 @@ import { slotFullMessage } from "@/lib/slots";
 import { lavanderiaPredefinita } from "@/lib/lavanderia";
 import { inviaSollecito } from "@/lib/dunning";
 import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
+import { METODI_CHECKOUT } from "@/lib/metodi-accettati";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -111,8 +112,8 @@ export async function createCustomSubscriptionLink(
     const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       customer: stripeCustomerId,
-      // Stessi metodi del checkout standard (no Klarna).
-      payment_method_types: ["card", "link", "amazon_pay"],
+      // Stessi metodi del checkout standard, dalla stessa lista.
+      payment_method_types: [...METODI_CHECKOUT],
       line_items: [{
         quantity: 1,
         price_data: {

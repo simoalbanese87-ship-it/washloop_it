@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { stripe, siteUrl } from "@/lib/stripe";
 import { creaClienteStripe, allineaClienteStripe } from "@/lib/stripe-customer";
+import { METODI_CHECKOUT } from "@/lib/metodi-accettati";
 
 /**
  * Crea/recupera il customer Stripe per l'utente loggato e apre una sessione
@@ -46,8 +47,9 @@ export async function checkoutUrlForPlan(planId: string): Promise<string> {
   const session = await stripe().checkout.sessions.create({
     mode: "subscription",
     customer: customerId,
-    // Metodi consentiti: carta (+ Apple/Google Pay), Link, Amazon Pay. Klarna escluso.
-    payment_method_types: ["card", "link", "amazon_pay"],
+    // Carta (+ Apple/Google Pay), Link, Amazon Pay. La lista e il perché stanno
+    // in `lib/metodi-accettati.ts`: scritta qui sarebbe da cambiare in due posti.
+    payment_method_types: [...METODI_CHECKOUT],
     line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
     // Pagina di conferma dedicata (conversione Google Ads). {CHECKOUT_SESSION_ID}
     // è sostituito da Stripe → serve per deduplicare la conversione.

@@ -1,6 +1,7 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { statoStripe } from "@/lib/stato-stripe";
+import { METODI_CHECKOUT, metodiOffertiDaStripe, nomeMetodo } from "@/lib/metodi-accettati";
 import { daRisistemare } from "@/lib/riconsegna";
 import { romeHHMM, romeWeekday } from "@/lib/format";
 import { STATI_CHIUSI, type OrderStatus } from "@/lib/orders";
@@ -129,7 +130,7 @@ export default async function SicurezzaPage() {
   // sono configurati e quanto è stato incassato davvero. Le chiavi ce le ha il
   // server, non chi legge questa pagina — ed è l'unico posto da cui la domanda
   // può ricevere una risposta invece di un'ipotesi.
-  const stato = await statoStripe();
+  const [stato, metodi] = await Promise.all([statoStripe(), metodiOffertiDaStripe()]);
 
   const senzaRider = (zoneAttive.data ?? []).filter((z) => !z.courier_id).map((z) => z.name);
   const lavIncomplete = (lavanderie.data ?? []).filter((l) => !l.address || !l.email);
@@ -183,6 +184,18 @@ export default async function SicurezzaPage() {
           : stato.endpoints === 0
             ? "Nessun endpoint webhook configurato su Stripe: i pagamenti non arrivano mai nel sistema, e il registro incassi resta vuoto. Va aggiunto da Sviluppatori → Webhook, puntato su /api/stripe/webhook."
             : `${stato.endpoints} endpoint configurati su Stripe, ma nessuno punta a questo sito: i pagamenti non arrivano qui.`,
+    },
+    {
+      // Nel codice i metodi li scegliamo noi, ma una fattura rimasta aperta la
+      // paga il cliente su una pagina che disegna Stripe: lì vale ciò che è
+      // acceso sull'account, e da qui non si vedrebbe. Questa riga lo chiede.
+      label: "Modi di pagare offerti al cliente",
+      status: !metodi.ok ? "warn" : metodi.inattesi.length === 0 ? "ok" : "warn",
+      detail: !metodi.ok
+        ? `Non verificabile: ${metodi.errore}`
+        : metodi.inattesi.length === 0
+          ? `Accettiamo ${METODI_CHECKOUT.map(nomeMetodo).join(", ")} (con carta viaggiano Apple Pay e Google Pay). Su Stripe non è acceso nient'altro.`
+          : `Acceso su Stripe anche: ${metodi.inattesi.map(nomeMetodo).join(", ")}. Non compare dove passiamo la lista noi, ma sì sulla pagina di una fattura rimasta aperta. Si spegne da Stripe → Impostazioni → Metodi di pagamento (configurazione «${metodi.configurazione}»).`,
     },
     {
       label: "Incassi su Stripe",

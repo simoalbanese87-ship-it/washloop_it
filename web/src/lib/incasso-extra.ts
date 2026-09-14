@@ -4,6 +4,7 @@ import { stripe } from "@/lib/stripe";
 import { registraGuasto } from "@/lib/incidenti";
 import { metodoDiPagamento } from "@/lib/metodo-pagamento";
 import { capiDaIncassare, totaleCents } from "@/lib/extra-selezione";
+import { METODI_FATTURA } from "@/lib/metodi-accettati";
 
 /** Incassa in un colpo solo i capi speciali di un ritiro.
  *
@@ -113,6 +114,10 @@ export async function incassaExtraDelRitiro(svc: SupabaseClient, orderId: string
       collection_method: "charge_automatically",
       default_payment_method: carta,
       auto_advance: false,
+      // Chi paga il link di una fattura rimasta aperta vede questa lista, non
+      // quella del checkout: senza, Stripe mostrerebbe tutto ciò che è acceso
+      // sull'account — pagamenti a rate compresi, che non accettiamo.
+      payment_settings: { payment_method_types: [...METODI_FATTURA] },
       description: `Capi fuori abbonamento · ritiro ${orderId.slice(0, 8)}`,
       metadata: { kind: "extra_ritiro", order_id: orderId, capi: String(capi.length) },
     });

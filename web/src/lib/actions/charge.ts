@@ -9,6 +9,7 @@ import { chargeSpecialById } from "@/lib/billing-specials";
 import { notifySpecialAdded } from "@/lib/notify";
 import { metodoDiPagamento } from "@/lib/metodo-pagamento";
 import { origineDelPagamento } from "@/lib/pagamento-fattura";
+import { METODI_FATTURA } from "@/lib/metodi-accettati";
 
 /** `redirect()` di Next **lancia** un'eccezione per interrompere l'esecuzione.
  *
@@ -623,6 +624,10 @@ export async function addebitaSubitoCapo(formData: FormData) {
     collection_method: "charge_automatically",
     default_payment_method: carta!,
     auto_advance: false,
+    // Chi paga il link di una fattura rimasta aperta vede questa lista, non
+    // quella del checkout: senza, Stripe mostrerebbe tutto ciò che è acceso
+    // sull'account — pagamenti a rate compresi, che non accettiamo.
+    payment_settings: { payment_method_types: [...METODI_FATTURA] },
     description: `Capo fuori abbonamento · ${sp!.item_name}`,
     metadata: { kind: "order_specials_subito", special_id: sp!.id, order_id: sp!.order_id },
   });
