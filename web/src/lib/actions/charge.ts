@@ -8,6 +8,7 @@ import { stripe } from "@/lib/stripe";
 import { chargeSpecialById } from "@/lib/billing-specials";
 import { notifySpecialAdded } from "@/lib/notify";
 import { metodoDiPagamento } from "@/lib/metodo-pagamento";
+import { origineDelPagamento } from "@/lib/pagamento-fattura";
 
 /** `redirect()` di Next **lancia** un'eccezione per interrompere l'esecuzione.
  *
@@ -155,6 +156,9 @@ async function annulla(
   adminId: string,
   motivo: string,
   sk: ReturnType<typeof stripe>,
+  /** Il capo è stato lavorato e lo togliamo noi al cliente: la lavanderia va
+   *  pagata lo stesso. Diverso dall'errore loro, dove non si paga. */
+  regalato = false,
 ) {
   if (sp.stripe_invoice_item) {
     try {
@@ -175,15 +179,21 @@ async function annulla(
       annullato_da: adminId,
       charged_at: null,
       stripe_invoice_item: null,
+      regalato,
+      regalato_motivo: regalato ? motivo : null,
     })
     .eq("id", sp.id);
 
-  await svc.from("laundry_payouts").update({ status: "void" }).eq("special_id", sp.id);
+  // Il compenso si azzera solo se il capo non è stato lavorato o è stato
+  // lavorato male. Su un capo regalato resta dovuto: il lavoro c'è stato.
+  if (!regalato) {
+    await svc.from("laundry_payouts").update({ status: "void" }).eq("special_id", sp.id);
+  }
 
   if (sp.orders?.customer_id) {
     await svc.from("customer_charges").insert({
       customer_id: sp.orders.customer_id,
-      description: `Addebito annullato: ${sp.item_name}${sp.qty > 1 ? ` ×${sp.qty}` : ""} — ${motivo}`,
+      description: `Addebito annullato: ${sp.item_name}${sp.qty > 1 ? ` ×${sp.qty}` : ""} — ${motivo}${regalato ? " (offerto: la lavanderia resta pagata)" : ""}`,
       amount_cents: sp.price_cli_cents * sp.qty,
       kind: "refund",
       status: "settled",
@@ -237,7 +247,11 @@ export async function annullaCapoSpeciale(formData: FormData) {
     }
   }
 
-  await annulla(svc, capo, profile.id, motivo, sk);
+  // «Offerto al cliente» distingue il gesto commerciale dall'errore della
+  // lavanderia: nel primo caso il capo è stato lavorato e il compenso resta
+  // dovuto, nel secondo no.
+  const regalato = String(formData.get("regalato") ?? "") === "1";
+  await annulla(svc, capo, profile.id, motivo, sk, regalato);
 
   revalidatePath(`/admin/ordini/${capo.order_id}`);
   revalidatePath(`/app/ordini/${capo.order_id}`);
@@ -290,27 +304,48 @@ export async function refundOrderSpecial(formData: FormData) {
       revalidatePath(`/admin/abbonati/${sp.orders?.customer_id ?? ""}`);
       return;
     }
-    const inv = (await sk.invoices.retrieve(invoiceId)) as unknown as {
-      status?: string;
-      payment_intent?: string | { id?: string } | null;
-      charge?: string | { id?: string } | null;
-    };
-    const pi = typeof inv.payment_intent === "string" ? inv.payment_intent : inv.payment_intent?.id ?? null;
-    const ch = typeof inv.charge === "string" ? inv.charge : inv.charge?.id ?? null;
-    if (inv.status === "paid" && (pi || ch)) {
-      const refund = await sk.refunds.create(pi ? { payment_intent: pi, amount } : { charge: ch as string, amount });
+    // Da dove si rimborsa. Il codice leggeva `invoice.payment_intent`, che
+    // nelle versioni recenti dell'API **non esiste più**: il pagamento sta in
+    // `invoice.payments`. Leggendo un campo assente si ottiene `undefined`, non
+    // un errore — quindi il rimborso veniva saltato in silenzio, la riga
+    // risultava «rimborsata» e i soldi del cliente restavano nostri. È successo
+    // con le 3 camicie di Giulia, 10,50 €.
+    const origine = await origineDelPagamento(invoiceId);
+    if (origine) {
+      const refund = await sk.refunds.create(
+        origine.tipo === "payment_intent"
+          ? { payment_intent: origine.id, amount }
+          : { charge: origine.id, amount },
+      );
       refundRef = refund.id;
       moneyMoved = true;
     }
   }
 
-  await svc.from("order_specials").update({ refunded_at: new Date().toISOString(), refund_ref: refundRef }).eq("id", specialId);
-  // Azzera il payout dovuto alla lavanderia per questo capo.
-  await svc.from("laundry_payouts").update({ status: "void" }).eq("special_id", specialId);
+  // Chi se lo prende. «Regalato» vuol dire: il capo l'hanno lavato davvero, e a
+  // non farlo pagare al cliente siamo stati noi — quindi la lavanderia va
+  // pagata lo stesso. Senza questa distinzione una decisione commerciale
+  // nostra finiva sul conto loro.
+  const regalato = String(formData.get("regalato") ?? "") === "1";
+  const motivoRegalo = String(formData.get("regalato_motivo") ?? "").trim() || null;
+
+  await svc
+    .from("order_specials")
+    .update({
+      refunded_at: new Date().toISOString(),
+      refund_ref: refundRef,
+      regalato,
+      regalato_motivo: regalato ? motivoRegalo : null,
+    })
+    .eq("id", specialId);
+
+  if (!regalato) {
+    await svc.from("laundry_payouts").update({ status: "void" }).eq("special_id", specialId);
+  }
   if (sp.orders?.customer_id) {
     await svc.from("customer_charges").insert({
       customer_id: sp.orders.customer_id,
-      description: `Rimborso capo: ${sp.item_name}${sp.qty > 1 ? ` ×${sp.qty}` : ""}`,
+      description: `Rimborso capo: ${sp.item_name}${sp.qty > 1 ? ` ×${sp.qty}` : ""}${regalato ? " (offerto: la lavanderia resta pagata)" : ""}`,
       amount_cents: amount,
       kind: "refund",
       status: moneyMoved ? "settled" : "pending",
@@ -681,8 +716,14 @@ export async function stornaCapoSpeciale(formData: FormData) {
   if (!sp) redirect(`${tornaA}?warn=${encodeURIComponent("Capo non trovato.")}`);
   if (sp!.refunded_at || sp!.annullato_at) redirect(`${tornaA}?warn=${encodeURIComponent("Questo capo è già stato chiuso.")}`);
 
+  // La scelta su chi paga il lavoro già fatto viaggia con lo storno: senza,
+  // ogni storno dal registro azzererebbe il compenso alla lavanderia anche
+  // quando il capo l'hanno lavato e siamo noi a offrirlo.
+  const regalato = String(formData.get("regalato") ?? "") === "1";
+
   const dati = new FormData();
   dati.set("special_id", specialId);
+  if (regalato) dati.set("regalato", "1");
 
   if (sp!.charged_at) {
     await refundOrderSpecial(dati);
@@ -690,12 +731,18 @@ export async function stornaCapoSpeciale(formData: FormData) {
     // Mai chiesto niente al cliente: non è un rimborso, è un annullo. Il motivo
     // qui lo mette il sistema, perché il gesto è lo stesso e chi preme sta
     // dicendo la stessa cosa.
-    dati.set("motivo", "Stornato dal registro dei capi extra");
+    dati.set("motivo", regalato ? "Offerto al cliente: la lavanderia resta pagata" : "Stornato dal registro dei capi extra");
     dati.set("torna_a", tornaA);
     await annullaCapoSpeciale(dati);
   }
 
   const importo = (sp!.price_cli_cents * sp!.qty / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
   revalidatePath("/admin/extra");
-  redirect(`${tornaA}?ok=${encodeURIComponent(`${sp!.item_name} stornato: ${importo} tolti al cliente e alla lavanderia.`)}`);
+  redirect(
+    `${tornaA}?ok=${encodeURIComponent(
+      regalato
+        ? `${sp!.item_name} offerto al cliente: ${importo} non addebitati, ma la lavanderia resta pagata.`
+        : `${sp!.item_name} stornato: ${importo} tolti al cliente e alla lavanderia.`,
+    )}`,
+  );
 }

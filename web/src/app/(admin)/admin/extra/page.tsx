@@ -44,6 +44,8 @@ type Riga = {
   refunded_at: string | null;
   annullato_at: string | null;
   annullato_motivo: string | null;
+  /** Tolto al cliente ma lavorato davvero: la lavanderia resta pagata. */
+  regalato: boolean | null;
   orders: {
     customer_id: string | null;
     profiles: { full_name: string | null; client_code: string | null; is_test: boolean } | null;
@@ -67,7 +69,7 @@ export default async function RegistroExtra({
       .from("order_specials")
       .select(
         "id, order_id, item_name, qty, price_cli_cents, comp_lav_cents, created_at, charged_at, " +
-          "incassato_at, incasso_fallito_at, incasso_errore, link_pagamento, refunded_at, annullato_at, annullato_motivo, " +
+          "incassato_at, incasso_fallito_at, incasso_errore, link_pagamento, refunded_at, annullato_at, annullato_motivo, regalato, " +
           "orders(customer_id, profiles!orders_customer_id_fkey(full_name, client_code, is_test))",
       )
       .order("created_at", { ascending: false })
@@ -231,6 +233,11 @@ export default async function RegistroExtra({
                   <span className="ml-2 text-xs font-medium text-muted">
                     {uno(uno(r.orders)?.profiles)?.full_name ?? "Cliente"}
                     {r.annullato_motivo ? ` · ${r.annullato_motivo}` : r.refunded_at ? " · rimborsato" : ""}
+                    {r.regalato && (
+                      <span className="ml-1 rounded-full bg-[#1F8A5B]/15 px-2 py-0.5 font-bold text-[#1F8A5B]">
+                        offerto · lavanderia pagata
+                      </span>
+                    )}
                   </span>
                 </span>
                 <span className="font-display text-sm font-bold text-muted line-through">{eur(r.price_cli_cents * r.qty)}</span>
@@ -323,11 +330,25 @@ function Voce({ r, l, modificabile, incassabile }: { r: Riga; l?: Listino; modif
                 </BottoneInvio>
               </form>
             )}
+            {/* Due storni diversi, perché sono due fatti diversi.
+                «Storna» toglie tutto: al cliente e alla lavanderia — è il caso
+                dell'errore loro. «Offri» toglie solo al cliente: il capo
+                l'hanno lavato, e a non farlo pagare siamo noi. Prima esisteva
+                solo il primo, e una decisione commerciale nostra finiva sul
+                conto della lavanderia. */}
             <form action={stornaCapoSpeciale}>
               <input type="hidden" name="special_id" value={r.id} />
               <input type="hidden" name="torna_a" value="/admin/extra" />
               <BottoneInvio className="font-display text-xs font-bold text-[#C0392B] hover:underline">
-                Storna
+                Storna (errore lavanderia)
+              </BottoneInvio>
+            </form>
+            <form action={stornaCapoSpeciale}>
+              <input type="hidden" name="special_id" value={r.id} />
+              <input type="hidden" name="torna_a" value="/admin/extra" />
+              <input type="hidden" name="regalato" value="1" />
+              <BottoneInvio className="font-display text-xs font-bold text-[#1F8A5B] hover:underline">
+                Offri al cliente (paghiamo la lavanderia)
               </BottoneInvio>
             </form>
           </>

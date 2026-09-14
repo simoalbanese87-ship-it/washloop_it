@@ -25,6 +25,9 @@ const MOTIVI = [
 export function AnnullaAddebito({ specialId, tornaA }: { specialId: string; tornaA: string }) {
   const [aperto, setAperto] = useState(false);
   const [motivo, setMotivo] = useState("");
+  // Chi si prende il costo. Di base no: il caso più frequente è l'errore della
+  // lavanderia, dove il capo non è stato lavorato o è stato lavorato male.
+  const [regalato, setRegalato] = useState(false);
 
   if (!aperto) {
     return (
@@ -66,6 +69,28 @@ export function AnnullaAddebito({ specialId, tornaA }: { specialId: string; torn
         placeholder="…o scrivilo tu"
         className="h-10 w-full rounded-[10px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue"
       />
+
+      {/* La domanda che mancava: chi paga il lavoro già fatto.
+          Togliendo un capo al cliente il compenso alla lavanderia veniva
+          sempre azzerato. Giusto quando hanno sbagliato loro; sbagliato quando
+          il capo l'hanno lavato e siamo noi a non farlo pagare — lì il regalo
+          lo facciamo noi, non loro. */}
+      <label className="flex items-start gap-2 rounded-[10px] bg-ice px-2.5 py-2 text-[11px] font-semibold text-navy">
+        <input
+          type="checkbox"
+          name="regalato"
+          value="1"
+          checked={regalato}
+          onChange={(e) => setRegalato(e.target.checked)}
+          className="mt-0.5 h-4 w-4 accent-[#1F8A5B]"
+        />
+        <span>
+          Il capo è stato lavorato: <strong>paga comunque la lavanderia</strong>.
+          <span className="block font-medium text-muted">
+            Spunta quando lo offri tu al cliente. Lascia vuoto se la lavanderia ha sbagliato: lì non si paga.
+          </span>
+        </span>
+      </label>
       <div className="flex items-center gap-2">
         <BottoneInvio
           disabled={motivo.trim().length === 0}
