@@ -197,6 +197,14 @@ export type CapoSpeciale = {
   created_at: string;
   charged_at: string | null;
   refunded_at: string | null;
+  /** Quando i soldi sono **arrivati**. `charged_at` dice soltanto che
+   *  l'addebito è stato chiesto, e i due si erano scollati: la scheda del
+   *  cliente continuava a dire «entreranno nella prossima fattura» su capi
+   *  incassati giorni prima. */
+  incassato_at: string | null;
+  incasso_fallito_at: string | null;
+  incasso_errore: string | null;
+  link_pagamento: string | null;
   /** Tolto senza che i soldi si siano mossi, con il suo perché. */
   annullato_at: string | null;
   annullato_motivo: string | null;
@@ -224,7 +232,7 @@ export async function capiSpecialiCliente(userId: string): Promise<CapoSpeciale[
 
   const { data } = await svc
     .from("order_specials")
-    .select("id, item_name, qty, qty_totale, qty_inclusa, price_cli_cents, created_at, charged_at, refunded_at, annullato_at, annullato_motivo, order_id")
+    .select("id, item_name, qty, qty_totale, qty_inclusa, price_cli_cents, created_at, charged_at, refunded_at, incassato_at, incasso_fallito_at, incasso_errore, link_pagamento, annullato_at, annullato_motivo, order_id")
     .in("order_id", ids)
     .order("created_at", { ascending: false })
     .returns<CapoSpeciale[]>();

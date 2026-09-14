@@ -93,11 +93,22 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   // Gli addebiti che partiranno da soli col prossimo rinnovo.
   //
-  // Un capo speciale non è un prelievo immediato: diventa una voce sulla
-  // prossima fattura dell'abbonamento, e i soldi si muovono lì. Chi guarda
-  // questa scheda vede «addebitato» e pensa a soldi già presi, oppure non lo
-  // vede affatto e scopre l'importo quando il cliente telefona.
-  const inAttesa = (capi ?? []).filter((c) => c.charged_at && !c.refunded_at && !c.annullato_at);
+  // «Entreranno nella prossima fattura»: solo i capi chiesti e **non ancora
+  // incassati**.
+  //
+  // Prima il filtro guardava soltanto `charged_at`, cioè «l'ho chiesto a
+  // Stripe». Da quando l'incasso è immediato quel dato non basta più: la
+  // giacca di Saverio è stata incassata il 4 settembre e questo riquadro
+  // continuava ad annunciarla come futura, dieci giorni dopo, senza modo di
+  // farla sparire. Un avviso che resta acceso su una cosa già fatta smette di
+  // essere letto — ed è quello che rende inutili tutti gli altri.
+  const inAttesa = (capi ?? []).filter(
+    (c) => c.charged_at && !c.incassato_at && !c.incasso_fallito_at && !c.refunded_at && !c.annullato_at,
+  );
+  // Incassati davvero: si mostrano, ma come storia, non come cosa da fare.
+  const incassati = (capi ?? []).filter((c) => c.incassato_at && !c.refunded_at && !c.annullato_at);
+  // Prelievo rifiutato: qui c'è da agire, e va detto in modo diverso.
+  const nonRiusciti = (capi ?? []).filter((c) => c.incasso_fallito_at && !c.refunded_at && !c.annullato_at);
   // Quelli tolti: si mostrano lo stesso, con il motivo. Un addebito sparito
   // senza spiegazione è indistinguibile da un addebito mai fatto, e alla
   // telefonata dopo nessuno sa più cos'era successo.
@@ -109,6 +120,8 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const daAddebitare = (capi ?? []).filter((c) => !c.charged_at && !c.refunded_at && !c.annullato_at);
   const daAddebitareCents = daAddebitare.reduce((t, c) => t + c.price_cli_cents * c.qty, 0);
   const inAttesaCents = inAttesa.reduce((t, c) => t + c.price_cli_cents * c.qty, 0);
+  const incassatiCents = incassati.reduce((t, c) => t + c.price_cli_cents * c.qty, 0);
+  const nonRiuscitiCents = nonRiusciti.reduce((t, c) => t + c.price_cli_cents * c.qty, 0);
   const addebitatoCents = charges?.filter((c) => c.kind !== "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
   const stornatoCents = charges?.filter((c) => c.kind === "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
 
@@ -292,6 +305,66 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                   </form>
                   <AnnullaAddebito specialId={c.id} tornaA={`/admin/abbonati/${id}`} />
                 </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Prelievo rifiutato: qui c'è da agire oggi, e il link di pagamento è
+          la cosa da mandare al cliente. */}
+      {nonRiusciti.length > 0 && (
+        <div className="mb-4 rounded-[16px] border-2 border-[#C0392B]/40 bg-[#C0392B]/[0.05] p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-display text-base font-black text-[#C0392B]">
+              {eur(nonRiuscitiCents)} non incassati
+            </span>
+            <Link href="/admin/extra" className="font-display text-sm font-bold text-blue hover:underline">
+              Gestiscili in Extra →
+            </Link>
+          </div>
+          <p className="mt-1 text-sm font-medium text-navy/75">
+            Il prelievo è stato rifiutato. La fattura resta aperta: l&apos;importo non è perso, va mandato
+            al cliente il link di pagamento.
+          </p>
+          <ul className="mt-3 space-y-1.5">
+            {nonRiusciti.map((c) => (
+              <li key={c.id} className="rounded-[12px] bg-white px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-display text-sm font-bold text-navy">{c.qty}× {c.item_name}</span>
+                  <span className="font-display text-sm font-extrabold text-[#C0392B]">{eur(c.price_cli_cents * c.qty)}</span>
+                </div>
+                {c.incasso_errore && <p className="mt-1 text-xs font-semibold text-[#C0392B]">{c.incasso_errore}</p>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Già incassati. Stanno qui come storia — «questo capo è stato pagato il
+          tal giorno» — non come cosa da fare: è la domanda che arriva quando un
+          cliente chiede conto di un importo sull'estratto conto. */}
+      {incassati.length > 0 && (
+        <div className="mb-4 rounded-[16px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/[0.06] p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-display text-base font-black text-[#1F8A5B]">
+              {eur(incassatiCents)} già incassati
+            </span>
+            <span className="font-display text-sm font-bold text-navy">
+              {incassati.length} {incassati.length === 1 ? "capo" : "capi"}
+            </span>
+          </div>
+          <ul className="mt-3 space-y-1.5">
+            {incassati.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-white px-3 py-2">
+                <span className="font-display text-sm font-bold text-navy">
+                  {c.qty}× {c.item_name}
+                  <span className="ml-2 text-xs font-medium text-muted">incassato il {fmtDate(c.incassato_at!)}</span>
+                  <Link href={`/admin/ordini/${c.order_id}`} className="ml-2 text-xs font-bold text-blue hover:underline">
+                    vedi il ritiro →
+                  </Link>
+                </span>
+                <span className="font-display text-sm font-extrabold text-[#1F8A5B]">{eur(c.price_cli_cents * c.qty)}</span>
               </li>
             ))}
           </ul>

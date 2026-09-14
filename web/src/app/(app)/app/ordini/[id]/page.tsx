@@ -92,10 +92,10 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
   // lavanderia e il permesso di colonna lo nega al cliente.
   const { data: specials } = await supabase
     .from("order_specials")
-    .select("id, item_name, qty, price_cli_cents, charged_at, refunded_at, created_at")
+    .select("id, item_name, qty, price_cli_cents, charged_at, incassato_at, refunded_at, created_at")
     .eq("order_id", id)
     .order("created_at")
-    .returns<{ id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; refunded_at: string | null; created_at: string }[]>();
+    .returns<{ id: string; item_name: string; qty: number; price_cli_cents: number; charged_at: string | null; incassato_at: string | null; refunded_at: string | null; created_at: string }[]>();
   const extra = (specials ?? []).filter((x) => !x.refunded_at);
   const totaleExtraCents = extra.reduce((t, x) => t + x.price_cli_cents * x.qty, 0);
 
@@ -419,14 +419,18 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
                 </span>
                 <span className="text-sm font-semibold text-navy">
                   {eurCents(x.price_cli_cents * x.qty)}
-                  {x.charged_at ? "" : " · in attesa"}
+                  {/* Al cliente si dice quello che è successo ai suoi soldi.
+                      «In attesa» su un capo già pagato lo fa pensare a un
+                      addebito che deve ancora arrivare, e quando lo vede in
+                      estratto conto crede di averlo pagato due volte. */}
+                  {x.incassato_at ? " · pagato" : x.charged_at ? " · in arrivo" : " · in attesa"}
                 </span>
               </li>
             ))}
           </ul>
           <p className="mt-3 text-xs font-medium text-muted">
-            L&apos;importo finisce sulla tua prossima fattura mensile, non è un pagamento a parte. Se qualcosa
-            non ti torna scrivici a info@washloop.it citando questo ritiro.
+            Gli importi si addebitano sul metodo di pagamento che usi per WashLoop. Se qualcosa non ti
+            torna scrivici a info@washloop.it citando questo ritiro: si sistema.
           </p>
         </section>
       )}

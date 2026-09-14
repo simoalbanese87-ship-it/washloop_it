@@ -15,7 +15,7 @@ import { pubblicaSegnalazione, chiudiSegnalazione } from "@/lib/actions/segnalaz
 import { signedProofUrl } from "@/lib/orders";
 import { AddSpecialForm, type ListItem } from "@/components/app/AddSpecialForm";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
-import { fmtFull, fmtSlot, toRomeInputValue } from "@/lib/format";
+import { fmtDate, fmtFull, fmtSlot, toRomeInputValue } from "@/lib/format";
 import { deliveryCounts, pickupCounts } from "@/lib/slots";
 
 type Order = {
@@ -55,6 +55,11 @@ type Special = {
   qty: number;
   price_cli_cents: number;
   charged_at: string | null;
+  /** Quando i soldi sono arrivati davvero. `charged_at` dice solo che
+   *  l'addebito è stato chiesto: tenerli insieme faceva scrivere «in fattura»
+   *  su capi incassati da giorni. */
+  incassato_at: string | null;
+  incasso_fallito_at: string | null;
   refunded_at: string | null;
   annullato_at: string | null;
   created_at: string;
@@ -192,7 +197,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
 
   const { data: specials } = await supabase
     .from("order_specials")
-    .select("id, item_name, qty, price_cli_cents, charged_at, refunded_at, annullato_at, created_at, autore:profiles!order_specials_added_by_fkey(full_name, role)")
+    .select("id, item_name, qty, price_cli_cents, charged_at, incassato_at, incasso_fallito_at, refunded_at, annullato_at, created_at, autore:profiles!order_specials_added_by_fkey(full_name, role)")
     .eq("order_id", id)
     .order("created_at")
     .returns<Special[]>();
@@ -457,9 +462,20 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
                         <span className="rounded-full bg-navy/10 px-2 py-0.5 font-display text-xs font-extrabold text-navy">annullato</span>
                       ) : s.refunded_at ? (
                         <span className="rounded-full bg-navy/10 px-2 py-0.5 font-display text-xs font-extrabold text-navy">rimborsato</span>
+                      ) : s.incassato_at ? (
+                        // Incassato vuol dire che i soldi ci sono. «In fattura»
+                        // su un capo pagato dieci giorni prima faceva credere
+                        // che ci fosse ancora qualcosa in sospeso.
+                        <span className="rounded-full bg-[#1F8A5B]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#1F8A5B]">
+                          incassato il {fmtDate(s.incassato_at)}
+                        </span>
+                      ) : s.incasso_fallito_at ? (
+                        <span className="rounded-full bg-[#C0392B]/12 px-2 py-0.5 font-display text-xs font-extrabold text-[#C0392B]">
+                          prelievo non riuscito
+                        </span>
                       ) : s.charged_at ? (
                         <>
-                          <span className="rounded-full bg-[#1F8A5B]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#1F8A5B]">in fattura</span>
+                          <span className="rounded-full bg-[#C9881F]/15 px-2 py-0.5 font-display text-xs font-extrabold text-[#C9881F]">in fattura</span>
                           {/* «Rimborsa» solo quando c'è qualcosa da rimborsare.
                               Finché il capo è in attesa della prossima fattura
                               i soldi non si sono mossi, e chiamarla rimborso
