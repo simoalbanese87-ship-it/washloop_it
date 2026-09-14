@@ -4,6 +4,7 @@ import { romeWeekday, romeHHMM } from "@/lib/format";
 import { notifyOrderStatus } from "@/lib/notify";
 import { registraGuasto } from "@/lib/incidenti";
 import { lavanderiaPredefinita } from "@/lib/lavanderia";
+import { assegnaRiderIniziale } from "@/lib/assegna-rider";
 
 /** Cron giornaliero: genera gli ordini delle ricorrenze settimanali attive,
  *  agganciandoli a uno slot reale con stesso giorno+ora (Europe/Rome) nei
@@ -141,6 +142,10 @@ export async function GET(req: Request) {
       }).select("id").single();
       if (!error && ins) {
         created++;
+        // I ritiri settimanali li genera questo cron di notte: senza questa
+        // riga nascevano tutti senza rider, e il calendario del mattino era
+        // rosso su ogni riga.
+        await assegnaRiderIniziale(sb, ins.id, rec.address_id);
         await notifyOrderStatus(ins.id, "pickup_scheduled"); // email+push cliente + heads-up lavanderia
       } else if (error) {
         // Prima finiva qui, in silenzio: il ritiro settimanale del cliente non

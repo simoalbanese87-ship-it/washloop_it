@@ -14,6 +14,7 @@ import { registraSacchiLavanderia } from "@/lib/laundry-payout";
 import { deliveryCounts, slotFullMessage } from "@/lib/slots";
 import { riconsegnaDopoSpostamento } from "@/lib/riconsegna";
 import { lavanderiaPredefinita } from "@/lib/lavanderia";
+import { assegnaRiderIniziale } from "@/lib/assegna-rider";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
  *  Calcola l'ETA "pronto" = inizio ritiro + turnaround del piano attivo. */
@@ -67,6 +68,9 @@ export async function createPickup(formData: FormData) {
     .single();
   if (error) throw new Error(slotFullMessage(error) ?? error.message);
 
+  // Il rider, subito: prima l'ordine nasceva scoperto e restava tale finché
+  // qualcuno non premeva «assegna» nel board.
+  await assegnaRiderIniziale(createServiceClient(), data!.id, address_id);
   await notifyOrderStatus(data!.id, "pickup_scheduled");
   revalidatePath("/app");
   redirect(`/app/ordini/${data!.id}`);
@@ -129,6 +133,9 @@ export async function bookPickup(input: {
     .select("id")
     .single();
   if (error) return { ok: false, error: slotFullMessage(error) ?? error.message };
+
+  // Come sopra: il giro ha un rider da subito, non da quando qualcuno guarda.
+  await assegnaRiderIniziale(createServiceClient(), data!.id, address_id);
 
   // Ricorrenza settimanale opzionale: salva il pattern (giorno+ora di Roma) e
   // lega l'ordine appena creato. Il cron genererà le settimane successive.
