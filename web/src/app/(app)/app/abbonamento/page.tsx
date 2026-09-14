@@ -131,7 +131,7 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
         <section>
           <div className="mb-2.5 flex items-center justify-between">
             <h2 className="font-display text-base font-extrabold text-navy">Uso del mese</h2>
-            <Link href="/app/fatture" className="font-display text-sm font-bold text-blue">Vedi le fatture →</Link>
+            <Link href="/app/ricevute" className="font-display text-sm font-bold text-blue">Vedi le ricevute →</Link>
           </div>
           <div className="flex gap-3">
             <StatTile n={String(bagsCount)} label={bagsCount === 1 ? "Sacco ritirato" : "Sacchi ritirati"} />

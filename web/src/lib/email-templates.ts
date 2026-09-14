@@ -160,7 +160,7 @@ export function chargeEmailHtml(d: ChargeEmailData): string {
             </td></tr>
             <tr><td style="padding:14px 36px 32px">
               <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:40px;background:#0B1F3A">
-                <a href="${site}/app/fatture" style="display:inline-block;padding:15px 32px;font-family:'Nunito',Arial,sans-serif;font-size:15px;font-weight:800;color:#7FE3D6;text-decoration:none;border-radius:40px">Vedi le fatture &nbsp;&rarr;</a>
+                <a href="${site}/app/ricevute" style="display:inline-block;padding:15px 32px;font-family:'Nunito',Arial,sans-serif;font-size:15px;font-weight:800;color:#7FE3D6;text-decoration:none;border-radius:40px">Vedi le ricevute &nbsp;&rarr;</a>
               </td></tr></table>
             </td></tr>
           </table>

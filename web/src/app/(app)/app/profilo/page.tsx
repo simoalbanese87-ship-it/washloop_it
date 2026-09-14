@@ -112,7 +112,7 @@ export default async function ProfiloPage() {
       <section className="rounded-[18px] border border-line bg-white px-5 py-1">
         <RowLink href="/app/indirizzi" Icon={PinIcon} title="Indirizzi" sub="Dove ritiriamo e consegniamo" />
         <RowLink href="/app/abbonamento" Icon={CardIcon} title="Abbonamento" sub="Gestisci il tuo piano" />
-        <RowLink href="/app/fatture" Icon={DocIcon} title="Fatture" sub="Storico e ricevute" />
+        <RowLink href="/app/ricevute" Icon={DocIcon} title="Ricevute" sub="Storico dei pagamenti" />
         <RowLink href="/app/installa" Icon={PhoneIcon} title="Installa l'app e notifiche" sub="Mettila in schermata Home in 2 passi" last />
       </section>
 
