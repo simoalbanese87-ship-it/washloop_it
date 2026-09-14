@@ -2,6 +2,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { statoStripe } from "@/lib/stato-stripe";
 import { METODI_CHECKOUT, metodiOffertiDaStripe, nomeMetodo } from "@/lib/metodi-accettati";
+import { statoClausolaRider } from "@/lib/rider-predefinito";
 import { daRisistemare } from "@/lib/riconsegna";
 import { romeHHMM, romeWeekday } from "@/lib/format";
 import { STATI_CHIUSI, type OrderStatus } from "@/lib/orders";
@@ -130,7 +131,7 @@ export default async function SicurezzaPage() {
   // sono configurati e quanto è stato incassato davvero. Le chiavi ce le ha il
   // server, non chi legge questa pagina — ed è l'unico posto da cui la domanda
   // può ricevere una risposta invece di un'ipotesi.
-  const [stato, metodi] = await Promise.all([statoStripe(), metodiOffertiDaStripe()]);
+  const [stato, metodi, clausola] = await Promise.all([statoStripe(), metodiOffertiDaStripe(), statoClausolaRider(svc)]);
 
   const senzaRider = (zoneAttive.data ?? []).filter((z) => !z.courier_id).map((z) => z.name);
   const lavIncomplete = (lavanderie.data ?? []).filter((l) => !l.address || !l.email);
@@ -213,6 +214,14 @@ export default async function SicurezzaPage() {
       label: "Fasce di riconsegna nei prossimi 7 giorni",
       status: nConsegne === 0 ? "fail" : nConsegne < 7 ? "warn" : "ok",
       detail: nConsegne === 0 ? "Nessuna: non possiamo programmare le riconsegne" : `${nConsegne} fasce disponibili`,
+    },
+    {
+      // Una regola provvisoria che nessuno vede è una regola per sempre. Questa
+      // riga esiste perché si possa leggere che c'è, cosa sta facendo, e a che
+      // condizione smetterà — senza aprire il codice.
+      label: "Rider messo in automatico alla creazione (clausola momentanea)",
+      status: clausola.attiva ? "ok" : "warn",
+      detail: clausola.motivo,
     },
     {
       label: "Rider assegnato alle zone attive",
