@@ -13,6 +13,7 @@ import { LAVORAZIONE_APERTA, signedProofUrl, type OrderStatus } from "@/lib/orde
 import { SEGNALABILE } from "@/lib/segnalazioni";
 import { fmtFull } from "@/lib/format";
 import { createServiceClient } from "@/lib/supabase/server";
+import { sacchiPerFranchigia } from "@/lib/franchigia";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +99,10 @@ export default async function LaundryOrderDetail({
   // Stessa regola applicata dalla server action `addSpecial`: qui nasconde il
   // modulo, lì rifiuta la richiesta.
   const lavorazioneChiusa = !LAVORAZIONE_APERTA.includes(order.status);
+  // Gli stessi sacchi che userà `addSpecial`: se qui e lì il numero differisse,
+  // la schermata direbbe una cosa e il conto ne farebbe un'altra — che è
+  // esattamente com'è nato il guasto del 15 settembre.
+  const sacchiFranchigia = sacchiPerFranchigia(order.bags_arrivati, order.bags_scansionati, order.bags);
   const items = specials ?? [];
   const totComp = items.reduce((s, i) => s + i.comp_lav_cents * i.qty, 0);
 
@@ -217,6 +222,15 @@ export default async function LaundryOrderDetail({
                 Scrivi sempre <strong>quanti capi hai trovato</strong>, anche se sono compresi
                 nell&apos;abbonamento. Le camicie incluse — <strong>3 per sacco</strong> — le toglie il
                 sistema: tu conta e basta.
+                {/* Quanti sacchi sta usando il sistema, detto qui e non solo
+                    nella colonna accanto: la franchigia dipende da quel numero,
+                    e quando non torna il conto sembra che il modulo sia rotto. */}
+                <span className="mt-1 block font-medium text-navy/75">
+                  Conto fatto su <strong>{sacchiFranchigia} {sacchiFranchigia === 1 ? "sacco" : "sacchi"}</strong>
+                  {order.bags_arrivati == null
+                    ? " — non ancora confermati. Se non torna, conferma il conteggio qui a sinistra: i capi già registrati si ricalcolano da soli."
+                    : ", confermati da te."}
+                </span>
               </p>
               <div className="mt-4">
                 <AddSpecialForm orderId={order.order_id} items={listino ?? []} />

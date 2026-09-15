@@ -7,7 +7,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus, notifySegnalazioneCliente, notifySegnalazioneOps } from "@/lib/notify";
 import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
 import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione } from "@/lib/segnalazioni";
-import { conteggiaConFranchigia } from "@/lib/franchigia";
+import { conteggiaConFranchigia, sacchiPerFranchigia, ridistribuisciFranchigia } from "@/lib/franchigia";
 import { incassaExtraDelRitiro } from "@/lib/incasso-extra";
 import { notificaExtraIncassati } from "@/lib/notify";
 
@@ -204,12 +204,13 @@ export async function addSpecial(formData: FormData) {
   // franchigia di 6 camicie invece di 3 — cioè tre camicie regalate su un
   // sacco che il cliente non ha portato. Verificato registrandone quattro: la
   // quarta risultava ancora «compresa».
-  const { data: ordine } = await svc
-    .from("orders")
-    .select("bags, bags_arrivati")
-    .eq("id", orderId)
-    .maybeSingle<{ bags: number | null; bags_arrivati: number | null }>();
-  const sacchiVeri = ordine?.bags_arrivati ?? ordine?.bags ?? 1;
+  const [{ data: ordine }, { count: scansionati }] = await Promise.all([
+    svc.from("orders").select("bags, bags_arrivati").eq("id", orderId).maybeSingle<{ bags: number | null; bags_arrivati: number | null }>(),
+    svc.from("order_bags").select("id", { count: "exact", head: true }).eq("order_id", orderId),
+  ]);
+  // Il conteggio del rider mancava proprio qui, e il 15 settembre è costato sei
+  // camicie: la schermata mostrava «Sacchi 1», la franchigia ne usava 2.
+  const sacchiVeri = sacchiPerFranchigia(ordine?.bags_arrivati, scansionati, ordine?.bags);
   const { data: precedenti } = await svc
     .from("order_specials")
     .select("qty, qty_totale")
@@ -296,15 +297,25 @@ export async function addSpecial(formData: FormData) {
   // ricaricava uguale — e con la franchigia di mezzo «uguale» è la risposta
   // giusta e quella sbagliata allo stesso tempo.
   const nome = qty > 1 ? `${qty}× ${item.name}` : item.name;
+  // Su quanti sacchi è stato fatto il conto, e se quel numero è ancora una
+  // stima. È la riga che mancava: la franchigia dipende dai sacchi, e chi
+  // registra i capi non aveva modo di sapere quanti ne stesse usando il
+  // sistema. Sei camicie dichiarate «tutte comprese» sembravano un guasto.
+  const base =
+    conto.franchigiaTotale > 0
+      ? ` Conto fatto su ${sacchiVeri} ${sacchiVeri === 1 ? "sacco" : "sacchi"}${
+          ordine?.bags_arrivati == null ? " — non ancora confermati: se non tornano, correggi il conteggio qui sopra." : ""
+        }.`
+      : "";
   redirect(
     daAddebitare > 0
       ? `/laundry/${orderId}?ok=${encodeURIComponent(
           conto.incluse > 0
-            ? `${nome} registrato: ${conto.incluse} ${conto.incluse === 1 ? "compreso" : "compresi"} nell'abbonamento, ${daAddebitare} da addebitare.`
+            ? `${nome} registrato: ${conto.incluse} ${conto.incluse === 1 ? "compreso" : "compresi"} nell'abbonamento, ${daAddebitare} da addebitare.${base}`
             : `${nome} registrato.`,
         )}`
       : `/laundry/${orderId}?ok=${encodeURIComponent(
-          `${nome} registrato: ${conto.incluse === 1 ? "è compreso" : "sono compresi"} nell'abbonamento, al cliente non si addebita niente.`,
+          `${nome} registrato: ${conto.incluse === 1 ? "è compreso" : "sono compresi"} nell'abbonamento, al cliente non si addebita niente.${base}`,
         )}`,
   );
 }
@@ -490,9 +501,97 @@ export async function confermaSacchiArrivati(formData: FormData) {
     .eq("id", orderId);
   if (error) throw new Error(error.message);
 
+  const rifatti = await rifaiFranchigia(svc, orderId, n, profile.laundry_id!);
+
   revalidatePath("/laundry");
   revalidatePath(`/laundry/${orderId}`);
   revalidatePath("/laundry/storico");
   revalidatePath("/admin/lavanderia");
+  revalidatePath("/admin/extra");
   revalidatePath(`/admin/ordini/${orderId}`);
+
+  if (rifatti) redirect(`/laundry/${orderId}?ok=${encodeURIComponent(rifatti)}`);
+}
+
+/** Rifà il conto della franchigia sui capi già registrati, col numero di sacchi
+ *  appena confermato.
+ *
+ *  Perché serve
+ *  ------------
+ *  Il numero di sacchi decide quante camicie sono comprese, ma la lavanderia lo
+ *  conferma **dopo** aver aperto i sacchi e contato i capi. Finché questa
+ *  funzione non c'era, correggere il conteggio non correggeva niente: le sei
+ *  camicie di fabia erano state dichiarate tutte comprese su 2 sacchi previsti,
+ *  e confermare «1» le lasciava comprese lo stesso. Dal portale sembrava un
+ *  muro — conti bene, registri tutto, e il totale resta zero.
+ *
+ *  Cosa non tocca
+ *  --------------
+ *  Le righe già addebitate, stornate o annullate. Se su un capo c'è già dei
+ *  soldi mossi, il conto di quel capo resta com'è: rifarlo qui vorrebbe dire
+ *  cambiare un importo che il cliente ha già visto, e quello si fa dal pannello
+ *  con un rimborso, non di soppiatto da un bottone della lavanderia. */
+async function rifaiFranchigia(
+  svc: ReturnType<typeof createServiceClient>,
+  orderId: string,
+  sacchi: number,
+  laundryId: string,
+): Promise<string | null> {
+  const { data: righe } = await svc
+    .from("order_specials")
+    .select("id, item_id, qty, qty_totale, comp_lav_cents, charged_at, refunded_at, annullato_at")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: true })
+    .returns<{
+      id: string; item_id: string; qty: number; qty_totale: number | null;
+      comp_lav_cents: number; charged_at: string | null; refunded_at: string | null; annullato_at: string | null;
+    }[]>();
+  if (!righe?.length) return null;
+
+  const itemIds = [...new Set(righe.map((r) => r.item_id))];
+  const { data: listino } = await svc
+    .from("special_items")
+    .select("id, name, incluse_per_sacco")
+    .in("id", itemIds)
+    .returns<{ id: string; name: string; incluse_per_sacco: number | null }[]>();
+  const franchigiaDi = new Map((listino ?? []).map((i) => [i.id, i.incluse_per_sacco ?? 0]));
+  const nomeDi = new Map((listino ?? []).map((i) => [i.id, i.name]));
+
+  const cambiati: string[] = [];
+  for (const itemId of itemIds) {
+    const perSacco = franchigiaDi.get(itemId) ?? 0;
+    if (perSacco === 0) continue; // niente franchigia, niente da ridistribuire
+
+    const delCapo = righe.filter((r) => r.item_id === itemId && !r.annullato_at && !r.refunded_at);
+    // Un solo capo già addebitato e si lascia stare tutto il gruppo: la
+    // franchigia è un conto unico, e rifarne metà darebbe un numero peggiore
+    // di quello sbagliato.
+    if (delCapo.some((r) => r.charged_at)) continue;
+
+    const nuovo = ridistribuisciFranchigia(delCapo.map((r) => ({ id: r.id, qtyTotale: r.qty_totale ?? r.qty })), perSacco * sacchi);
+    for (const n of nuovo) {
+      const prima = delCapo.find((r) => r.id === n.id)!;
+      if (prima.qty === n.daAddebitare) continue;
+
+      await svc.from("order_specials").update({ qty: n.daAddebitare, qty_inclusa: n.incluse }).eq("id", n.id);
+
+      // Il compenso segue l'addebito: la riga di payout esiste solo per i capi
+      // che si pagano davvero. Si tocca solo se non è già stata liquidata.
+      await svc.from("laundry_payouts").delete().eq("special_id", n.id).eq("status", "pending");
+      if (n.daAddebitare > 0) {
+        await svc.from("laundry_payouts").insert({
+          laundry_id: laundryId,
+          order_id: orderId,
+          special_id: n.id,
+          kind: "special",
+          amount_cents: prima.comp_lav_cents * n.daAddebitare,
+          status: "pending",
+        });
+      }
+      cambiati.push(`${n.daAddebitare}× ${nomeDi.get(itemId) ?? "capo"}`);
+    }
+  }
+
+  if (cambiati.length === 0) return null;
+  return `Sacchi confermati: ${sacchi}. Rifatto il conto delle camicie comprese — ora da addebitare: ${cambiati.join(", ")}.`;
 }

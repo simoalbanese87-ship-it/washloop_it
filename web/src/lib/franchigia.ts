@@ -42,3 +42,59 @@ export function conteggiaConFranchigia(
   const incluse = Math.min(n, residua);
   return { daAddebitare: n - incluse, incluse, franchigiaTotale };
 }
+
+/** Su quanti sacchi si calcola la franchigia.
+ *
+ *  Il difetto (15 settembre, lavanderia ferma)
+ *  -------------------------------------------
+ *  Il portale mostrava «Sacchi 1 · da confermare» e la franchigia ne usava 2.
+ *  Due letture diverse dello stesso numero nella stessa schermata: la pagina
+ *  scriveva `bags_arrivati ?? (bags_scansionati || bags)`, `addSpecial`
+ *  `bags_arrivati ?? bags` — e si dimenticava il conteggio del rider.
+ *
+ *  Su un ordine da 2 sacchi previsti con 1 solo scansionato, la lavanderia ha
+ *  registrato 6 camicie e il sistema le ha dichiarate **tutte comprese**: 6 di
+ *  franchigia invece di 3. Da dentro il portale è un muro — si conta bene, si
+ *  registra tutto, e il totale resta zero senza che niente dica perché.
+ *
+ *  L'ordine delle prove
+ *  --------------------
+ *  1. **Quanti ne ha contati la lavanderia** (`bags_arrivati`): è l'unico
+ *     numero osservato con i sacchi sul banco, e vince su tutto.
+ *  2. **Quanti ne ha scansionati il rider**: li ha avuti in mano lui.
+ *     Vale solo se ce n'è almeno uno — a tag non letti il conteggio è zero, e
+ *     zero non è una prova che non sia arrivato niente.
+ *  3. **Quanti ne prevedeva l'abbonamento**: l'ultima risorsa. È un'attesa, non
+ *     un fatto, e usarla per prima è ciò che ha regalato tre camicie. */
+export function sacchiPerFranchigia(
+  arrivati: number | null | undefined,
+  scansionati: number | null | undefined,
+  previsti: number | null | undefined,
+): number {
+  if (typeof arrivati === "number") return Math.max(0, Math.trunc(arrivati));
+  if (typeof scansionati === "number" && scansionati > 0) return Math.trunc(scansionati);
+  return Math.max(1, Math.trunc(previsti ?? 1));
+}
+
+/** Rifà il conto della franchigia su righe già registrate.
+ *
+ *  Serve quando il numero di sacchi cambia **dopo** che i capi sono stati
+ *  registrati — cioè ogni volta che la lavanderia preme «Conferma il
+ *  conteggio», che è il momento in cui il numero smette di essere una stima.
+ *  Senza questo, correggere i sacchi non correggeva niente: le camicie
+ *  dichiarate comprese restavano comprese per sempre.
+ *
+ *  Le righe si servono in ordine di registrazione: la franchigia la consuma chi
+ *  è arrivato prima, che è anche l'unico ordine che si può spiegare a voce. */
+export function ridistribuisciFranchigia(
+  righe: { id: string; qtyTotale: number }[],
+  franchigiaTotale: number,
+): { id: string; incluse: number; daAddebitare: number }[] {
+  let residua = Math.max(0, Math.trunc(franchigiaTotale));
+  return righe.map((r) => {
+    const n = Math.max(0, Math.trunc(r.qtyTotale));
+    const incluse = Math.min(n, residua);
+    residua -= incluse;
+    return { id: r.id, incluse, daAddebitare: n - incluse };
+  });
+}
