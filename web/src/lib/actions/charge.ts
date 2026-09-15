@@ -10,6 +10,7 @@ import { notifySpecialAdded } from "@/lib/notify";
 import { metodoDiPagamento } from "@/lib/metodo-pagamento";
 import { origineDelPagamento } from "@/lib/pagamento-fattura";
 import { METODI_FATTURA } from "@/lib/metodi-accettati";
+import { dataServizio } from "@/lib/periodo-servizio";
 
 /** `redirect()` di Next **lancia** un'eccezione per interrompere l'esecuzione.
  *
@@ -114,6 +115,7 @@ export async function addSpecialAdmin(formData: FormData) {
       kind: "special",
       amount_cents: item.comp_lav_cents * qty,
       status: "pending",
+      servizio_il: await dataServizio(svc, orderId),
     });
   }
   revalidatePath(`/admin/ordini/${orderId}`);

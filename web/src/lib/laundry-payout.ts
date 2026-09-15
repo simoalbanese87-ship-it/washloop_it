@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { dataServizio } from "@/lib/periodo-servizio";
 
 /** Registra quanto dobbiamo alla lavanderia per i sacchi di un ordine.
  *
@@ -65,6 +66,7 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
       kind: "bag",
       amount_cents: compenso * sacchi,
       status: "pending",
+      servizio_il: await dataServizio(svc, orderId),
     });
     if (error) console.error(`[payout] riga sacchi per ${orderId} non scritta:`, error.message);
   } catch (err) {

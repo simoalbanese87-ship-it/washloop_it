@@ -25,9 +25,12 @@ export async function segnaMesePagato(formData: FormData) {
     redirect(`${REV}?warn=${encodeURIComponent("Periodo non valido.")}`);
   }
 
-  const inizio = `${mese}-01T00:00:00.000Z`;
+  // Gli estremi si scrivono come date, non come istanti: `servizio_il` è un
+  // giorno, e confrontarlo con un timestamp UTC farebbe cadere fuori l'ultimo
+  // giorno del mese a seconda del fuso.
+  const inizio = `${mese}-01`;
   const [anno, m] = mese.split("-").map(Number);
-  const fine = new Date(Date.UTC(m === 12 ? anno + 1 : anno, m === 12 ? 0 : m, 1)).toISOString();
+  const fine = `${m === 12 ? anno + 1 : anno}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01`;
 
   const svc = createServiceClient();
   const { error, count } = await svc
@@ -37,8 +40,11 @@ export async function segnaMesePagato(formData: FormData) {
     .update({ status: "settled", paid_at: new Date().toISOString() }, { count: "exact" })
     .eq("laundry_id", laundryId)
     .eq("status", "pending")
-    .gte("created_at", inizio)
-    .lt("created_at", fine);
+    // Sul mese del servizio, esattamente come la pagina che si sta guardando:
+    // se i due criteri divergessero, il bottone liquiderebbe righe diverse da
+    // quelle del totale appena letto.
+    .gte("servizio_il", inizio)
+    .lt("servizio_il", fine);
 
   if (error) redirect(`${REV}?warn=${encodeURIComponent(error.message)}`);
 

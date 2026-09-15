@@ -90,8 +90,11 @@ export default async function StoricoLavanderia({
     supabase
       .from("laundry_payouts")
       .select("order_id, kind, amount_cents, status, created_at, paid_at")
-      .gte("created_at", dal)
-      .lt("created_at", al)
+      // Il mese del servizio, come nel pannello e come nel bottone che liquida:
+      // tre criteri diversi per lo stesso mese erano tre totali che non
+      // tornavano fra loro.
+      .gte("servizio_il", dal.slice(0, 10))
+      .lt("servizio_il", al.slice(0, 10))
       .neq("status", "void")
       .returns<Compenso[]>(),
   ]);

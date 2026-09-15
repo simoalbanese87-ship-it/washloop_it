@@ -14,10 +14,17 @@ type Riga = {
   amount_cents: number;
   status: string;
   created_at: string;
+  /** Il giorno del servizio a cui la riga si riferisce: è con questo che si
+   *  raggruppa e si liquida, non con `created_at`. */
+  servizio_il: string;
   laundries: { name: string } | null;
 };
 
 const eur = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+
+/** Giorno e mese, per i due estremi del periodo coperto. */
+const fmtGiorno = (iso: string) =>
+  new Date(`${iso}T12:00:00Z`).toLocaleDateString("it-IT", { day: "numeric", month: "short" });
 
 const meseLabel = (chiave: string) => {
   const [a, m] = chiave.split("-");
@@ -40,9 +47,9 @@ export default async function LavanderiaPage({
 
   const { data } = await svc
     .from("laundry_payouts")
-    .select("id, laundry_id, order_id, kind, amount_cents, status, created_at, laundries(name)")
+    .select("id, laundry_id, order_id, kind, amount_cents, status, created_at, servizio_il, laundries(name)")
     .neq("status", "void")
-    .order("created_at", { ascending: false })
+    .order("servizio_il", { ascending: false })
     .limit(500)
     .returns<Riga[]>();
 
@@ -92,14 +99,20 @@ export default async function LavanderiaPage({
 
   // Raggruppo per lavanderia e mese: è l'unità con cui si paga davvero.
   type Voce = { orderId: string | null; sacchi: number; capi: number; quando: string };
-  const gruppi = new Map<string, { lavanderia: string; laundryId: string; mese: string; sacchi: number; capi: number; totale: number; pagate: number; righe: number; voci: Map<string, Voce> }>();
+  const gruppi = new Map<string, { lavanderia: string; laundryId: string; mese: string; dal: string; al: string; sacchi: number; capi: number; totale: number; pagate: number; righe: number; voci: Map<string, Voce> }>();
   for (const r of righe) {
-    const mese = r.created_at.slice(0, 7);
+    // Il mese del **servizio**, non quello in cui abbiamo scritto la riga. I
+    // capi speciali si registrano durante la lavorazione e i sacchi alla
+    // riconsegna: raggruppando per data di scrittura, un ritiro a cavallo di
+    // fine mese finiva spezzato su due proforma.
+    const mese = r.servizio_il.slice(0, 7);
     const chiave = `${r.laundry_id}|${mese}`;
     const g = gruppi.get(chiave) ?? {
       lavanderia: r.laundries?.name ?? "—",
       laundryId: r.laundry_id,
       mese,
+      dal: r.servizio_il,
+      al: r.servizio_il,
       sacchi: 0,
       capi: 0,
       totale: 0,
@@ -111,12 +124,14 @@ export default async function LavanderiaPage({
     // Le due righe di uno stesso ordine (sacchi e capi) si fondono in una voce
     // sola: è così che la si legge, «quell'ordine ci è costato tanto».
     const k = r.order_id ?? `senza-ordine-${r.id}`;
-    const v = g.voci.get(k) ?? { orderId: r.order_id, sacchi: 0, capi: 0, quando: r.created_at };
+    const v = g.voci.get(k) ?? { orderId: r.order_id, sacchi: 0, capi: 0, quando: r.servizio_il };
     if (r.kind === "bag") v.sacchi += r.amount_cents;
     else v.capi += r.amount_cents;
-    if (r.created_at < v.quando) v.quando = r.created_at;
+    if (r.servizio_il < v.quando) v.quando = r.servizio_il;
     g.voci.set(k, v);
 
+    if (r.servizio_il < g.dal) g.dal = r.servizio_il;
+    if (r.servizio_il > g.al) g.al = r.servizio_il;
     if (r.kind === "bag") g.sacchi += r.amount_cents;
     else g.capi += r.amount_cents;
     g.totale += r.amount_cents;
@@ -204,10 +219,16 @@ export default async function LavanderiaPage({
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="font-display text-sm font-extrabold text-navy">
-                      {g.lavanderia} · {meseLabel(g.mese)}
+                      {g.lavanderia} · servizio di {meseLabel(g.mese)}
                     </div>
                     <div className="mt-0.5 text-xs font-medium text-muted">
                       {eur(g.sacchi)} sacchi + {eur(g.capi)} capi speciali · {g.righe} {g.righe === 1 ? "voce" : "voci"}
+                      {/* Il periodo coperto, per il riscontro col proforma: il
+                          mese da solo non dice se dentro c'è tutto il mese o
+                          tre giorni, e chi firma un bonifico lo deve sapere. */}
+                      {g.dal && g.al && (
+                        <> · {g.dal === g.al ? `consegne del ${fmtGiorno(g.dal)}` : `consegne dal ${fmtGiorno(g.dal)} al ${fmtGiorno(g.al)}`}</>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-none items-center gap-3">

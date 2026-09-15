@@ -10,6 +10,7 @@ import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isT
 import { conteggiaConFranchigia, sacchiPerFranchigia, ridistribuisciFranchigia } from "@/lib/franchigia";
 import { incassaExtraDelRitiro } from "@/lib/incasso-extra";
 import { notificaExtraIncassati } from "@/lib/notify";
+import { dataServizio } from "@/lib/periodo-servizio";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
 const PARTNER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -271,6 +272,7 @@ export async function addSpecial(formData: FormData) {
       kind: "special",
       amount_cents: item.comp_lav_cents * daAddebitare,
       status: "pending",
+      servizio_il: await dataServizio(svc, orderId),
     });
   }
 
@@ -586,6 +588,7 @@ async function rifaiFranchigia(
           kind: "special",
           amount_cents: prima.comp_lav_cents * n.daAddebitare,
           status: "pending",
+          servizio_il: await dataServizio(svc, orderId),
         });
       }
       cambiati.push(`${n.daAddebitare}× ${nomeDi.get(itemId) ?? "capo"}`);
