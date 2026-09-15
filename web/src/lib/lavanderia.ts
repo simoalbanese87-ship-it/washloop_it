@@ -25,7 +25,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *  restituisce `null` da sola e torna a decidere una persona — che è giusto,
  *  perché a quel punto la scelta esiste davvero.
  *
- *  Non sovrascrive mai una lavanderia già scelta: è un ripiego, non una regola. */
+ *  Non sovrascrive mai una lavanderia già scelta: è un ripiego, non una regola.
+ *
+ *  **Va chiamata col service client.** Su `laundries` la policy fa leggere solo
+ *  rider, lavanderia e admin: passando la sessione di un cliente la query non
+ *  dà errore, torna vuota — e una lista vuota qui significa «non c'è una sola
+ *  lavanderia attiva», cioè nessun ripiego. È così che il 14 settembre due
+ *  ritiri sono nati senza lavanderia e sono arrivati sul banco senza comparire
+ *  in nessuna lista. */
 export async function lavanderiaPredefinita(client: SupabaseClient): Promise<string | null> {
   const { data } = await client
     .from("laundries")

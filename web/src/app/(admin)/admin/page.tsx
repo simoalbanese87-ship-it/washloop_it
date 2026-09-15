@@ -54,7 +54,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     return includiProva ? q : q.eq("orders.profiles.is_test", false);
   };
 
-  const [daRichiamare, inRitardo, senzaRider, pagamentiKo, segnalazioni, extraInAttesa, rev, laundry, subs, customers, mesiIncassi] = await Promise.all([
+  const [daRichiamare, inRitardo, senzaRider, senzaLavanderia, pagamentiKo, segnalazioni, extraInAttesa, rev, laundry, subs, customers, mesiIncassi] = await Promise.all([
     // Non una query sui soli `leads`: quella contava anche chi nel frattempo è
     // diventato cliente. `daContattare` passa dalla stessa deduplica di Persone,
     // così il numero e la pagina che apre dicono la stessa cosa.
@@ -63,6 +63,13 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     // ordini (`isLate`), qui applicata dal database invece che nel browser.
     ordiniVeri().lt("eta_ready_at", oraIso),
     ordiniVeri().is("courier_id", null),
+    // Ordini senza lavanderia. Il portale filtra per lavanderia, quindi un
+    // ordine così **non lo vede nessuno**: il sacco arriva sul banco e non
+    // compare in nessuna lista. È già successo due volte, e le due volte ce ne
+    // siamo accorti perché ha telefonato la lavanderia. Il controllo esisteva
+    // in `/admin/sicurezza`, che però si apre una volta al mese: qui sta dove
+    // si guarda ogni giorno.
+    ordiniVeri().is("laundry_id", null),
     abbonamentiVeri(),
     segnalazioniAperte(),
     // Capi il cui prelievo è stato rifiutato. La fattura resta aperta e il
@@ -107,6 +114,13 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
       n: nExtra,
       sub: "prelievo rifiutato, link da mandare",
       href: "/admin/extra",
+      tono: "text-[#C0392B]",
+    },
+    {
+      label: "Ordini senza lavanderia",
+      n: senzaLavanderia.count ?? 0,
+      sub: "il portale non li mostra a nessuno",
+      href: "/admin/ordini",
       tono: "text-[#C0392B]",
     },
     {

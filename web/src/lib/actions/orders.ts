@@ -30,7 +30,14 @@ export async function createPickup(formData: FormData) {
   // Se nessuno l'ha scelta e di lavanderia ne abbiamo una sola, si aggancia da
   // sé: un ordine senza lavanderia non compare nel loro portale, e arriva sul
   // banco senza che nessuno l'abbia visto.
-  const laundry_id = String(formData.get("laundry_id") ?? "") || (await lavanderiaPredefinita(supabase));
+  // Il ripiego si chiede col service client, non con la sessione del cliente:
+  // su `laundries` leggono solo rider, lavanderia e admin, quindi dal browser
+  // di chi prenota la query non fallisce — **torna vuota**, e la funzione
+  // conclude che di lavanderie attive non ce n'è una sola. L'ordine nasce senza
+  // lavanderia, il portale filtra per lavanderia, e quel sacco non lo vede
+  // nessuno: è successo il 14 settembre a due ritiri, arrivati sul banco senza
+  // comparire in nessuna lista.
+  const laundry_id = String(formData.get("laundry_id") ?? "") || (await lavanderiaPredefinita(createServiceClient()));
   const bags = Number(formData.get("bags") ?? 1);
   if (!address_id || !pickup_slot_id) throw new Error("Indirizzo e slot obbligatori");
 
@@ -97,7 +104,9 @@ export async function bookPickup(input: {
 
   const { address_id, pickup_slot_id } = input;
   const delivery_slot_id = input.delivery_slot_id || null;
-  const laundry_id = input.laundry_id || (await lavanderiaPredefinita(supabase));
+  // Stesso motivo di `createPickup`: la lavanderia di ripiego non è un dato del
+  // cliente, e chiederla con la sua sessione dà sempre «nessuna».
+  const laundry_id = input.laundry_id || (await lavanderiaPredefinita(createServiceClient()));
   const bags = Number.isFinite(input.bags) && input.bags > 0 ? input.bags : 1;
   if (!address_id || !pickup_slot_id) return { ok: false, error: "Indirizzo e slot obbligatori" };
 
