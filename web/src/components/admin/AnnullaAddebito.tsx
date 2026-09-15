@@ -13,13 +13,24 @@ import { BottoneInvio } from "@/components/ui/BottoneInvio";
  *  non c'è scritto qualcosa: costringere a scriverlo ora costa cinque secondi,
  *  ricostruirlo dopo non si può.
  *
- *  I motivi pronti coprono i due casi veri — il cliente reclama, oppure la
- *  lavanderia ha contato male — e restano modificabili: sono un punto di
- *  partenza, non un elenco chiuso. */
-const MOTIVI = [
-  "Claim del cliente: capo non suo o non trovato",
-  "Errore della lavanderia: capo già compreso nel sacco",
-  "Errore della lavanderia: quantità sbagliata",
+ *  Ogni motivo porta con sé la sua conseguenza sul compenso, perché la domanda
+ *  vera è una sola: **il lavoro è stato fatto?** Se il capo è stato lavato la
+ *  lavanderia va pagata, anche quando al cliente non lo addebitiamo — e quella
+ *  scelta non può dipendere da una spunta che nessuno ricorda di mettere.
+ *
+ *  È già successo. «Capo già compreso nel sacco» stava fra gli errori della
+ *  lavanderia: azzerava il compenso su nove camicie lavate davvero. Ma un capo
+ *  compreso nell'abbonamento non è un errore loro — è una promessa nostra al
+ *  cliente, e il lavandaio l'ha lavato lo stesso.
+ *
+ *  La spunta resta, e resta modificabile: i motivi sono un punto di partenza,
+ *  non un elenco chiuso. */
+const MOTIVI: { testo: string; paga: boolean }[] = [
+  { testo: "Capo già compreso nell'abbonamento", paga: true },
+  { testo: "Lo offriamo noi al cliente", paga: true },
+  { testo: "Claim del cliente: capo non suo o non trovato", paga: false },
+  { testo: "Errore della lavanderia: quantità sbagliata", paga: false },
+  { testo: "Capo rovinato in lavorazione", paga: false },
 ];
 
 export function AnnullaAddebito({ specialId, tornaA }: { specialId: string; tornaA: string }) {
@@ -51,14 +62,19 @@ export function AnnullaAddebito({ specialId, tornaA }: { specialId: string; torn
       <div className="flex flex-wrap gap-1.5">
         {MOTIVI.map((m) => (
           <button
-            key={m}
+            key={m.testo}
             type="button"
-            onClick={() => setMotivo(m)}
+            // Scegliere il motivo decide anche chi si prende il costo: è la
+            // stessa domanda, e tenerle separate faceva perdere la seconda.
+            onClick={() => {
+              setMotivo(m.testo);
+              setRegalato(m.paga);
+            }}
             className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${
-              motivo === m ? "border-navy bg-navy text-white" : "border-line bg-ice text-navy/70 hover:border-navy/40"
+              motivo === m.testo ? "border-navy bg-navy text-white" : "border-line bg-ice text-navy/70 hover:border-navy/40"
             }`}
           >
-            {m}
+            {m.testo}
           </button>
         ))}
       </div>
