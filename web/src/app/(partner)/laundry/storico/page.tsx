@@ -100,7 +100,17 @@ export default async function StoricoLavanderia({
   // riepilogo lo contava e la tabella no, quindi la pagina diceva «5 capi
   // extra» e sotto mostrava solo trattini. Si recuperano anche quegli ordini.
   const idDelMese = new Set((ordiniDelMese ?? []).map((o) => o.order_id));
-  const mancanti = [...new Set((capi ?? []).map((c) => c.order_id))].filter((id) => !idDelMese.has(id));
+  // Anche gli ordini che nel mese hanno maturato il compenso a sacco, non solo
+  // quelli con un capo extra: un ritiro di fine agosto consegnato a settembre
+  // porta i suoi soldi qui, e senza la sua riga il conto dei sacchi e quello
+  // del denaro parlavano di mesi diversi.
+  const daAltriMesi = [
+    ...new Set([
+      ...(capi ?? []).map((c) => c.order_id),
+      ...(compensi ?? []).filter((r) => r.kind === "bag").map((r) => r.order_id),
+    ]),
+  ].filter((id): id is string => !!id);
+  const mancanti = daAltriMesi.filter((id) => !idDelMese.has(id));
   const { data: ordiniDeiCapi } = mancanti.length
     ? await supabase
         .from("partner_orders")
@@ -109,7 +119,12 @@ export default async function StoricoLavanderia({
         .returns<Ordine[]>()
     : { data: [] as Ordine[] };
 
+  // Gli annullati fuori da tutto: un ritiro annullato non è mai arrivato sul
+  // banco, e contarlo fra i sacchi lavati è una riga di lavoro che non c'è
+  // stata. Ne bastava uno — il ritiro annullato di WL-3153 il 1° settembre —
+  // per far dire alla pagina un sacco in più di quelli veri.
   const righe = [...(ordiniDelMese ?? []), ...(ordiniDeiCapi ?? [])]
+    .filter((o) => o.status !== "cancelled")
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
   const capiPerOrdine = new Map<string, Capo[]>();
   for (const c of capi ?? []) capiPerOrdine.set(c.order_id, [...(capiPerOrdine.get(c.order_id) ?? []), c]);
@@ -121,7 +136,25 @@ export default async function StoricoLavanderia({
   // stanno in tabella solo perché nel mese hanno avuto un capo extra: i loro
   // sacchi sono già stati contati nel mese in cui sono arrivati, e sommarli qui
   // li conterebbe due volte.
-  const totaleSacchi = (ordiniDelMese ?? []).reduce((t, o) => t + sacchiDi(o), 0);
+  //
+  // I sacchi del mese sono quelli che nel mese hanno maturato il compenso —
+  // gli stessi che fanno la cifra qui accanto. Prima erano i sacchi dei ritiri
+  // del mese, e i due numeri rispondevano a due domande diverse: a settembre la
+  // pagina diceva «6 sacchi lavati» e pagava 86,10 €, cioè sette. La lavanderia
+  // ne aveva contati sette e aveva ragione; il nostro contatore guardava la
+  // data del ritiro, i soldi quella della consegna.
+  const conPagamento = new Set((compensi ?? []).filter((r) => r.kind === "bag").map((r) => r.order_id));
+  const perOrdine = new Map(righe.map((o) => [o.order_id, o]));
+  const totaleSacchi = [...conPagamento].reduce((t, id) => {
+    const o = id ? perOrdine.get(id) : null;
+    return t + (o ? sacchiDi(o) : 0);
+  }, 0);
+  // Quelli ancora sul banco: lavorati o in lavorazione, il compenso arriva alla
+  // riconsegna. Detti a parte, perché sommarli ai pagati rifarebbe lo stesso
+  // errore al contrario.
+  const sacchiInCorso = righe
+    .filter((o) => !conPagamento.has(o.order_id) && !STATI_CHIUSI.includes(o.status))
+    .reduce((t, o) => t + sacchiDi(o), 0);
   const totaleCapi = (capi ?? []).reduce((t, c) => t + c.qty, 0);
   const dovutoCents = (compensi ?? []).reduce((t, r) => t + r.amount_cents, 0);
   const daLiquidare = (compensi ?? []).filter((r) => r.status === "pending").reduce((t, r) => t + r.amount_cents, 0);
@@ -152,7 +185,7 @@ export default async function StoricoLavanderia({
       </div>
 
       <div className="mb-4 grid gap-3 sm:grid-cols-4">
-        <Riquadro valore={String(totaleSacchi)} etichetta="sacchi lavati" />
+        <Riquadro valore={String(totaleSacchi)} etichetta="sacchi pagati" />
         <Riquadro valore={String(totaleCapi)} etichetta="capi extra" />
         <Riquadro valore={eur(dovutoCents)} etichetta="compenso maturato" />
         <Riquadro valore={eur(daLiquidare)} etichetta="ancora da pagare" tono={daLiquidare > 0 ? "attesa" : undefined} />
@@ -193,10 +226,23 @@ export default async function StoricoLavanderia({
 
       <Card className="mb-4">
         <p className="text-sm font-medium text-muted">
-          Il <strong className="text-navy">compenso maturato</strong> si scrive alla riconsegna: gli
-          ordini ancora sul banco non compaiono ancora in quella cifra, ma i loro sacchi sì. I{" "}
-          <strong className="text-navy">sacchi</strong> sono quelli che hai contato tu all&apos;arrivo:
-          è quel numero che fa il compenso, non quello previsto in prenotazione.
+          I <strong className="text-navy">sacchi pagati</strong> e il{" "}
+          <strong className="text-navy">compenso maturato</strong> contano le stesse identiche
+          consegne: {totaleSacchi} {totaleSacchi === 1 ? "sacco" : "sacchi"} × {eur(1230)} è la parte a
+          sacco della cifra qui sopra. Il compenso si scrive alla riconsegna, quindi un ritiro di fine
+          mese scorso consegnato questo mese compare qui, e uno ancora sul banco non c&apos;è ancora.
+          {sacchiInCorso > 0 && (
+            <>
+              {" "}
+              In questo momento hai <strong className="text-navy">{sacchiInCorso}</strong>{" "}
+              {sacchiInCorso === 1 ? "sacco in lavorazione" : "sacchi in lavorazione"}: il compenso
+              arriva alla riconsegna.
+            </>
+          )}
+        </p>
+        <p className="mt-2 text-sm font-medium text-muted">
+          Il numero dei sacchi è quello che hai contato tu all&apos;arrivo, non quello previsto in
+          prenotazione: è quel numero che fa il compenso.
         </p>
         {daContare > 0 && (
           <p className="mt-2 rounded-[12px] bg-[#C9881F]/12 px-3 py-2 text-sm font-semibold text-[#C9881F]">
