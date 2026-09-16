@@ -1,7 +1,19 @@
 User-agent: *
 Allow: /
+
+# Aree riservate: rimandano tutte al login, quindi non c'è niente da vedere —
+# ma senza questa riga il crawler ci passa comunque e si porta a casa una fila
+# di URL `/login?next=…`. Elencate per intero: /sales e /laundry mancavano.
 Disallow: /app
 Disallow: /admin
 Disallow: /courier
+Disallow: /laundry
+Disallow: /sales
+
+# Le pagine legali NON si bloccano qui.
+# Sono `noindex` nel loro metadata, e un `noindex` si può leggere solo se il
+# crawler può aprire la pagina: bloccarla qui otterrebbe l'effetto opposto —
+# Google la terrebbe nell'indice senza poter vedere che le abbiamo chiesto di
+# toglierla. Stessa ragione per cui /disponibilita non compare in questo elenco.
 
 Sitemap: https://washloop.it/sitemap.xml

@@ -6,6 +6,18 @@ import { LEGAL } from "@/lib/legal";
 export const metadata: Metadata = {
   title: "Informativa Privacy",
   description: "Come WashLoop tratta i dati personali ai sensi del GDPR (Reg. UE 2016/679).",
+  // Fuori dai risultati di ricerca, dentro il sito.
+  //
+  // Cercando "washloop" Google mostrava «Informativa Privacy» come secondo
+  // risultato sotto la home. Non è un errore suo: sceglie fra le pagine che ha,
+  // e di pagine indicizzabili con del contenuto ce n'è una sola — la home. Fra
+  // quel che resta, le pagine legali sono le uniche con del testo.
+  //
+  // Toglierle dall'indice non le nasconde a nessuno: restano nel piè di pagina,
+  // raggiungibili con un clic, e il crawler continua a leggerle (il `noindex` si
+  // può vedere solo crawlando). Quello che la legge chiede è che siano
+  // **accessibili**, non che escano su Google.
+  robots: { index: false, follow: true },
 };
 
 export default function PrivacyPage() {

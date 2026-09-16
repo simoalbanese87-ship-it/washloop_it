@@ -5,6 +5,9 @@ import { LegalShell, LegalSection } from "@/components/marketing/LegalShell";
 export const metadata: Metadata = {
   title: "Cookie Policy",
   description: "Quali cookie utilizza WashLoop e come gestirli.",
+  // Fuori dai risultati di ricerca come le altre pagine legali: vedi la nota
+  // in `privacy/page.tsx`. Restano nel piè di pagina e raggiungibili.
+  robots: { index: false, follow: true },
 };
 
 export default function CookiePage() {

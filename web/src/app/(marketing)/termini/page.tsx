@@ -6,6 +6,9 @@ import { LEGAL } from "@/lib/legal";
 export const metadata: Metadata = {
   title: "Condizioni di Vendita",
   description: "Termini e condizioni del servizio WashLoop di lavanderia a domicilio in abbonamento.",
+  // Fuori dai risultati di ricerca come le altre pagine legali: vedi la nota
+  // in `privacy/page.tsx`. Restano nel piè di pagina e raggiungibili.
+  robots: { index: false, follow: true },
 };
 
 export default function TerminiPage() {
