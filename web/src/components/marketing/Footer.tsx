@@ -15,7 +15,13 @@ export function Footer() {
         </div>
         <div>
           <div className="mb-4 font-display text-xs font-extrabold uppercase tracking-[0.2em] text-cyan">Servizio</div>
+          {/* Le due pagine di ricerca stanno qui e non nel menu in alto: il piè
+              di pagina è su ogni pagina del sito, quindi è il posto da cui un
+              crawler le trova sempre — e per un lettore sono due modi di
+              chiamare la stessa cosa, non due voci di navigazione. */}
           <ul className="space-y-2.5 text-sm font-medium text-white/70">
+            <li><Link href="/lavanderia-a-domicilio-milano" className="hover:text-white">Lavanderia a domicilio a Milano</Link></li>
+            <li><Link href="/servizio-stiro-a-domicilio-milano" className="hover:text-white">Servizio stiro a domicilio</Link></li>
             <li><Link href="/#come-funziona" className="hover:text-white">Come funziona</Link></li>
             <li><Link href="/#prezzi" className="hover:text-white">Prezzi</Link></li>
             <li><Link href="/#area" className="hover:text-white">Zone coperte</Link></li>

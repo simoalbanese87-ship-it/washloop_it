@@ -2,17 +2,21 @@ import type { MetadataRoute } from "next";
 
 /** Le pagine che vogliamo in un motore di ricerca.
  *
- *  Ce n'è una, ed è giusto che si veda: la home è l'unica pagina pubblica che
- *  racconta il servizio. Le legali sono uscite dall'indice (restano nel piè di
- *  pagina), la landing `/disponibilita` è `noindex` di proposito — serve alle
- *  campagne a pagamento e non deve competere con la home in organico.
+ *  Erano due — la home e, senza motivo, `/login` — e il risultato si è visto:
+ *  cercando "washloop" Google metteva l'Informativa Privacy sotto la home,
+ *  perché fra quello che aveva era l'unica altra pagina con del testo. Non
+ *  sceglieva male: sceglieva fra poco.
  *
- *  `/login` stava qui e non doveva: è la porta dell'area riservata, non una
- *  pagina di arrivo. Metterla in sitemap è dire a Google «indicizza anche
- *  questa», e con così poche pagine fra cui scegliere diventa candidata a
- *  comparire sotto la home nei risultati — che è esattamente il problema da cui
- *  si esce. */
+ *  Le legali sono uscite dall'indice (restano nel piè di pagina) e al loro
+ *  posto ci sono due pagine che quel posto se lo meritano, una per ciascuna
+ *  domanda che la gente digita davvero. `/disponibilita` resta fuori ed è
+ *  voluto: serve alle campagne a pagamento e non deve competere in organico. */
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = "https://washloop.it";
-  return [{ url: `${base}/`, changeFrequency: "weekly", priority: 1 }];
+  const aggiornato = new Date("2026-09-16");
+  return [
+    { url: `${base}/`, changeFrequency: "weekly", priority: 1, lastModified: aggiornato },
+    { url: `${base}/lavanderia-a-domicilio-milano`, changeFrequency: "monthly", priority: 0.9, lastModified: aggiornato },
+    { url: `${base}/servizio-stiro-a-domicilio-milano`, changeFrequency: "monthly", priority: 0.9, lastModified: aggiornato },
+  ];
 }

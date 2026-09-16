@@ -3,42 +3,13 @@ import { Logo } from "@/components/Logo";
 import { ButtonLink } from "@/components/ui/Button";
 import { PLAN_COPY } from "@/lib/plan-copy";
 import { FAQ } from "@/lib/faq";
+import { Bubbles } from "@/components/marketing/Bubbles";
 
 /* ============================================================
    Home — Sito vetrina WashLoop
    Tone of voice da Brandbook: tu, premium, tempo guadagnato,
    urgenza reale, mai low-cost.
    ============================================================ */
-
-function Bubbles() {
-  const b = [
-    { w: 320, r: -60, t: -80, o: 0.12, d: "0s" },
-    { w: 180, r: 200, t: 60, o: 0.09, d: "1.5s" },
-    { w: 90, r: 160, t: 240, o: 0.11, d: "0.8s" },
-    { w: 60, l: 80, b: 120, o: 0.1, d: "2.2s" },
-    { w: 200, l: -50, b: -60, o: 0.07, d: "1s" },
-  ];
-  return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      {b.map((x, i) => (
-        <span
-          key={i}
-          className="wl-bubble"
-          style={{
-            width: x.w,
-            height: x.w,
-            right: x.r,
-            left: x.l,
-            top: x.t,
-            bottom: x.b,
-            opacity: x.o,
-            animationDelay: x.d,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
 
 const steps = [
   { n: "01", t: "Scegli il piano", d: "Attivi l'abbonamento in 2 minuti. Nessun costo nascosto, nessun vincolo lungo." },
