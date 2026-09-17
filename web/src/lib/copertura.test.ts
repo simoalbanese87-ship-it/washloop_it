@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capDiMilano, capComuneServito, esitoCap, capCoperto, formatoCapValido } from "./copertura.ts";
+import { capDiMilano, capComuneServito, esitoCap, capCoperto, formatoCapValido, CAP_MILANO } from "./copertura.ts";
 
 test("i CAP di Milano città sono tutti accettati, non solo quelli del giro", () => {
   assert.equal(capDiMilano("20121"), true); // primo
@@ -40,4 +40,13 @@ test("formato: cinque cifre, niente lettere e niente spazi in mezzo", () => {
 
 test("gli spazi ai bordi non cambiano l'esito", () => {
   assert.equal(esitoCap(" 20143 "), "in-zona");
+});
+
+test("l'elenco dei CAP di Milano copre l'intervallo, estremi compresi", () => {
+  assert.equal(CAP_MILANO.length, 42);
+  assert.equal(CAP_MILANO[0], "20121");
+  assert.equal(CAP_MILANO[CAP_MILANO.length - 1], "20162");
+  // Ogni voce dell'elenco deve superare la regola che poi decide davvero:
+  // due liste che divergono sarebbero una pagina che promette e un form che nega.
+  assert.ok(CAP_MILANO.every((c) => esitoCap(c) === "in-zona"));
 });

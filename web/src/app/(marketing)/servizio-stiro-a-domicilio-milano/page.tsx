@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import Image from "next/image";
 import { ButtonLink } from "@/components/ui/Button";
 import { Bubbles } from "@/components/marketing/Bubbles";
 import { JsonLd } from "@/components/marketing/JsonLd";
-import { CAP_SERVITI, ZONE_SERVITE, COMUNI_SERVITI, graficoPagina } from "@/lib/area-servita";
+import { ZONE_SERVITE, COMUNI_SERVITI, graficoPagina } from "@/lib/area-servita";
+import { CAP_MILANO, CAP_COMUNI } from "@/lib/copertura";
+import { VerificaCap } from "@/components/lead/VerificaCap";
 
 /* ============================================================
    Pagina di ricerca — "servizio stiro a domicilio Milano"
@@ -108,7 +110,8 @@ export default function ServizioStiroADomicilioMilano() {
       {/* ============ HERO ============ */}
       <section className="relative overflow-hidden bg-navy text-white">
         <Bubbles />
-        <div className="relative mx-auto max-w-6xl px-5 py-20 md:py-28">
+        <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-16 md:py-20 lg:grid-cols-[1.05fr_1fr] lg:gap-14">
+          <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-cyan/30 bg-cyan/10 px-4 py-1.5">
             <span className="h-2 w-2 animate-pulse rounded-full bg-cyan" />
             <span className="font-display text-xs font-extrabold uppercase tracking-[0.14em] text-cyan">
@@ -127,13 +130,28 @@ export default function ServizioStiroADomicilioMilano() {
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
             <ButtonLink href="/onboarding">Attiva WashLoop →</ButtonLink>
-            <ButtonLink href="/disponibilita" variant="ghost">
-              Controlla se copriamo il tuo CAP →
-            </ButtonLink>
+          </div>
+          {/* Il CAP si verifica qui, non su un'altra pagina: prima questo
+              bottone portava su `/disponibilita`, dove si riscriveva il CAP e
+              si rileggeva «Verifica disponibilità» su un secondo bottone. */}
+          <div className="mt-8">
+            <VerificaCap />
           </div>
           <p className="mt-6 font-display text-sm font-bold text-white/45">
             Da 160 €/mese · lavaggio e stiro inclusi · fino a 3 camicie per sacchetto
           </p>
+          </div>
+
+          <div className="relative aspect-[3/2] w-full overflow-hidden rounded-[24px] shadow-[var(--shadow-md)] lg:aspect-[4/5] lg:max-h-[520px]">
+            <Image
+              src="/stiratura-professionale.webp"
+              alt="Un ferro a vapore professionale stira il collo di una camicia bianca in lavanderia"
+              fill
+              priority
+              sizes="(min-width: 1024px) 46vw, 100vw"
+              className="object-cover object-[55%_center]"
+            />
+          </div>
         </div>
       </section>
 
@@ -175,7 +193,17 @@ export default function ServizioStiroADomicilioMilano() {
               da chi ha l&apos;asse quel giorno.
             </p>
           </div>
-          <div className="rounded-[24px] border border-white/10 bg-white/5 p-8">
+          <div>
+            <div className="relative mb-7 aspect-[3/2] w-full overflow-hidden rounded-[24px]">
+              <Image
+                src="/camicie-stirate-armadio.webp"
+                alt="Camicie stirate e piegate su una mensola, pronte da riporre"
+                fill
+                loading="lazy"
+                sizes="(min-width: 768px) 46vw, 100vw"
+                className="object-cover object-center"
+              />
+            </div>
             <div className="font-display text-xs font-extrabold uppercase tracking-[0.2em] text-cyan">Li stiriamo</div>
             <div className="mt-3 flex flex-wrap gap-2">
               {COSA_STIRIAMO.map((c) => (
@@ -227,15 +255,21 @@ export default function ServizioStiroADomicilioMilano() {
             Ritiriamo e riconsegniamo di persona, quindi copriamo solo dove passiamo ogni
             settimana: {ZONE_SERVITE.join(", ")}, e fuori città {COMUNI_SERVITI.join(", ")}.
           </p>
+          {/* Come sulla pagina gemella: tutta Milano, non i dieci CAP del giro. */}
           <div className="mt-8 rounded-[24px] border border-line bg-ice p-7">
-            <div className="font-display text-sm font-extrabold text-navy">CAP coperti</div>
-            <p className="mt-3 font-display text-sm font-bold tracking-wide text-blue">{CAP_SERVITI.join(" · ")}</p>
-            <p className="mt-3 text-sm font-medium text-muted">
-              Il tuo non c&apos;è?{" "}
-              <Link href="/disponibilita" className="font-bold text-blue hover:underline">
-                Lasciaci il CAP
-              </Link>{" "}
-              e ti avvisiamo appena apriamo nella tua zona.
+            <div className="font-display text-sm font-extrabold text-navy">CAP di Milano città</div>
+            <p className="mt-3 font-display text-sm font-bold leading-relaxed tracking-wide text-blue">
+              {CAP_MILANO.join(" · ")}
+            </p>
+            <div className="mt-5 border-t border-line pt-4">
+              <div className="font-display text-sm font-extrabold text-navy">Fuori città</div>
+              <p className="mt-2 font-display text-sm font-bold tracking-wide text-blue">
+                {CAP_COMUNI.join(" · ")} — {COMUNI_SERVITI.join(", ")}
+              </p>
+            </div>
+            <p className="mt-4 text-sm font-medium text-muted">
+              Il tuo non è in elenco? Scrivilo lo stesso qui sopra: decidiamo dove allargare
+              guardando da dove ci scrivono.
             </p>
           </div>
         </div>

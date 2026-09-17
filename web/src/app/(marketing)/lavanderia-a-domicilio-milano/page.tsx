@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import Image from "next/image";
 import { ButtonLink } from "@/components/ui/Button";
 import { Bubbles } from "@/components/marketing/Bubbles";
 import { JsonLd } from "@/components/marketing/JsonLd";
-import { CAP_SERVITI, ZONE_SERVITE, COMUNI_SERVITI, graficoPagina } from "@/lib/area-servita";
+import { ZONE_SERVITE, COMUNI_SERVITI, graficoPagina } from "@/lib/area-servita";
+import { CAP_MILANO, CAP_COMUNI } from "@/lib/copertura";
+import { VerificaCap } from "@/components/lead/VerificaCap";
 
 /* ============================================================
    Pagina di ricerca — "lavanderia a domicilio Milano"
@@ -57,7 +59,7 @@ const FAQ_PAGINA = [
   },
   {
     q: "In quali zone di Milano ritirate?",
-    a: `Siamo partiti da Milano sud-ovest: ${ZONE_SERVITE.join(", ")}. Fuori città serviamo ${COMUNI_SERVITI.join(", ")}. I CAP coperti oggi sono ${CAP_SERVITI.join(", ")}. Se il tuo non è in elenco lasciaci il contatto: ti avvisiamo appena apriamo nella tua zona.`,
+    a: `Siamo partiti da Milano sud-ovest: ${ZONE_SERVITE.join(", ")}. Fuori città serviamo ${COMUNI_SERVITI.join(", ")}. Ritiriamo in tutta Milano città, dal 20121 al 20162, e la disponibilità della settimana la confermiamo al telefono. Se il tuo non è in elenco lasciaci il contatto: ti avvisiamo appena apriamo nella tua zona.`,
   },
   {
     q: "Cosa posso mettere nel sacco?",
@@ -103,7 +105,8 @@ export default function LavanderiaADomicilioMilano() {
       {/* ============ HERO ============ */}
       <section className="relative overflow-hidden bg-navy text-white">
         <Bubbles />
-        <div className="relative mx-auto max-w-6xl px-5 py-20 md:py-28">
+        <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-16 md:py-20 lg:grid-cols-[1.05fr_1fr] lg:gap-14">
+          <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-cyan/30 bg-cyan/10 px-4 py-1.5">
             <span className="h-2 w-2 animate-pulse rounded-full bg-cyan" />
             <span className="font-display text-xs font-extrabold uppercase tracking-[0.14em] text-cyan">
@@ -125,13 +128,31 @@ export default function LavanderiaADomicilioMilano() {
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
             <ButtonLink href="/onboarding">Attiva WashLoop →</ButtonLink>
-            <ButtonLink href="/disponibilita" variant="ghost">
-              Controlla se copriamo il tuo CAP →
-            </ButtonLink>
+          </div>
+          {/* Il CAP si verifica qui, non su un'altra pagina: prima questo
+              bottone portava su `/disponibilita`, dove si riscriveva il CAP e
+              si rileggeva «Verifica disponibilità» su un secondo bottone. */}
+          <div className="mt-8">
+            <VerificaCap />
           </div>
           <p className="mt-6 font-display text-sm font-bold text-white/45">
             Da 160 €/mese · nessun costo di ritiro o consegna · metti in pausa quando vuoi
           </p>
+          </div>
+
+          {/* Stessa scelta della home: un solo elemento immagine, forma diversa
+              sui due formati. `priority` perché è l'elemento più grande sopra
+              la piega, quello su cui si misura il tempo di disegno. */}
+          <div className="relative aspect-[3/2] w-full overflow-hidden rounded-[24px] shadow-[var(--shadow-md)] lg:aspect-[4/5] lg:max-h-[520px]">
+            <Image
+              src="/borsone-bucato-pronto.webp"
+              alt="Un borsone WashLoop aperto sul pavimento di casa, pieno di bucato pulito e piegato"
+              fill
+              priority
+              sizes="(min-width: 1024px) 46vw, 100vw"
+              className="object-cover object-center"
+            />
+          </div>
         </div>
       </section>
 
@@ -172,15 +193,25 @@ export default function LavanderiaADomicilioMilano() {
               fuori dal volume dell&apos;abbonamento, e il prezzo lo vedi prima.
             </p>
           </div>
-          <div className="rounded-[24px] border border-white/10 bg-white/5 p-8">
-            <div className="flex flex-wrap gap-2">
+          <div>
+            <div className="relative aspect-[3/2] w-full overflow-hidden rounded-[24px]">
+              <Image
+                src="/camicie-stirate-armadio.webp"
+                alt="Camicie stirate e piegate su una mensola, accanto ad altre appese nell'armadio"
+                fill
+                loading="lazy"
+                sizes="(min-width: 768px) 46vw, 100vw"
+                className="object-cover object-center"
+              />
+            </div>
+            <div className="mt-6 flex flex-wrap gap-2">
               {COSA_ENTRA.map((c) => (
                 <span key={c} className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 font-display text-sm font-bold text-white/85">
                   {c}
                 </span>
               ))}
             </div>
-            <p className="mt-6 border-t border-white/10 pt-5 font-display text-sm font-bold text-cyan">
+            <p className="mt-5 font-display text-sm font-bold text-cyan">
               Ogni sacchetto comprende fino a 3 camicie stirate.
             </p>
           </div>
@@ -230,15 +261,26 @@ export default function LavanderiaADomicilioMilano() {
               <p className="mt-3 text-sm font-medium leading-relaxed text-muted">{COMUNI_SERVITI.join(" · ")}</p>
             </div>
           </div>
+          {/* Tutti i CAP di Milano, non solo quelli del giro.
+              Ritiriamo in tutta la città e la disponibilità la confermiamo al
+              telefono: elencare i dieci del giro settimanale faceva credere a
+              chi sta al 20147 che non lo servissimo, e quella persona chiudeva
+              la pagina. I nomi dei quartieri qui sopra restano perché dicono
+              da dove siamo partiti, che è un'altra informazione. */}
           <div className="mt-4 rounded-[24px] border border-line bg-white p-7">
-            <div className="font-display text-sm font-extrabold text-navy">CAP coperti</div>
-            <p className="mt-3 font-display text-sm font-bold tracking-wide text-blue">{CAP_SERVITI.join(" · ")}</p>
-            <p className="mt-3 text-sm font-medium text-muted">
-              Il tuo non c&apos;è?{" "}
-              <Link href="/disponibilita" className="font-bold text-blue hover:underline">
-                Lasciaci il CAP
-              </Link>{" "}
-              e ti avvisiamo appena apriamo nella tua zona: è così che decidiamo dove andare.
+            <div className="font-display text-sm font-extrabold text-navy">CAP di Milano città</div>
+            <p className="mt-3 font-display text-sm font-bold leading-relaxed tracking-wide text-blue">
+              {CAP_MILANO.join(" · ")}
+            </p>
+            <div className="mt-5 border-t border-line pt-4">
+              <div className="font-display text-sm font-extrabold text-navy">Fuori città</div>
+              <p className="mt-2 font-display text-sm font-bold tracking-wide text-blue">
+                {CAP_COMUNI.join(" · ")} — {COMUNI_SERVITI.join(", ")}
+              </p>
+            </div>
+            <p className="mt-4 text-sm font-medium text-muted">
+              Il tuo non è in elenco? Scrivilo lo stesso qui sopra: decidiamo dove allargare
+              guardando da dove ci scrivono.
             </p>
           </div>
         </div>

@@ -30,6 +30,20 @@ const CAP_MILANO_A = 20162;
  *  se un giorno se ne aggiunge uno, va aggiunto qui e in `zone_caps`. */
 const CAP_COMUNI_SERVITI = ["20089", "20090"] as const;
 
+/** Tutti i CAP di Milano città, uno per uno.
+ *
+ *  Serve a scriverli in pagina. «Copriamo Milano» è una frase che scrivono
+ *  tutti; «20147» è la parola che una persona digita davvero quando cerca, ed è
+ *  l'unica verificabile. Generati dall'intervallo invece che elencati a mano:
+ *  una lista di quarantadue numeri copiata è una lista con dentro un errore. */
+export const CAP_MILANO: string[] = Array.from(
+  { length: CAP_MILANO_A - CAP_MILANO_DA + 1 },
+  (_, i) => String(CAP_MILANO_DA + i),
+);
+
+/** Quelli fuori città, per scriverli accanto. */
+export const CAP_COMUNI = [...CAP_COMUNI_SERVITI];
+
 export function formatoCapValido(cap: string): boolean {
   return /^\d{5}$/.test(cap.trim());
 }
