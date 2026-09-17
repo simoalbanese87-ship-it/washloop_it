@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { ButtonLink } from "@/components/ui/Button";
 import { Bubbles } from "@/components/marketing/Bubbles";
@@ -121,9 +122,9 @@ export default function Home() {
       {/* ============ HERO ============ */}
       <section className="relative overflow-hidden bg-navy text-white">
         <Bubbles />
-        <div className="relative mx-auto max-w-6xl px-5 py-20 md:py-24">
-          <div className="max-w-2xl">
-            <h1 className="font-display text-4xl font-black leading-[1.05] tracking-[-0.03em] md:text-6xl">
+        <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-16 md:py-20 lg:grid-cols-[1.05fr_1fr] lg:gap-14">
+          <div>
+            <h1 className="font-display text-4xl font-black leading-[1.05] tracking-[-0.03em] md:text-5xl xl:text-6xl">
               Scopri in 10 secondi
               <br />
               se WashLoop passa <span className="text-cyan">anche da te.</span>
@@ -136,6 +137,28 @@ export default function Home() {
             <p className="mt-5 font-display text-sm font-bold text-white/45">
               Piani da 160 €/mese · ritiro e consegna inclusi
             </p>
+          </div>
+
+          {/* La foto del ritiro.
+              Un solo elemento e non due — una versione per telefono e una per
+              schermo grande — perché un'immagine nascosta con `display:none` il
+              browser spesso la scarica lo stesso: sarebbero due file su una
+              connessione mobile per vederne uno. Qui cambia solo la forma:
+              banda larga sul telefono, riquadro alto accanto al testo sul
+              desktop.
+
+              `priority` perché è l'elemento più grande sopra la piega: senza,
+              Next la carica pigramente e il tempo di disegno della pagina lo
+              misura Google su di lei. */}
+          <div className="relative aspect-[3/2] w-full overflow-hidden rounded-[24px] shadow-[var(--shadow-md)] lg:aspect-[4/5] lg:max-h-[520px]">
+            <Image
+              src="/hero-ritiro-domicilio.webp"
+              alt="Un rider WashLoop consegna il borsone del bucato a una cliente sulla porta di casa, a Milano"
+              fill
+              priority
+              sizes="(min-width: 1024px) 46vw, 100vw"
+              className="object-cover object-center"
+            />
           </div>
         </div>
       </section>
