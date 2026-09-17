@@ -19,7 +19,8 @@ const INVIO_ATTIVO = process.env.LEAD_CONFIRM_EMAIL === "on";
 
 export type LeadConfirmInput = {
   to: string;
-  fullName: string;
+  /** Può mancare: la home chiede solo email e telefono. */
+  fullName?: string | null;
   cap: string;
   covered: boolean;        // il CAP rientra già nelle zone servite
   planLabel?: string | null; // es. "Piano M"
@@ -41,7 +42,7 @@ export async function sendLeadConfirmation(d: LeadConfirmInput) {
     return { skipped: true as const, reason: "token mancante" };
   }
   const unsubUrl = `${site}/api/email/unsubscribe?t=${lead.unsub_token}`;
-  const firstName = d.fullName.trim().split(/\s+/)[0] || "";
+  const firstName = (d.fullName ?? "").trim().split(/\s+/)[0] || "";
 
   // Le due varianti riprendono il copy già pubblicato sul sito (FAQ zone):
   // "ti diciamo subito se sei in zona, o ti avvisiamo appena apriamo da te".

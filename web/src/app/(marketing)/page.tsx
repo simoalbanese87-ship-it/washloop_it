@@ -1,241 +1,293 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { Logo } from "@/components/Logo";
 import { ButtonLink } from "@/components/ui/Button";
-import { PLAN_COPY } from "@/lib/plan-copy";
-import { FAQ } from "@/lib/faq";
 import { Bubbles } from "@/components/marketing/Bubbles";
+import { JsonLd } from "@/components/marketing/JsonLd";
+import { ZonaProvider } from "@/components/home/ZonaContext";
+import { CapCheck } from "@/components/home/CapCheck";
+import { RichiestaZona } from "@/components/home/RichiestaZona";
+import { FAQ } from "@/lib/faq";
+import { CAP_SERVITI, ZONE_SERVITE, COMUNI_SERVITI, graficoPagina } from "@/lib/area-servita";
 
 /* ============================================================
-   Home — Sito vetrina WashLoop
-   Tone of voice da Brandbook: tu, premium, tempo guadagnato,
-   urgenza reale, mai low-cost.
+   Home — la pagina che raccoglie i contatti.
+
+   Cosa è cambiato, e perché
+   -------------------------
+   La home precedente vendeva: comparativa con la concorrenza, tre piani a
+   prezzo pieno, checkout diretto. Non portava contatti — e per un servizio che
+   copre mezza città, con la copertura da confermare a voce, chiedere 160 € al
+   primo incontro è un cancello, non una porta.
+
+   Questa chiede una cosa sola: **il CAP**. È l'unica domanda a cui si risponde
+   senza pensarci, e apre la conversazione invece di chiuderla. Il resto —
+   email e telefono — lo si dà dopo, quando si è già ricevuto qualcosa in
+   cambio: una risposta.
+
+   La vecchia è viva su `/home-old`, fuori dall'indice: se questo taglio non
+   funziona, si riparte da lì senza rifarla.
+
+   Acquisto e accesso restano in alto, nell'header del sito («Accedi» e «Attiva
+   WashLoop»): chi ha già deciso non deve passare da un modulo di contatto per
+   comprare, e chi è già cliente non deve cercarsi l'ingresso.
    ============================================================ */
 
-const steps = [
-  { n: "01", t: "Scegli il piano", d: "Attivi l'abbonamento in 2 minuti. Nessun costo nascosto, nessun vincolo lungo." },
-  { n: "02", t: "Prenoti il ritiro", d: "Scegli giorno e fascia oraria dall'app. Il corriere passa da te, sotto casa." },
-  { n: "03", t: "Laviamo e stiriamo", d: "Lavanderia professionale. Ogni capo trattato e tracciato, passo dopo passo." },
-  { n: "04", t: "Ricevi tutto a casa", d: "Prenoti la consegna quando vuoi. Guardaroba pronto, piegato e stirato." },
-];
+export const metadata: Metadata = {
+  // `absolute` perché il layout di base applica il suffisso «· WashLoop»: qui
+  // il marchio è già nel titolo, e senza questa riga usciva due volte.
+  title: { absolute: "WashLoop — Lavanderia a domicilio a Milano, in abbonamento" },
+  description:
+    "Scopri in 10 secondi se WashLoop passa da te. Ritiro fisso a domicilio, lavaggio e stiratura professionali, riconsegna entro 3 giorni feriali. Piani da 160 €/mese, ritiro e consegna inclusi.",
+  alternates: { canonical: "/" },
+  openGraph: {
+    title: "WashLoop — Lavanderia a domicilio a Milano",
+    description: "Ritiro fisso a domicilio, lavaggio e stiratura professionali, riconsegna entro 3 giorni feriali. Controlla se passiamo dal tuo CAP.",
+    url: "https://washloop.it",
+    type: "website",
+    locale: "it_IT",
+  },
+};
 
-const compare = [
-  { f: "Prezzo chiaro in anticipo", wl: true, others: false },
-  { f: "Tempi di consegna garantiti", wl: true, others: false },
-  { f: "Tracciabilità capo per capo", wl: true, others: false },
-  { f: "Ritiro e consegna a domicilio", wl: true, others: true },
-  { f: "Policy danni trasparente", wl: true, others: false },
-  { f: "App con stato in tempo reale", wl: true, others: true },
-];
-
-const plans = [
+const PILASTRI = [
   {
-    name: "Small",
-    code: "essential",
-    price: "160",
-    tagline: PLAN_COPY.essential.tagline,
-    features: PLAN_COPY.essential.features,
-    popular: false,
+    t: "Un giorno fisso",
+    d: "Sempre lo stesso giorno della settimana: entra nella routine e smette di essere una cosa da ricordare.",
+    icona: (
+      <>
+        <rect x="3" y="5" width="18" height="16" rx="3" />
+        <path d="M8 3v4M16 3v4M3 10h18" />
+      </>
+    ),
   },
   {
-    name: "Medium",
-    code: "plus",
-    price: "280",
-    tagline: PLAN_COPY.plus.tagline,
-    features: PLAN_COPY.plus.features,
-    popular: true,
+    t: "Lavaggio e stiratura professionali",
+    d: "Lavanderia vera, non una lavatrice in più. Lo stiro è dentro l'abbonamento, non un supplemento a capo.",
+    icona: (
+      <>
+        <path d="M12 8a2.2 2.2 0 1 1 2.2-2.2" />
+        <path d="M12 8v2.2L3.6 16.4A1.6 1.6 0 0 0 4.5 19.5h15a1.6 1.6 0 0 0 .9-3.1L12 10.2" />
+      </>
+    ),
   },
   {
-    name: "Large",
-    code: "family",
-    price: "390",
-    tagline: PLAN_COPY.family.tagline,
-    features: PLAN_COPY.family.features,
-    popular: false,
+    t: "Riconsegna entro 3 giorni",
+    d: "Tre giorni feriali dal ritiro. La riconsegna la programmiamo noi: tu ricevi giorno e ora per email.",
+    icona: (
+      <>
+        <path d="M2.5 7.5h11v9h-11z" />
+        <path d="M13.5 11h4l3 3v2.5h-7z" />
+        <circle cx="7" cy="18" r="1.8" />
+        <circle cx="17" cy="18" r="1.8" />
+      </>
+    ),
   },
 ];
 
+const PASSI = [
+  { n: "1", t: "Metti i capi nel sacco", d: "Quello che finirebbe in lavatrice. Non devi dividere, contare o trattare niente." },
+  { n: "2", t: "Passiamo noi", d: "Il rider ritira sotto casa nel giorno fisso. Ogni sacco viene tracciato con il suo codice." },
+  { n: "3", t: "Te li riconsegniamo pronti", d: "Lavati, stirati e piegati, entro 3 giorni feriali. Si aprono e si ripongono." },
+];
 
+const NEL_SACCO = ["Camicie", "Magliette", "Asciugamani", "Lenzuola", "Calzini", "Biancheria intima"];
+
+const PIANI = [
+  { nome: "Small", code: "essential", prezzo: "160", riga: "1 sacco a settimana" },
+  { nome: "Medium", code: "plus", prezzo: "280", riga: "2 sacchi a settimana", popolare: true },
+  { nome: "Large", code: "family", prezzo: "390", riga: "3 sacchi a settimana" },
+];
+
+function Icona({ children }: { children: React.ReactNode }) {
+  return (
+    <svg width={34} height={34} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {children}
+    </svg>
+  );
+}
 
 export default function Home() {
   return (
-    <>
+    <ZonaProvider>
+      <JsonLd
+        data={graficoPagina({
+          nomeServizio: "Lavanderia a domicilio in abbonamento a Milano",
+          descrizione:
+            "Ritiro fisso a domicilio, lavaggio e stiratura professionali, riconsegna entro 3 giorni feriali. Abbonamento mensile con ritiro e consegna inclusi.",
+          url: "https://washloop.it/",
+          faq: FAQ,
+        })}
+      />
+
       {/* ============ HERO ============ */}
       <section className="relative overflow-hidden bg-navy text-white">
         <Bubbles />
-        <div className="relative mx-auto max-w-6xl px-5 py-20 md:py-28">
-          <div className="inline-flex items-center gap-2 rounded-full border border-cyan/30 bg-cyan/10 px-4 py-1.5">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-cyan" />
-            <span className="font-display text-xs font-extrabold uppercase tracking-[0.14em] text-cyan">
-              Lista d&apos;attesa · Milano 2026
-            </span>
+        <div className="relative mx-auto max-w-6xl px-5 py-20 md:py-24">
+          <div className="max-w-2xl">
+            <h1 className="font-display text-4xl font-black leading-[1.05] tracking-[-0.03em] md:text-6xl">
+              Scopri in 10 secondi
+              <br />
+              se WashLoop passa <span className="text-cyan">anche da te.</span>
+            </h1>
+            <p className="mt-6 max-w-lg text-lg font-medium leading-relaxed text-white/65">
+              Ritiro fisso a domicilio, lavaggio e stiratura professionali, riconsegna entro
+              3 giorni feriali.
+            </p>
+            <CapCheck />
+            <p className="mt-5 font-display text-sm font-bold text-white/45">
+              Piani da 160 €/mese · ritiro e consegna inclusi
+            </p>
           </div>
-          <h1 className="mt-6 max-w-3xl font-display text-5xl font-black leading-[1.05] tracking-[-0.02em] md:text-6xl">
-            Smetti di fare il bucato.
-            <br />
-            <span className="text-grad">Inizia a vivere.</span>
-          </h1>
-          <p className="mt-6 max-w-xl text-lg font-medium leading-relaxed text-white/65">
-            Ritiriamo, laviamo, stiriamo e ti riconsegniamo il guardaroba a casa. Tutto dal telefono. Zero pensieri.
-          </p>
-          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <ButtonLink href="/onboarding">Attiva WashLoop →</ButtonLink>
-            <ButtonLink href="https://funnel.washloop.it" variant="ghost">
-              Scopri il tuo profilo bucato →
-            </ButtonLink>
-          </div>
-          <p className="mt-4 text-sm font-semibold text-white/45">
-            60 secondi · scopri quante ore ti ridiamo indietro
-          </p>
-          <p className="mt-10 font-display text-sm font-bold text-white/55">
-            <span className="text-cyan">2.347 persone</span> hanno già prenotato il posto
-          </p>
         </div>
       </section>
 
-      {/* ============ COMPARATIVA vs concorrenza ============ */}
-      <section className="bg-ice">
-        <div className="mx-auto max-w-4xl px-5 py-20">
-          <div className="text-center">
-            <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Perché WashLoop</div>
-            <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
-              Tutto chiaro. Niente sorprese.
-            </h2>
-            <p className="mx-auto mt-3 max-w-lg text-base font-medium text-muted">
-              Gli altri nascondono prezzi e tempi. Noi li scriviamo nero su bianco.
-            </p>
-          </div>
-          <div className="mt-10 overflow-hidden rounded-[24px] border border-line bg-white shadow-[var(--shadow-sm)]">
-            <div className="grid grid-cols-[1fr_auto_auto] items-center gap-4 border-b border-line bg-navy px-6 py-4 text-white">
-              <div className="font-display text-sm font-extrabold">Cosa conta davvero</div>
-              <div className="w-20 text-center font-display text-sm font-extrabold text-cyan">WashLoop</div>
-              <div className="w-20 text-center font-display text-xs font-bold text-white/50">Gli altri</div>
+      {/* ============ TRE PILASTRI ============ */}
+      <section className="bg-white">
+        <div className="mx-auto grid max-w-6xl gap-5 px-5 py-14 md:grid-cols-3">
+          {PILASTRI.map((p) => (
+            <div key={p.t} className="rounded-[24px] border border-line bg-white p-7 text-center">
+              <span className="inline-flex text-cyan"><Icona>{p.icona}</Icona></span>
+              <h2 className="mt-4 font-display text-lg font-extrabold leading-snug text-navy">{p.t}</h2>
+              <p className="mt-2 text-sm font-medium leading-relaxed text-muted">{p.d}</p>
             </div>
-            {compare.map((row) => (
-              <div key={row.f} className="grid grid-cols-[1fr_auto_auto] items-center gap-4 border-b border-line px-6 py-4 last:border-0">
-                <div className="text-sm font-semibold text-navy">{row.f}</div>
-                <div className="w-20 text-center text-lg font-black text-[#1F8A5B]">✓</div>
-                <div className="w-20 text-center text-lg font-black text-[#C0392B]">{row.others ? <span className="text-[#1F8A5B]">✓</span> : "✕"}</div>
-              </div>
-            ))}
-          </div>
+          ))}
         </div>
       </section>
 
       {/* ============ COME FUNZIONA ============ */}
-      <section id="come-funziona" className="scroll-mt-20 bg-white">
+      <section id="come-funziona" className="scroll-mt-20 bg-ice">
         <div className="mx-auto max-w-6xl px-5 py-20">
-          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Come funziona</div>
-          <h2 className="mt-3 max-w-2xl font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
-            Quattro passi. Il tuo tempo, indietro.
+          <h2 className="text-center font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
+            Come funziona
           </h2>
-          <div className="mt-12 grid gap-6 md:grid-cols-4">
-            {steps.map((s) => (
-              <div key={s.n} className="rounded-[24px] border border-line bg-ice p-7">
-                <div className="font-display text-3xl font-black text-cyan">{s.n}</div>
-                <h3 className="mt-4 font-display text-lg font-extrabold text-navy">{s.t}</h3>
-                <p className="mt-2 text-sm font-medium leading-relaxed text-muted">{s.d}</p>
+          <div className="mt-12 grid gap-8 md:grid-cols-3">
+            {PASSI.map((s) => (
+              <div key={s.n} className="text-center">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-cyan/15 font-display text-lg font-black text-blue">
+                  {s.n}
+                </span>
+                <h3 className="mt-5 font-display text-lg font-extrabold text-navy">{s.t}</h3>
+                <p className="mx-auto mt-2 max-w-xs text-sm font-medium leading-relaxed text-muted">{s.d}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ============ PREZZI ============ */}
-      <section id="prezzi" className="scroll-mt-20 bg-ice">
+      {/* ============ COSA METTI NEL SACCO ============ */}
+      <section className="bg-navy text-white">
         <div className="mx-auto max-w-6xl px-5 py-20">
-          <div className="text-center">
-            <div className="inline-flex items-center gap-2 rounded-full border border-cyan/30 bg-cyan/10 px-4 py-1.5">
-              <span className="font-display text-xs font-extrabold uppercase tracking-[0.12em] text-blue">
-                Prezzo Founder bloccato — ne restano 137
-              </span>
-            </div>
-            <h2 className="mt-5 font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
-              Scegli il tuo piano
-            </h2>
-            <p className="mx-auto mt-3 max-w-lg text-base font-medium text-muted">
-              Blocchi ora il prezzo Founder per sempre. Niente costi di ritiro e consegna: già tutto incluso.
-            </p>
+          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-cyan">
+            Un borsone. Tutto il tuo bucato.
           </div>
-          <div className="mt-12 grid gap-6 md:grid-cols-3">
-            {plans.map((p) => (
-              <div
-                key={p.name}
-                className={
-                  p.popular
-                    ? "relative rounded-[24px] bg-navy p-8 text-white shadow-[var(--shadow-md)]"
-                    : "relative rounded-[24px] border border-line bg-white p-8"
-                }
-              >
-                {p.popular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-grad px-3 py-1 font-display text-[11px] font-extrabold uppercase tracking-[0.1em] text-white">
-                    Più scelto
-                  </div>
-                )}
-                <h3 className={`font-display text-xl font-black ${p.popular ? "text-white" : "text-navy"}`}>{p.name}</h3>
-                <p className={`mt-1 text-sm font-semibold ${p.popular ? "text-white/55" : "text-muted"}`}>{p.tagline}</p>
-                <div className="mt-5 flex items-end gap-1">
-                  <span className={`font-display text-5xl font-black ${p.popular ? "text-white" : "text-navy"}`}>€{p.price}</span>
-                  <span className={`mb-1.5 text-sm font-semibold ${p.popular ? "text-white/55" : "text-muted"}`}>/mese</span>
-                </div>
-                <ul className="mt-6 space-y-3">
-                  {p.features.map((f) => (
-                    <li key={f} className={`flex items-start gap-2.5 text-sm font-medium ${p.popular ? "text-white/80" : "text-navy/80"}`}>
-                      <span className="mt-0.5 font-black text-cyan">✓</span>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <ButtonLink
-                  href={`/onboarding?plan=${p.code}`}
-                  variant={p.popular ? "light" : "primary"}
-                  className="mt-8 w-full"
-                >
-                  Attiva {p.name} →
-                </ButtonLink>
-              </div>
+          <h2 className="mt-3 max-w-xl font-display text-3xl font-black tracking-[-0.02em] md:text-4xl">
+            Tutto quello che metteresti in lavatrice<span className="text-cyan">.</span>
+          </h2>
+          <div className="mt-7 flex flex-wrap gap-2.5">
+            {NEL_SACCO.map((c) => (
+              <span key={c} className="rounded-full border border-white/20 bg-white/5 px-4 py-2 font-display text-sm font-bold text-white/85">
+                {c}
+              </span>
             ))}
           </div>
-          <p className="mx-auto mt-8 max-w-2xl text-center text-sm font-medium text-muted">
-            Ogni sacchetto contiene fino a 3 camicie. Sacchi extra a €45 l&apos;uno. I capi da lavanderia (in un sacco separato) si lavorano a prezzo di listino. Metti in pausa e riprendi quando vuoi.
+          <p className="mt-8 max-w-2xl text-base font-medium leading-relaxed text-white/65">
+            WashLoop è il servizio in abbonamento per la gestione del guardaroba. È nato per
+            evitare che tu faccia la lavatrice: ritiriamo, laviamo, stiriamo e riconsegniamo
+            i capi pronti per l&apos;armadio. I capi da lavasecco vanno in un sacco separato e
+            si lavorano a listino.
           </p>
         </div>
       </section>
 
-      {/* ============ AREA COPERTA ============ */}
-      <section id="area" className="scroll-mt-20 bg-navy text-white">
-        <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 py-20 md:grid-cols-2">
-          <div>
-            <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-cyan">Dove siamo</div>
-            <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] md:text-4xl">
-              Partiamo da Milano.
+      {/* ============ RICHIESTA ============ */}
+      <section id="richiesta" className="scroll-mt-20 bg-white">
+        <div className="mx-auto max-w-6xl px-5 py-20">
+          <RichiestaZona />
+        </div>
+      </section>
+
+      {/* ============ PREZZI ============ */}
+      {/* Il listino resta, ma dopo il form e senza la tabella comparativa: chi
+          arriva qui sotto ha già deciso di guardare i numeri, e a quel punto
+          nasconderli sarebbe un gioco. Chi vuole comprare subito ha «Attiva
+          WashLoop» in cima a ogni pagina. */}
+      <section id="prezzi" className="scroll-mt-20 bg-ice">
+        <div className="mx-auto max-w-5xl px-5 py-20">
+          <div className="text-center">
+            <h2 className="font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
+              Quanto costa
             </h2>
-            <p className="mt-4 max-w-md text-base font-medium text-white/65">
-              Partiamo dal centro di Milano. Inserisci il tuo indirizzo quando attivi: ti diciamo subito se sei in zona, o ti avvisiamo appena apriamo da te.
+            <p className="mx-auto mt-3 max-w-md text-base font-medium text-muted">
+              Ritiro e riconsegna sempre inclusi. Metti in pausa quando vuoi, nessun vincolo di
+              durata.
             </p>
           </div>
-          <div className="rounded-[24px] border border-white/10 bg-white/5 p-10 text-center">
-            <Logo variant="white" size={44} />
-            <p className="mt-6 font-display text-lg font-extrabold leading-snug">
-              Tutto dal telefono.
-              <br />
-              <span className="text-cyan">Zero pensieri.</span>
+          <div className="mt-10 grid gap-5 md:grid-cols-3">
+            {PIANI.map((p) => (
+              <div
+                key={p.nome}
+                className={
+                  p.popolare
+                    ? "relative rounded-[24px] bg-navy p-7 text-white shadow-[var(--shadow-md)]"
+                    : "relative rounded-[24px] border border-line bg-white p-7"
+                }
+              >
+                {p.popolare && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-grad px-3 py-1 font-display text-[11px] font-extrabold uppercase tracking-[0.1em] text-white">
+                    Più scelto
+                  </div>
+                )}
+                <h3 className={`font-display text-lg font-black ${p.popolare ? "text-white" : "text-navy"}`}>{p.nome}</h3>
+                <div className="mt-3 flex items-end gap-1">
+                  <span className={`font-display text-4xl font-black ${p.popolare ? "text-white" : "text-navy"}`}>€{p.prezzo}</span>
+                  <span className={`mb-1 text-sm font-semibold ${p.popolare ? "text-white/55" : "text-muted"}`}>/mese</span>
+                </div>
+                <p className={`mt-2 text-sm font-semibold ${p.popolare ? "text-white/70" : "text-muted"}`}>{p.riga}</p>
+                <ButtonLink href={`/onboarding?plan=${p.code}`} variant={p.popolare ? "light" : "primary"} size="md" className="mt-6 w-full">
+                  Attiva {p.nome} →
+                </ButtonLink>
+              </div>
+            ))}
+          </div>
+          <p className="mx-auto mt-7 max-w-2xl text-center text-sm font-medium text-muted">
+            Ogni sacchetto contiene fino a 3 camicie. Sacchi extra a €45 l&apos;uno. I capi da
+            lavanderia, in un sacco separato, si lavorano a prezzo di listino.
+          </p>
+        </div>
+      </section>
+
+      {/* ============ DOVE PASSIAMO ============ */}
+      <section id="area" className="scroll-mt-20 bg-white">
+        <div className="mx-auto max-w-4xl px-5 py-20">
+          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Dove passiamo</div>
+          <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
+            Milano, a partire dal sud-ovest.
+          </h2>
+          <p className="mt-4 max-w-2xl text-base font-medium text-muted">
+            Il giro settimanale copre oggi {ZONE_SERVITE.join(", ")} e, fuori città,{" "}
+            {COMUNI_SERVITI.join(", ")}. Sul resto di Milano prendiamo la richiesta e
+            confermiamo al telefono: è così che decidiamo dove allargare.
+          </p>
+          <div className="mt-7 rounded-[24px] border border-line bg-ice p-7">
+            <div className="font-display text-sm font-extrabold text-navy">CAP del giro attuale</div>
+            <p className="mt-3 font-display text-sm font-bold tracking-wide text-blue">{CAP_SERVITI.join(" · ")}</p>
+            <p className="mt-3 text-sm font-medium text-muted">
+              Il tuo non c&apos;è?{" "}
+              <a href="#richiesta" className="font-bold text-blue hover:underline">Lascialo comunque</a>: dove
+              arriviamo dopo lo decidono le richieste che riceviamo.
             </p>
           </div>
         </div>
       </section>
 
       {/* ============ FAQ ============ */}
-      <section id="faq" className="scroll-mt-20 bg-white">
+      <section id="faq" className="scroll-mt-20 bg-ice">
         <div className="mx-auto max-w-3xl px-5 py-20">
-          <div className="text-center">
-            <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Domande frequenti</div>
-            <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
-              Tutto quello che vuoi sapere
-            </h2>
-          </div>
+          <h2 className="text-center font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
+            Domande frequenti
+          </h2>
           <div className="mt-10 space-y-3">
             {FAQ.map((f) => (
-              <details key={f.q} className="group rounded-[18px] border border-line bg-ice p-5">
+              <details key={f.q} className="group rounded-[18px] border border-line bg-white p-5">
                 <summary className="flex cursor-pointer list-none items-center justify-between font-display text-base font-extrabold text-navy">
                   {f.q}
                   <span className="ml-4 text-cyan transition-transform group-open:rotate-45">＋</span>
@@ -244,6 +296,16 @@ export default function Home() {
               </details>
             ))}
           </div>
+          <p className="mt-8 text-center text-sm font-medium text-muted">
+            Vuoi capire meglio?{" "}
+            <Link href="/lavanderia-a-domicilio-milano" className="font-bold text-blue hover:underline">
+              Come funziona la lavanderia a domicilio
+            </Link>{" "}
+            ·{" "}
+            <Link href="/servizio-stiro-a-domicilio-milano" className="font-bold text-blue hover:underline">
+              Il servizio stiro
+            </Link>
+          </p>
         </div>
       </section>
 
@@ -251,27 +313,24 @@ export default function Home() {
       <section className="bg-grad">
         <div className="mx-auto max-w-4xl px-5 py-20 text-center text-white">
           <h2 className="font-display text-3xl font-black tracking-[-0.02em] md:text-5xl">
-            Questo non è un lusso.
-            <br />È il tuo nuovo standard.
+            Dieci secondi adesso.
+            <br />
+            Un&apos;ora a settimana per sempre.
           </h2>
-          <p className="mx-auto mt-4 max-w-md text-lg font-medium text-white/85">
-            Il tuo tempo vale troppo per il bucato. Delegalo a chi lo fa meglio di te.
-          </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <ButtonLink href="/onboarding" variant="light">
-              Attiva WashLoop →
-            </ButtonLink>
-            <ButtonLink href="https://funnel.washloop.it" variant="ghost">
-              Scopri il tuo profilo bucato →
-            </ButtonLink>
+            <a
+              href="#richiesta"
+              className="inline-flex min-h-[56px] items-center justify-center gap-2.5 rounded-[40px] bg-white px-7 font-display text-base font-extrabold text-navy shadow-[var(--shadow-md)] transition-transform hover:-translate-y-0.5"
+            >
+              Controlla il tuo CAP →
+            </a>
+            <ButtonLink href="/onboarding" variant="ghost">Attiva subito →</ButtonLink>
           </div>
-          <p className="mt-4 text-sm font-semibold text-white/70">
-            <Link href="/login" className="underline">
-              Hai già un account? Accedi
-            </Link>
+          <p className="mt-5 text-sm font-semibold text-white/70">
+            <Link href="/login" className="underline">Hai già un account? Accedi</Link>
           </p>
         </div>
       </section>
-    </>
+    </ZonaProvider>
   );
 }

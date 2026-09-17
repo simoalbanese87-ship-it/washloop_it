@@ -7,6 +7,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { zoneIdForCap } from "@/lib/zones";
+import { capCoperto, formatoCapValido } from "@/lib/copertura";
 import { appendLeadToSheet } from "@/lib/leads-sheet";
 import { sendLeadConfirmation } from "@/lib/lead-email";
 import { getCurrentProfile } from "@/lib/auth";
@@ -41,7 +42,7 @@ async function hashIp(): Promise<string | null> {
 export async function submitLead(_prev: LeadFormState, formData: FormData): Promise<LeadFormState> {
   // Honeypot: campo invisibile agli umani. Se è pieno è un bot → usciamo
   // fingendo successo, così non impara a evitarlo.
-  if (String(formData.get("azienda") ?? "").trim() !== "") redirect("/disponibilita/grazie?c=1");
+  if (String(formData.get("azienda") ?? "").trim() !== "") redirect("/grazie?c=1");
 
   const fullName = String(formData.get("full_name") ?? "").trim().replace(/\s+/g, " ");
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
@@ -50,15 +51,20 @@ export async function submitLead(_prev: LeadFormState, formData: FormData): Prom
   const plan = String(formData.get("plan") ?? "").trim().toUpperCase();
   const consent = formData.get("privacy") != null;
 
-  if (fullName.length < 2) return { error: "Inserisci nome e cognome." };
+  // Il nome è facoltativo: la home ne chiede due, di campi, e il nome lo
+  // prendiamo al telefono. Se c'è dev'essere un nome vero, non una lettera.
+  if (fullName !== "" && fullName.length < 2) return { error: "Scrivi nome e cognome per esteso, o lascia il campo vuoto." };
   if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) return { error: "Inserisci un indirizzo email valido." };
   // Volutamente permissiva: accetta prefisso internazionale, spazi, punti e
   // trattini. Conta solo che ci siano abbastanza cifre per richiamare.
   if (!/^\+?[\d\s.\-()]{8,20}$/.test(phone) || (phone.match(/\d/g) ?? []).length < 8) {
     return { error: "Inserisci un numero di telefono valido." };
   }
-  if (!/^\d{5}$/.test(cap)) return { error: "Il CAP deve essere di 5 cifre." };
-  if (!PLANS.has(plan)) return { error: "Scegli un piano." };
+  if (!formatoCapValido(cap)) return { error: "Il CAP deve essere di 5 cifre." };
+  // Il piano è una preferenza, non un ordine: la home non lo chiede e va bene
+  // così. Se arriva dev'essere uno dei tre, per non riempire la tabella di
+  // stringhe a caso.
+  if (plan !== "" && !PLANS.has(plan)) return { error: "Scegli un piano." };
   if (!consent) return { error: "Serve il consenso al trattamento dei dati per procedere." };
 
   const svc = createServiceClient();
@@ -78,9 +84,18 @@ export async function submitLead(_prev: LeadFormState, formData: FormData): Prom
     }
   }
 
-  // Copertura reale: il CAP è mappato a una zona attiva in `zone_caps`?
+  // Due domande diverse, e da oggi hanno due risposte diverse.
+  //
+  // `zone_id` resta la mappa operativa (`zone_caps`): è quella che assegna il
+  // rider, e allargarla vorrebbe dire mandare Meryl all'Isola perché un lead ha
+  // scritto 20159. Non si tocca.
+  //
+  // `covered` invece è «prendiamo in carico la richiesta», e da oggi vale per
+  // tutta Milano città: meglio raccogliere il contatto e scremare al telefono
+  // che dire di no a chi sta due strade fuori dal giro. Il copy che accompagna
+  // questo esito promette una richiamata, non il servizio.
   const zoneId = await zoneIdForCap(svc, cap);
-  const covered = zoneId !== null;
+  const covered = capCoperto(cap);
 
   // Nome del quadrante, solo per la riga sul foglio (in DB basta lo zone_id).
   let zoneName = "";
@@ -113,11 +128,11 @@ export async function submitLead(_prev: LeadFormState, formData: FormData): Prom
     .from("leads")
     .upsert(
       {
-        full_name: fullName,
+        full_name: fullName || null,
         email,
         phone,
         cap,
-        plan,
+        plan: plan || null,
         zone_id: zoneId,
         covered,
         source: "landing",
@@ -141,13 +156,16 @@ export async function submitLead(_prev: LeadFormState, formData: FormData): Prom
       appendLeadToSheet({ createdAt: now, fullName, email, phone, cap, plan, covered, zone: zoneName, utmSource, utmMedium, utmCampaign }),
     ];
     if (!alreadyConfirmed) {
-      jobs.push(sendLeadConfirmation({ to: email, fullName, cap, covered, planLabel: PLAN_LABEL[plan] }));
+      jobs.push(sendLeadConfirmation({ to: email, fullName, cap, covered, planLabel: plan ? PLAN_LABEL[plan] : null }));
     }
     await Promise.allSettled(jobs);
   });
 
   // Nel querystring solo il flag di copertura: nessun dato personale in URL.
-  redirect(`/disponibilita/grazie?c=${covered ? 1 : 0}`);
+  // Da dove è partita la richiesta, per tornarci: la home e la landing hanno la
+  // stessa pagina di ringraziamento, ma chi arriva dalla home non deve
+  // ritrovarsi su un indirizzo che parla di un'altra pagina.
+  redirect(`/grazie?c=${covered ? 1 : 0}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +251,13 @@ export async function convertLeadToCustomer(formData: FormData) {
     .eq("id", id)
     .maybeSingle<{ id: string; full_name: string; email: string; phone: string | null; plan: string | null }>();
   if (!lead) redirect(backWith(formData, { warn: "Lead non trovato." }));
+
+  // Senza nome non si crea un cliente: comparirebbe come riga vuota in ogni
+  // elenco e nessuno saprebbe chi è. Il nome si prende al telefono, che è
+  // esattamente il passaggio per cui questo lead esiste.
+  if (!lead!.full_name || lead!.full_name.trim().length < 2) {
+    redirect(backWith(formData, { warn: "Questa richiesta non ha un nome: chiamalo, poi convertilo." }));
+  }
 
   const email = lead.email.toLowerCase().trim();
   const password = `WL!${crypto.randomBytes(4).toString("hex")}`;
