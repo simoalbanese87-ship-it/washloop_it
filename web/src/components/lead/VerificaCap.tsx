@@ -92,7 +92,7 @@ export function VerificaCap() {
 
   return (
     <>
-      <form onSubmit={apri} noValidate className="w-full max-w-md">
+      <form onSubmit={apri} noValidate className="w-full max-w-lg">
         <label htmlFor="verifica-cap" className="mb-2 flex items-center gap-1.5 font-display text-xs font-extrabold uppercase tracking-[0.14em] text-cyan">
           <IconaLuogo size={14} />
           Il tuo CAP
@@ -112,11 +112,14 @@ export function VerificaCap() {
             }}
             aria-invalid={toccato && !valido ? true : undefined}
             aria-describedby={toccato && !valido ? "verifica-cap-errore" : undefined}
-            className="min-h-[48px] flex-1 rounded-[40px] bg-transparent px-5 font-display text-base font-extrabold text-white outline-none placeholder:font-semibold placeholder:text-white/40"
+            // `min-w-0`: dentro un flex un input non si stringe sotto la sua
+            // larghezza di default, e spingeva il bottone a mandare a capo la
+            // propria etichetta.
+            className="min-h-[48px] w-full min-w-0 flex-1 rounded-[40px] bg-transparent px-5 font-display text-base font-extrabold text-white outline-none placeholder:font-semibold placeholder:text-white/40"
           />
           <button
             type="submit"
-            className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-[40px] bg-grad px-6 font-display text-[15px] font-extrabold text-white shadow-[var(--shadow-cy)] transition-all hover:brightness-105"
+            className="inline-flex min-h-[48px] flex-none items-center justify-center gap-2 whitespace-nowrap rounded-[40px] bg-grad px-6 font-display text-[15px] font-extrabold text-white shadow-[var(--shadow-cy)] transition-all hover:brightness-105"
           >
             Controlla il mio CAP →
           </button>
