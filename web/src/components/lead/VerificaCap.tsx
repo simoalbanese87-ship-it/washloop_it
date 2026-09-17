@@ -145,7 +145,11 @@ export function VerificaCap({ onVerificato }: { onVerificato?: (cap: string) => 
         // Il confronto su `currentTarget` distingue lo sfondo dal contenuto —
         // senza, chiudeva anche cliccando dentro il modulo.
         onClick={(e) => { if (e.target === e.currentTarget) dialog.current?.close(); }}
-        className="w-[calc(100vw-2rem)] max-w-md rounded-[24px] border border-line bg-white p-0 text-navy shadow-[var(--shadow-md)] backdrop:bg-navy/70 backdrop:backdrop-blur-sm"
+        // `m-auto` non è decorazione: un <dialog> aperto con `showModal()` si
+        // centra da solo grazie a `margin: auto`, e il reset degli stili del
+        // sito azzera i margini di tutti gli elementi. Senza, la finestra si
+        // incolla nell'angolo in alto a sinistra — che è dove stava.
+        className="m-auto w-[calc(100vw-2rem)] max-w-md rounded-[24px] border border-line bg-white p-0 text-navy shadow-[var(--shadow-md)] backdrop:bg-navy/70 backdrop:backdrop-blur-sm"
       >
         <div className="p-6 sm:p-8">
           <div className="flex items-start justify-between gap-4">
