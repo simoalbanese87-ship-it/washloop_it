@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { LeadProvider } from "@/components/landing/LeadContext";
-import { CapHeroForm } from "@/components/landing/CapHeroForm";
+import { CapLanding } from "@/components/landing/CapLanding";
 import { PlanCards } from "@/components/landing/PlanCards";
 import { PhoneMockup } from "@/components/landing/PhoneMockup";
 import { LeadForm } from "@/components/landing/LeadForm";
@@ -165,7 +165,7 @@ export default async function DisponibilitaPage({
             <p className="mt-6 max-w-xl text-lg font-medium leading-relaxed text-white/65">
               Scegli il tuo giorno fisso di ritiro. Noi laviamo, stiriamo e riconsegniamo i tuoi capi entro 3 giorni.
             </p>
-            <CapHeroForm />
+            <CapLanding />
           </div>
           <div className="md:pb-6">
             <PhoneMockup />
@@ -277,7 +277,7 @@ export default async function DisponibilitaPage({
                 href="#richiesta"
                 className="mt-8 inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-[40px] bg-cyan px-6 font-display text-base font-extrabold text-navy transition-transform hover:-translate-y-0.5"
               >
-                Verifica disponibilità →
+                Lascia i tuoi contatti →
               </a>
             </div>
           </aside>

@@ -62,7 +62,12 @@ function Invia() {
   );
 }
 
-export function VerificaCap() {
+/** @param onVerificato  chiamato con il CAP quando la finestra si apre.
+ *  Serve alla landing pubblicitaria, che sotto ha ancora il modulo lungo con
+ *  nome e piano: chi chiude la finestra e scorre non deve riscrivere il CAP che
+ *  ha appena dato. Sulle altre pagine non c'è nessun modulo sotto e la proprietà
+ *  resta vuota. */
+export function VerificaCap({ onVerificato }: { onVerificato?: (cap: string) => void } = {}) {
   const [cap, setCap] = useState("");
   const [toccato, setToccato] = useState(false);
   const [esito, setEsito] = useState<EsitoCap | null>(null);
@@ -76,6 +81,7 @@ export function VerificaCap() {
     setToccato(true);
     if (!valido) return;
     setEsito(esitoCap(cap));
+    onVerificato?.(cap);
     dialog.current?.showModal();
   }
 

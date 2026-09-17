@@ -27,7 +27,7 @@ function SubmitButton() {
       disabled={pending}
       className="inline-flex min-h-[56px] w-full items-center justify-center gap-2 rounded-[40px] bg-grad px-7 font-display text-base font-extrabold text-white shadow-[var(--shadow-cy)] transition-all hover:brightness-105 disabled:pointer-events-none disabled:opacity-60"
     >
-      {pending ? "Invio in corso…" : "Verifica disponibilità →"}
+      {pending ? "Invio in corso…" : "Richiedi disponibilità"}
     </button>
   );
 }

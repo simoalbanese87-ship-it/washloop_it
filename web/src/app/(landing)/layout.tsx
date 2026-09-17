@@ -25,7 +25,7 @@ function LandingHeader() {
             href="#richiesta"
             className="inline-flex min-h-[42px] items-center justify-center rounded-[40px] bg-white px-5 font-display text-sm font-extrabold text-navy transition-transform hover:-translate-y-0.5"
           >
-            Verifica disponibilità
+            Lascia i tuoi contatti
           </a>
         </div>
       </div>
