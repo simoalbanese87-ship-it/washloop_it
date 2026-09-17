@@ -157,7 +157,11 @@ export default function Home() {
               fill
               priority
               sizes="(min-width: 1024px) 46vw, 100vw"
-              className="object-cover object-center"
+              // Il ritaglio verticale del desktop mostra poco più di metà della
+              // foto: centrato tagliava a metà il volto della cliente, e la
+              // scena diventava la schiena di un fattorino. Spostato a destra
+              // tiene dentro lo scambio del borsone e tutti e due.
+              className="object-cover object-[64%_center] lg:object-[62%_center]"
             />
           </div>
         </div>
