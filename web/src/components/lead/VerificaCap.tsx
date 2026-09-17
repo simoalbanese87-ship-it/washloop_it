@@ -92,44 +92,45 @@ export function VerificaCap() {
 
   return (
     <>
-      <form onSubmit={apri} noValidate className="w-full max-w-lg">
-        <label htmlFor="verifica-cap" className="mb-2 flex items-center gap-1.5 font-display text-xs font-extrabold uppercase tracking-[0.14em] text-cyan">
+      {/* Lo stesso riquadro bianco della home, e non è pigrizia: il campo e il
+          bottone affiancati dentro una pillola trasparente lasciavano un vuoto
+          largo fra il testo scritto e il tasto, e quel vuoto legge come un
+          pezzo di interfaccia non finito. In colonna dentro una scheda bianca
+          il campo è un campo, il tasto è un tasto, e il riquadro stacca dal
+          fondo navy invece di sparirci dentro. */}
+      <form onSubmit={apri} noValidate className="w-full max-w-md rounded-[24px] bg-white p-5 shadow-[var(--shadow-md)]">
+        <label htmlFor="verifica-cap" className="mb-2 flex items-center gap-1.5 font-display text-xs font-extrabold uppercase tracking-[0.14em] text-navy/50">
           <IconaLuogo size={14} />
           Il tuo CAP
         </label>
-        <div className="flex flex-col gap-2.5 rounded-[40px] border border-white/15 bg-white/5 p-2 sm:flex-row sm:items-center">
-          <input
-            id="verifica-cap"
-            name="cap"
-            inputMode="numeric"
-            autoComplete="postal-code"
-            maxLength={5}
-            placeholder="Es. 20143"
-            value={cap}
-            onChange={(e) => {
-              setCap(e.target.value.replace(/\D/g, "").slice(0, 5));
-              setToccato(false);
-            }}
-            aria-invalid={toccato && !valido ? true : undefined}
-            aria-describedby={toccato && !valido ? "verifica-cap-errore" : undefined}
-            // `min-w-0`: dentro un flex un input non si stringe sotto la sua
-            // larghezza di default, e spingeva il bottone a mandare a capo la
-            // propria etichetta.
-            className="min-h-[48px] w-full min-w-0 flex-1 rounded-[40px] bg-transparent px-5 font-display text-base font-extrabold text-white outline-none placeholder:font-semibold placeholder:text-white/40"
-          />
-          <button
-            type="submit"
-            className="inline-flex min-h-[48px] flex-none items-center justify-center gap-2 whitespace-nowrap rounded-[40px] bg-grad px-6 font-display text-[15px] font-extrabold text-white shadow-[var(--shadow-cy)] transition-all hover:brightness-105"
-          >
-            Controlla il mio CAP →
-          </button>
-        </div>
+        <input
+          id="verifica-cap"
+          name="cap"
+          inputMode="numeric"
+          autoComplete="postal-code"
+          maxLength={5}
+          placeholder="Es. 20143"
+          value={cap}
+          onChange={(e) => {
+            setCap(e.target.value.replace(/\D/g, "").slice(0, 5));
+            setToccato(false);
+          }}
+          aria-invalid={toccato && !valido ? true : undefined}
+          aria-describedby={toccato && !valido ? "verifica-cap-errore" : undefined}
+          className="min-h-[52px] w-full rounded-[14px] border border-line bg-ice px-4 font-display text-lg font-extrabold text-navy outline-none transition-colors placeholder:font-semibold placeholder:text-navy/30 focus:border-blue"
+        />
         {/* L'errore compare dopo un tentativo, non a ogni cifra digitata. */}
         {toccato && !valido && (
-          <p id="verifica-cap-errore" role="alert" className="mt-2 text-sm font-semibold text-[#ffb4ab]">
+          <p id="verifica-cap-errore" role="alert" className="mt-2 text-sm font-semibold text-[#C0392B]">
             Il CAP è di 5 cifre.
           </p>
         )}
+        <button
+          type="submit"
+          className="mt-3 inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-[40px] bg-grad px-6 font-display text-base font-extrabold text-white shadow-[var(--shadow-cy)] transition-all hover:brightness-105"
+        >
+          Controlla il mio CAP →
+        </button>
       </form>
 
       <dialog

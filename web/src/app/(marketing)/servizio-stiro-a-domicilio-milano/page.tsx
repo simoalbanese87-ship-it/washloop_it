@@ -128,13 +128,12 @@ export default function ServizioStiroADomicilioMilano() {
             li riportiamo piegati entro 3 giorni feriali. La stiratura è dentro
             l&apos;abbonamento: nessun supplemento a capo.
           </p>
-          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <ButtonLink href="/onboarding">Attiva WashLoop →</ButtonLink>
-          </div>
-          {/* Il CAP si verifica qui, non su un'altra pagina: prima questo
-              bottone portava su `/disponibilita`, dove si riscriveva il CAP e
-              si rileggeva «Verifica disponibilità» su un secondo bottone. */}
-          <div className="mt-8">
+          {/* Un solo invito, come sulla home: il CAP. «Attiva WashLoop» sta
+              nell'intestazione di ogni pagina, quindi metterlo anche qui
+              significava due tasti che chiedono cose diverse a chi ha appena
+              finito di leggere il titolo — e quello con l'impegno più grosso
+              messo per primo. */}
+          <div className="mt-9">
             <VerificaCap />
           </div>
           <p className="mt-6 font-display text-sm font-bold text-white/45">
