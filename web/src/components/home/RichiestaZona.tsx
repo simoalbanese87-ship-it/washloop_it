@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { submitLead, type LeadFormState } from "@/lib/actions/leads";
@@ -54,27 +54,23 @@ const IconaTel = () => (
 export function RichiestaZona() {
   const { cap, setCap, esito } = useZona();
   const [state, formAction] = useActionState<LeadFormState, FormData>(submitLead, { error: null });
-  // Gli UTM li legge il browser dopo il montaggio, non il server.
-  //
-  // Leggerli lato server renderebbe dinamica tutta la home — la pagina più
-  // visitata e la prima che apre un crawler — per tre valori che servono solo
-  // qui. `useSearchParams` li darebbe subito ma obbligherebbe a un <Suspense>,
-  // e il form finirebbe fuori dall'HTML generato: chi arriva vedrebbe un buco
-  // finché la pagina non si anima, e un motore di ricerca non lo vedrebbe
-  // affatto. Su una pagina che esiste per raccogliere contatti è il difetto
-  // peggiore dei tre.
-  //
-  // Finiscono in campi nascosti letti al momento dell'invio: riempirli un
-  // istante dopo il primo disegno non cambia nulla per chi compila.
-  const [utm, setUtm] = useState({ source: "", medium: "", campaign: "" });
-  useEffect(() => {
+  /** Gli UTM si leggono al momento dell'invio, dall'indirizzo della pagina.
+   *
+   *  Non lato server: renderebbe dinamica tutta la home — la pagina più
+   *  visitata e la prima che apre un crawler — per tre valori che servono solo
+   *  a questo form. Non con `useSearchParams`: obbligherebbe a un <Suspense>,
+   *  e il form uscirebbe dall'HTML generato, invisibile a un motore di ricerca
+   *  e un buco a schermo fino all'idratazione. Su una pagina che esiste per
+   *  raccogliere contatti è il difetto peggiore dei tre.
+   *
+   *  E nemmeno in uno stato riempito al montaggio: sarebbe un valore tenuto in
+   *  React che nessuno guarda finché non si preme invia. Qui si legge quando
+   *  serve, una volta sola, dal posto dove il dato sta davvero. */
+  function inviaConUtm(fd: FormData) {
     const q = new URLSearchParams(window.location.search);
-    setUtm({
-      source: q.get("utm_source") ?? "",
-      medium: q.get("utm_medium") ?? "",
-      campaign: q.get("utm_campaign") ?? "",
-    });
-  }, []);
+    for (const k of ["utm_source", "utm_medium", "utm_campaign"]) fd.set(k, q.get(k) ?? "");
+    return formAction(fd);
+  }
 
   // Tre stati, tre messaggi diversi. Il terzo — nessun CAP ancora scritto — non
   // è un caso limite: è chi scorre la pagina senza passare dal riquadro in alto,
@@ -106,16 +102,12 @@ export function RichiestaZona() {
         <p className="mx-auto mt-3 max-w-md text-base font-medium leading-relaxed text-muted">{sottotitolo}</p>
       </div>
 
-      <form action={formAction} className="mt-8 rounded-[24px] border border-line bg-white p-6 shadow-[var(--shadow-md)] sm:p-8">
+      <form action={inviaConUtm} className="mt-8 rounded-[24px] border border-line bg-white p-6 shadow-[var(--shadow-md)] sm:p-8">
         {/* Honeypot: invisibile agli umani, irresistibile per i bot. */}
         <div className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden" aria-hidden>
           <label htmlFor="home-azienda">Azienda</label>
           <input id="home-azienda" name="azienda" type="text" tabIndex={-1} autoComplete="off" />
         </div>
-        <input type="hidden" name="utm_source" value={utm.source} />
-        <input type="hidden" name="utm_medium" value={utm.medium} />
-        <input type="hidden" name="utm_campaign" value={utm.campaign} />
-
         <div className="space-y-3.5">
           <div className="relative">
             <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-blue"><IconaMail /></span>
