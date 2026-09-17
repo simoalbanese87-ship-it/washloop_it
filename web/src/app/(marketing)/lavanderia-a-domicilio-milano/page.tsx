@@ -206,7 +206,10 @@ export default function LavanderiaADomicilioMilano() {
       </section>
 
       {/* ============ DOVE PASSIAMO ============ */}
-      <section className="bg-white">
+      {/* `id` perché il piè di pagina ci punta da ogni pagina del sito: la voce
+          «Zone coperte» viveva su un'ancora della home, e quella sezione dalla
+          home è uscita. */}
+      <section id="zone" className="scroll-mt-20 bg-white">
         <div className="mx-auto max-w-4xl px-5 py-20">
           <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Dove passiamo</div>
           <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">

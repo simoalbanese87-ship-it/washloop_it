@@ -23,9 +23,11 @@ export function Footer() {
             <li><Link href="/lavanderia-a-domicilio-milano" className="hover:text-white">Lavanderia a domicilio a Milano</Link></li>
             <li><Link href="/servizio-stiro-a-domicilio-milano" className="hover:text-white">Servizio stiro a domicilio</Link></li>
             <li><Link href="/#come-funziona" className="hover:text-white">Come funziona</Link></li>
-            <li><Link href="/#prezzi" className="hover:text-white">Prezzi</Link></li>
-            <li><Link href="/#area" className="hover:text-white">Zone coperte</Link></li>
-            <li><Link href="/#faq" className="hover:text-white">Domande frequenti</Link></li>
+            {/* Prezzi, zone e domande non sono più sezioni della home: stanno
+                nelle pagine di servizio qui sopra, che le trattano per intero.
+                Un link a un'ancora che non esiste ricarica la pagina e basta. */}
+            <li><Link href="/lavanderia-a-domicilio-milano#zone" className="hover:text-white">Zone coperte</Link></li>
+            <li><Link href="/#richiesta" className="hover:text-white">Verifica disponibilità</Link></li>
           </ul>
         </div>
         <div>

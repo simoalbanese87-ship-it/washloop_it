@@ -3,11 +3,18 @@ import { Logo } from "@/components/Logo";
 import { ButtonLink } from "@/components/ui/Button";
 import { MobileMenu } from "@/components/marketing/MobileMenu";
 
+/** Le voci del menu, e solo quelle che portano da qualche parte.
+ *
+ *  Erano quattro e puntavano a quattro sezioni della home. La home ora ne ha
+ *  due: il resto — prezzi, zone, domande — è uscito perché quella pagina serve
+ *  a raccogliere contatti, non a spiegare tutto. Lasciare le voci avrebbe
+ *  significato tre link che non aprono niente, che è peggio di tre voci in
+ *  meno. Chi vuole la spiegazione lunga la trova nelle due pagine di servizio,
+ *  linkate nel piè di pagina; i prezzi stanno dove si comprano, dietro «Attiva
+ *  WashLoop». */
 const nav = [
   { href: "/#come-funziona", label: "Come funziona" },
-  { href: "/#prezzi", label: "Prezzi" },
-  { href: "/#area", label: "Dove siamo" },
-  { href: "/#faq", label: "FAQ" },
+  { href: "/#richiesta", label: "Verifica il tuo CAP" },
 ];
 
 export function Header() {

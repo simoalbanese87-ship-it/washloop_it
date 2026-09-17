@@ -103,21 +103,27 @@ export function servizioJsonLd(nome: string, descrizione: string, url: string) {
   };
 }
 
-/** Il grafo completo di una pagina: attività + servizio + domande, in un blocco
- *  solo. Tre `<script>` separati funzionano, ma così i nodi possono citarsi fra
- *  loro con `@id` — ed è quello che lega «questo servizio» a «questa azienda». */
+/** Il grafo completo di una pagina: attività + servizio + eventuali domande, in
+ *  un blocco solo. Tre `<script>` separati funzionano, ma così i nodi possono
+ *  citarsi fra loro con `@id` — ed è quello che lega «questo servizio» a
+ *  «questa azienda».
+ *
+ *  `faq` è facoltativa, e il motivo non è comodità: Google accetta il blocco
+ *  `FAQPage` **solo se quelle domande sono visibili nella pagina**. Dichiararle
+ *  su una pagina che non le mostra è una violazione delle sue regole, non
+ *  un'ottimizzazione — e si paga con la rimozione dei risultati arricchiti. */
 export function graficoPagina(args: {
   nomeServizio: string;
   descrizione: string;
   url: string;
-  faq: { q: string; a: string }[];
+  faq?: { q: string; a: string }[];
 }) {
   return {
     "@context": "https://schema.org",
     "@graph": [
       attivitaJsonLd(),
       servizioJsonLd(args.nomeServizio, args.descrizione, args.url),
-      faqJsonLd(args.faq),
+      ...(args.faq?.length ? [faqJsonLd(args.faq)] : []),
     ],
   };
 }

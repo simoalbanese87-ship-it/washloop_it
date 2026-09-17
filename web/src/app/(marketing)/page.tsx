@@ -1,36 +1,28 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import Link from "next/link";
-import { ButtonLink } from "@/components/ui/Button";
 import { Bubbles } from "@/components/marketing/Bubbles";
 import { JsonLd } from "@/components/marketing/JsonLd";
 import { ZonaProvider } from "@/components/home/ZonaContext";
 import { CapCheck } from "@/components/home/CapCheck";
 import { RichiestaZona } from "@/components/home/RichiestaZona";
-import { FAQ } from "@/lib/faq";
-import { CAP_SERVITI, ZONE_SERVITE, COMUNI_SERVITI, graficoPagina } from "@/lib/area-servita";
+import { graficoPagina } from "@/lib/area-servita";
 
 /* ============================================================
    Home — la pagina che raccoglie i contatti.
 
-   Cosa è cambiato, e perché
-   -------------------------
-   La home precedente vendeva: comparativa con la concorrenza, tre piani a
-   prezzo pieno, checkout diretto. Non portava contatti — e per un servizio che
-   copre mezza città, con la copertura da confermare a voce, chiedere 160 € al
-   primo incontro è un cancello, non una porta.
+   Cinque sezioni, e non una di più: hero con il controllo CAP, tre pilastri,
+   come funziona, cosa entra nel borsone, richiesta. È la struttura approvata,
+   e la brevità è il punto — la home precedente vendeva, aveva comparativa,
+   listino e checkout, e non portava contatti.
 
-   Questa chiede una cosa sola: **il CAP**. È l'unica domanda a cui si risponde
-   senza pensarci, e apre la conversazione invece di chiuderla. Il resto —
-   email e telefono — lo si dà dopo, quando si è già ricevuto qualcosa in
-   cambio: una risposta.
+   Qui c'erano anche prezzi, domande frequenti, zone coperte e un richiamo
+   finale: li avevo aggiunti io per non lasciare orfane tre voci del menu, ed è
+   stato l'errore. Il menu si sistema (ed è stato sistemato); una pagina che
+   chiede una cosa sola non si allunga per far quadrare una navigazione.
 
-   La vecchia è viva su `/home-old`, fuori dall'indice: se questo taglio non
-   funziona, si riparte da lì senza rifarla.
-
-   Acquisto e accesso restano in alto, nell'header del sito («Accedi» e «Attiva
-   WashLoop»): chi ha già deciso non deve passare da un modulo di contatto per
-   comprare, e chi è già cliente non deve cercarsi l'ingresso.
+   Chi vuole la spiegazione lunga la trova nelle due pagine di servizio, chi
+   vuole comprare ha «Attiva WashLoop» in cima a ogni pagina, chi è già cliente
+   ha «Accedi» accanto.
    ============================================================ */
 
 export const metadata: Metadata = {
@@ -48,6 +40,14 @@ export const metadata: Metadata = {
     locale: "it_IT",
   },
 };
+
+function Tratto({ children, size = 34 }: { children: React.ReactNode; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {children}
+    </svg>
+  );
+}
 
 const PILASTRI = [
   {
@@ -85,41 +85,61 @@ const PILASTRI = [
 ];
 
 const PASSI = [
-  { n: "1", t: "Metti i capi nel sacco", d: "Quello che finirebbe in lavatrice. Non devi dividere, contare o trattare niente." },
-  { n: "2", t: "Passiamo noi", d: "Il rider ritira sotto casa nel giorno fisso. Ogni sacco viene tracciato con il suo codice." },
-  { n: "3", t: "Te li riconsegniamo pronti", d: "Lavati, stirati e piegati, entro 3 giorni feriali. Si aprono e si ripongono." },
+  {
+    n: "1",
+    t: "Metti i capi nel sacco",
+    d: "Quello che finirebbe in lavatrice. Non devi dividere, contare o trattare niente.",
+    icona: (
+      <>
+        <path d="M9 3.5h6l-1.2 3.2a3 3 0 0 0 .5 3l3.4 4.2a5.5 5.5 0 0 1-4.3 8.9h-2.8a5.5 5.5 0 0 1-4.3-8.9l3.4-4.2a3 3 0 0 0 .5-3z" />
+      </>
+    ),
+  },
+  {
+    n: "2",
+    t: "Passiamo noi",
+    d: "Il rider ritira sotto casa nel giorno fisso. Ogni sacco viene tracciato con il suo codice.",
+    icona: (
+      <>
+        <path d="M5.5 7.5h8v9h-8z" />
+        <path d="M13.5 11h3.5l3 3v2.5h-6.5z" />
+        <circle cx="9" cy="18" r="1.7" />
+        <circle cx="17.5" cy="18" r="1.7" />
+        <path d="M1.5 10h2.5M1.5 13.5h2.5" />
+      </>
+    ),
+  },
+  {
+    n: "3",
+    t: "Te li riconsegniamo pronti",
+    d: "Lavati, stirati e piegati, entro 3 giorni feriali. Si aprono e si ripongono.",
+    icona: (
+      <>
+        <path d="M9 3.5 12 6l3-2.5 4.5 2.2-1.8 4.3-1.7-.6V20H7V9.4l-1.7.6L3.5 5.7z" />
+        <path d="m18.8 15.5.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" />
+      </>
+    ),
+  },
 ];
 
 const NEL_SACCO = ["Camicie", "Magliette", "Asciugamani", "Lenzuola", "Calzini", "Biancheria intima"];
 
-const PIANI = [
-  { nome: "Small", code: "essential", prezzo: "160", riga: "1 sacco a settimana" },
-  { nome: "Medium", code: "plus", prezzo: "280", riga: "2 sacchi a settimana", popolare: true },
-  { nome: "Large", code: "family", prezzo: "390", riga: "3 sacchi a settimana" },
-];
-
-function Icona({ children }: { children: React.ReactNode }) {
-  return (
-    <svg width={34} height={34} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      {children}
-    </svg>
-  );
-}
-
 export default function Home() {
   return (
     <ZonaProvider>
+      {/* Niente `FAQPage` qui: Google accetta quel blocco solo se le domande
+          sono visibili nella pagina, e questa non le mostra più. Restano
+          l'attività e il servizio, che la pagina descrive davvero. */}
       <JsonLd
         data={graficoPagina({
           nomeServizio: "Lavanderia a domicilio in abbonamento a Milano",
           descrizione:
             "Ritiro fisso a domicilio, lavaggio e stiratura professionali, riconsegna entro 3 giorni feriali. Abbonamento mensile con ritiro e consegna inclusi.",
           url: "https://washloop.it/",
-          faq: FAQ,
         })}
       />
 
-      {/* ============ HERO ============ */}
+      {/* ============ 1 · HERO ============ */}
       <section className="relative overflow-hidden bg-navy text-white">
         <Bubbles />
         <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-16 md:py-20 lg:grid-cols-[1.05fr_1fr] lg:gap-14">
@@ -167,12 +187,12 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ============ TRE PILASTRI ============ */}
+      {/* ============ 2 · TRE PILASTRI ============ */}
       <section className="bg-white">
         <div className="mx-auto grid max-w-6xl gap-5 px-5 py-14 md:grid-cols-3">
           {PILASTRI.map((p) => (
             <div key={p.t} className="rounded-[24px] border border-line bg-white p-7 text-center">
-              <span className="inline-flex text-cyan"><Icona>{p.icona}</Icona></span>
+              <span className="inline-flex text-cyan"><Tratto>{p.icona}</Tratto></span>
               <h2 className="mt-4 font-display text-lg font-extrabold leading-snug text-navy">{p.t}</h2>
               <p className="mt-2 text-sm font-medium leading-relaxed text-muted">{p.d}</p>
             </div>
@@ -180,18 +200,19 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ============ COME FUNZIONA ============ */}
+      {/* ============ 3 · COME FUNZIONA ============ */}
       <section id="come-funziona" className="scroll-mt-20 bg-ice">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <h2 className="text-center font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
             Come funziona
           </h2>
-          <div className="mt-12 grid gap-8 md:grid-cols-3">
+          <div className="mt-12 grid gap-10 md:grid-cols-3">
             {PASSI.map((s) => (
               <div key={s.n} className="text-center">
-                <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-cyan/15 font-display text-lg font-black text-blue">
+                <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-cyan/15 font-display text-base font-black text-blue">
                   {s.n}
                 </span>
+                <span className="mt-5 flex justify-center text-navy"><Tratto size={44}>{s.icona}</Tratto></span>
                 <h3 className="mt-5 font-display text-lg font-extrabold text-navy">{s.t}</h3>
                 <p className="mx-auto mt-2 max-w-xs text-sm font-medium leading-relaxed text-muted">{s.d}</p>
               </div>
@@ -200,162 +221,52 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ============ COSA METTI NEL SACCO ============ */}
+      {/* ============ 4 · UN BORSONE ============ */}
       <section className="bg-navy text-white">
-        <div className="mx-auto max-w-6xl px-5 py-20">
-          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-cyan">
-            Un borsone. Tutto il tuo bucato.
+        <div className="mx-auto grid max-w-6xl items-center gap-10 px-5 py-20 md:grid-cols-[auto_1fr] md:gap-14">
+          {/* Il borsone disegnato a tratto, come nel progetto: non è una foto e
+              non vuole esserlo — è il segno che tiene insieme la sezione, con
+              lo stesso spessore di linea delle icone qui sopra. */}
+          <div className="mx-auto w-full max-w-[260px] text-cyan md:mx-0 md:border-r md:border-white/10 md:pr-14">
+            <svg viewBox="0 0 200 140" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" className="w-full" aria-hidden>
+              <path d="M28 52h144a14 14 0 0 1 14 14v38a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14V66a14 14 0 0 1 14-14Z" />
+              <path d="M72 52V40a10 10 0 0 1 10-10h36a10 10 0 0 1 10 10v12" />
+              <path d="M72 30c0 16 10 24 28 24s28-8 28-24" opacity="0.45" />
+              <path d="M14 78h172" opacity="0.35" />
+              <path d="M52 118v10M148 118v10" />
+              <circle cx="100" cy="90" r="16" opacity="0.5" />
+              <circle cx="94" cy="86" r="4" />
+              <circle cx="105" cy="93" r="6" />
+            </svg>
           </div>
-          <h2 className="mt-3 max-w-xl font-display text-3xl font-black tracking-[-0.02em] md:text-4xl">
-            Tutto quello che metteresti in lavatrice<span className="text-cyan">.</span>
-          </h2>
-          <div className="mt-7 flex flex-wrap gap-2.5">
-            {NEL_SACCO.map((c) => (
-              <span key={c} className="rounded-full border border-white/20 bg-white/5 px-4 py-2 font-display text-sm font-bold text-white/85">
-                {c}
-              </span>
-            ))}
+
+          <div>
+            <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-cyan">
+              Un borsone. Tutto il tuo bucato.
+            </div>
+            <h2 className="mt-3 max-w-xl font-display text-3xl font-black tracking-[-0.02em] md:text-4xl">
+              Tutto quello che metteresti in lavatrice<span className="text-cyan">.</span>
+            </h2>
+            <div className="mt-7 flex flex-wrap gap-2.5">
+              {NEL_SACCO.map((c) => (
+                <span key={c} className="rounded-full border border-white/20 bg-white/5 px-4 py-2 font-display text-sm font-bold text-white/85">
+                  {c}
+                </span>
+              ))}
+            </div>
+            <p className="mt-8 max-w-2xl text-base font-medium leading-relaxed text-white/65">
+              WashLoop è il servizio in abbonamento per la gestione del guardaroba. È nato per
+              evitare che tu faccia la lavatrice: ritiriamo, laviamo, stiriamo e riconsegniamo
+              i capi pronti per l&apos;armadio.
+            </p>
           </div>
-          <p className="mt-8 max-w-2xl text-base font-medium leading-relaxed text-white/65">
-            WashLoop è il servizio in abbonamento per la gestione del guardaroba. È nato per
-            evitare che tu faccia la lavatrice: ritiriamo, laviamo, stiriamo e riconsegniamo
-            i capi pronti per l&apos;armadio. I capi da lavasecco vanno in un sacco separato e
-            si lavorano a listino.
-          </p>
         </div>
       </section>
 
-      {/* ============ RICHIESTA ============ */}
+      {/* ============ 5 · RICHIESTA ============ */}
       <section id="richiesta" className="scroll-mt-20 bg-white">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <RichiestaZona />
-        </div>
-      </section>
-
-      {/* ============ PREZZI ============ */}
-      {/* Il listino resta, ma dopo il form e senza la tabella comparativa: chi
-          arriva qui sotto ha già deciso di guardare i numeri, e a quel punto
-          nasconderli sarebbe un gioco. Chi vuole comprare subito ha «Attiva
-          WashLoop» in cima a ogni pagina. */}
-      <section id="prezzi" className="scroll-mt-20 bg-ice">
-        <div className="mx-auto max-w-5xl px-5 py-20">
-          <div className="text-center">
-            <h2 className="font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
-              Quanto costa
-            </h2>
-            <p className="mx-auto mt-3 max-w-md text-base font-medium text-muted">
-              Ritiro e riconsegna sempre inclusi. Metti in pausa quando vuoi, nessun vincolo di
-              durata.
-            </p>
-          </div>
-          <div className="mt-10 grid gap-5 md:grid-cols-3">
-            {PIANI.map((p) => (
-              <div
-                key={p.nome}
-                className={
-                  p.popolare
-                    ? "relative rounded-[24px] bg-navy p-7 text-white shadow-[var(--shadow-md)]"
-                    : "relative rounded-[24px] border border-line bg-white p-7"
-                }
-              >
-                {p.popolare && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-grad px-3 py-1 font-display text-[11px] font-extrabold uppercase tracking-[0.1em] text-white">
-                    Più scelto
-                  </div>
-                )}
-                <h3 className={`font-display text-lg font-black ${p.popolare ? "text-white" : "text-navy"}`}>{p.nome}</h3>
-                <div className="mt-3 flex items-end gap-1">
-                  <span className={`font-display text-4xl font-black ${p.popolare ? "text-white" : "text-navy"}`}>€{p.prezzo}</span>
-                  <span className={`mb-1 text-sm font-semibold ${p.popolare ? "text-white/55" : "text-muted"}`}>/mese</span>
-                </div>
-                <p className={`mt-2 text-sm font-semibold ${p.popolare ? "text-white/70" : "text-muted"}`}>{p.riga}</p>
-                <ButtonLink href={`/onboarding?plan=${p.code}`} variant={p.popolare ? "light" : "primary"} size="md" className="mt-6 w-full">
-                  Attiva {p.nome} →
-                </ButtonLink>
-              </div>
-            ))}
-          </div>
-          <p className="mx-auto mt-7 max-w-2xl text-center text-sm font-medium text-muted">
-            Ogni sacchetto contiene fino a 3 camicie. Sacchi extra a €45 l&apos;uno. I capi da
-            lavanderia, in un sacco separato, si lavorano a prezzo di listino.
-          </p>
-        </div>
-      </section>
-
-      {/* ============ DOVE PASSIAMO ============ */}
-      <section id="area" className="scroll-mt-20 bg-white">
-        <div className="mx-auto max-w-4xl px-5 py-20">
-          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Dove passiamo</div>
-          <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
-            Milano, a partire dal sud-ovest.
-          </h2>
-          <p className="mt-4 max-w-2xl text-base font-medium text-muted">
-            Il giro settimanale copre oggi {ZONE_SERVITE.join(", ")} e, fuori città,{" "}
-            {COMUNI_SERVITI.join(", ")}. Sul resto di Milano prendiamo la richiesta e
-            confermiamo al telefono: è così che decidiamo dove allargare.
-          </p>
-          <div className="mt-7 rounded-[24px] border border-line bg-ice p-7">
-            <div className="font-display text-sm font-extrabold text-navy">CAP del giro attuale</div>
-            <p className="mt-3 font-display text-sm font-bold tracking-wide text-blue">{CAP_SERVITI.join(" · ")}</p>
-            <p className="mt-3 text-sm font-medium text-muted">
-              Il tuo non c&apos;è?{" "}
-              <a href="#richiesta" className="font-bold text-blue hover:underline">Lascialo comunque</a>: dove
-              arriviamo dopo lo decidono le richieste che riceviamo.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ============ FAQ ============ */}
-      <section id="faq" className="scroll-mt-20 bg-ice">
-        <div className="mx-auto max-w-3xl px-5 py-20">
-          <h2 className="text-center font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
-            Domande frequenti
-          </h2>
-          <div className="mt-10 space-y-3">
-            {FAQ.map((f) => (
-              <details key={f.q} className="group rounded-[18px] border border-line bg-white p-5">
-                <summary className="flex cursor-pointer list-none items-center justify-between font-display text-base font-extrabold text-navy">
-                  {f.q}
-                  <span className="ml-4 text-cyan transition-transform group-open:rotate-45">＋</span>
-                </summary>
-                <p className="mt-3 text-sm font-medium leading-relaxed text-muted">{f.a}</p>
-              </details>
-            ))}
-          </div>
-          <p className="mt-8 text-center text-sm font-medium text-muted">
-            Vuoi capire meglio?{" "}
-            <Link href="/lavanderia-a-domicilio-milano" className="font-bold text-blue hover:underline">
-              Come funziona la lavanderia a domicilio
-            </Link>{" "}
-            ·{" "}
-            <Link href="/servizio-stiro-a-domicilio-milano" className="font-bold text-blue hover:underline">
-              Il servizio stiro
-            </Link>
-          </p>
-        </div>
-      </section>
-
-      {/* ============ CTA FINALE ============ */}
-      <section className="bg-grad">
-        <div className="mx-auto max-w-4xl px-5 py-20 text-center text-white">
-          <h2 className="font-display text-3xl font-black tracking-[-0.02em] md:text-5xl">
-            Dieci secondi adesso.
-            <br />
-            Un&apos;ora a settimana per sempre.
-          </h2>
-          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <a
-              href="#richiesta"
-              className="inline-flex min-h-[56px] items-center justify-center gap-2.5 rounded-[40px] bg-white px-7 font-display text-base font-extrabold text-navy shadow-[var(--shadow-md)] transition-transform hover:-translate-y-0.5"
-            >
-              Controlla il tuo CAP →
-            </a>
-            <ButtonLink href="/onboarding" variant="ghost">Attiva subito →</ButtonLink>
-          </div>
-          <p className="mt-5 text-sm font-semibold text-white/70">
-            <Link href="/login" className="underline">Hai già un account? Accedi</Link>
-          </p>
         </div>
       </section>
     </ZonaProvider>
