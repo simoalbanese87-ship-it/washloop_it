@@ -39,8 +39,11 @@ export default async function CalendarioPage({
   const includiProva = prova === "1";
 
   const svc = createServiceClient();
-  const daIso = new Date(Date.now() - 2 * 86_400_000).toISOString(); // due giorni indietro: gli arretrati vanno visti
-  const aIso = new Date(Date.now() + giorni * 86_400_000).toISOString();
+  // Un solo istante letto, e da lì si deriva il resto: chiamare l'orologio due
+  // volte dentro il render è quello che il linter segnala, giustamente.
+  const adesso = new Date();
+  const daIso = new Date(adesso.getTime() - 2 * 86_400_000).toISOString(); // due giorni indietro: gli arretrati vanno visti
+  const aIso = new Date(adesso.getTime() + giorni * 86_400_000).toISOString();
 
   const { data: righe } = await svc
     .from("orders")
@@ -99,7 +102,7 @@ export default async function CalendarioPage({
     const k = giornoDi(r.quando);
     (perGiorno.get(k) ?? perGiorno.set(k, []).get(k)!).push(r);
   }
-  const oggi = giornoDi(new Date().toISOString());
+  const oggi = giornoDi(adesso.toISOString());
 
   return (
     <>

@@ -19,16 +19,30 @@ const site = () => (process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it").r
 /** Email + push al CLIENTE per gli stati rilevanti. Gli stati non elencati non
  *  notificano (evita spam). */
 const CUSTOMER: Partial<
-  Record<OrderStatus, { subject: string; title: string; emoji: string; preheader: string; body: (bags: number, fascia: string) => string; push: string }>
+  Record<OrderStatus, { subject: string; title: string; emoji: string; preheader: string; body: (bags: number, fascia: string, giaCliente: boolean) => string; push: string }>
 > = {
   pickup_scheduled: {
     subject: "Ritiro prenotato ✅",
     title: "Ritiro prenotato",
     emoji: "✅",
     preheader: "Tieni il bucato pronto per l'orario scelto: al resto pensiamo noi.",
-    body: (b) =>
-      `Abbiamo registrato il tuo ritiro di <strong>${b} ${b === 1 ? "sacco" : "sacchi"}</strong>. Tieni il bucato pronto per l'orario scelto: a ritiro, lavaggio e riconsegna pensiamo noi.`,
-    push: "Ritiro registrato. Tieni pronto il bucato per l'orario scelto.",
+    // La scatola torna indietro, e qualcuno deve dirlo.
+    //
+    // Il bucato pulito arriva in una scatola rigida: se resta in casa, al giro
+    // dopo ne parte un'altra e le scatole si accumulano da una parte e
+    // finiscono dall'altra. Il momento per ricordarlo è questo — quando si
+    // prepara il sacco — non alla porta, con il rider che aspetta.
+    //
+    // Solo a chi ne ha già ricevuta una: `giaCliente` è vero se il cliente ha
+    // almeno una consegna alle spalle. A un primo ritiro, «riporta la scatola»
+    // è una richiesta che non si può soddisfare, e fa sembrare che ci si sia
+    // persi un passaggio.
+    body: (b, _f, giaCliente) =>
+      `Abbiamo registrato il tuo ritiro di <strong>${b} ${b === 1 ? "sacco" : "sacchi"}</strong>. Tieni il bucato pronto per l'orario scelto: a ritiro, lavaggio e riconsegna pensiamo noi.` +
+      (giaCliente
+        ? `<br/><br/>Un piccolo favore: <strong>lascia fuori anche la scatola vuota</strong> dell'ultima riconsegna. Il rider la ritira insieme al sacco e la rimettiamo in giro.`
+        : ""),
+    push: "Ritiro registrato. Tieni pronto il bucato — e la scatola vuota, se ne hai una.",
   },
   picked_up: {
     subject: "Bucato ritirato 🧺",
@@ -137,20 +151,39 @@ export async function notifyOrderStatus(orderId: string, status: OrderStatus) {
     const ds = Array.isArray(rel) ? rel[0] : rel;
     const fascia = ds ? fmtSlot(ds.starts_at, ds.ends_at) : "";
 
+    // Ha già ricevuto almeno una consegna? Serve al promemoria della scatola:
+    // chiederla a chi non l'ha mai avuta è una richiesta impossibile da
+    // soddisfare. Si guarda solo dove serve, cioè alla prenotazione del ritiro.
+    let giaCliente = false;
+    if (status === "pickup_scheduled" && order.customer_id) {
+      const { count } = await svc
+        .from("orders")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_id", order.customer_id)
+        .in("status", ["delivered", "completed"]);
+      giaCliente = (count ?? 0) > 0;
+    }
+
     // ---- Cliente: email + push ----
     if (cust && order.customer_id) {
       const email = await userEmail(svc, order.customer_id);
       if (email) {
         const html = renderEmail({
           title: cust.title,
-          body: cust.body(order.bags ?? 1, fascia),
+          body: cust.body(order.bags ?? 1, fascia, giaCliente),
           emoji: cust.emoji,
           preheader: cust.preheader,
           cta: { label: "Vedi i dettagli", href: `${site()}/app/ordini/${orderId}` },
         });
         await sendMail({ to: email, subject: cust.subject, html });
       }
-      await sendPush(order.customer_id, { title: cust.title, body: fascia && status === "delivery_scheduled" ? `Ti riportiamo il bucato ${fascia}` : cust.push, url: `/app/ordini/${orderId}` });
+      const testoPush =
+        fascia && status === "delivery_scheduled"
+          ? `Ti riportiamo il bucato ${fascia}`
+          : status === "pickup_scheduled" && !giaCliente
+            ? "Ritiro registrato. Tieni pronto il bucato per l'orario scelto."
+            : cust.push;
+      await sendPush(order.customer_id, { title: cust.title, body: testoPush, url: `/app/ordini/${orderId}` });
     }
 
     // ---- Lavanderia: push (webapp installata) + email (solo info lavorazione, no PII) ----
