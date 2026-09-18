@@ -1,5 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { sacchiOsservati, sacchiDaContare } from "@/lib/franchigia";
+import { sacchiInclusi } from "@/lib/abbonamento-sacchi";
 import { dataServizio } from "@/lib/periodo-servizio";
 
 /** Registra quanto dobbiamo alla lavanderia per i sacchi di un ordine.
@@ -23,9 +25,9 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
 
     const { data: ordine } = await svc
       .from("orders")
-      .select("id, bags, bags_arrivati, laundry_id, laundries(bag_comp_cents)")
+      .select("id, customer_id, bags, bags_arrivati, laundry_id, laundries(bag_comp_cents)")
       .eq("id", orderId)
-      .maybeSingle<{ id: string; bags: number | null; bags_arrivati: number | null; laundry_id: string | null; laundries: { bag_comp_cents: number | null } | null }>();
+      .maybeSingle<{ id: string; customer_id: string; bags: number | null; bags_arrivati: number | null; laundry_id: string | null; laundries: { bag_comp_cents: number | null } | null }>();
 
     if (!ordine?.laundry_id) return; // ordine senza lavanderia: niente da pagare
 
@@ -58,7 +60,20 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
       .select("id", { count: "exact", head: true })
       .eq("order_id", orderId)
       .not("pickup_scanned_at", "is", null);
-    const sacchi = ordine.bags_arrivati ?? (scansionati && scansionati > 0 ? scansionati : ordine.bags ?? 1);
+
+    // 4. **Il tetto dell'abbonamento**, sopra a tutte e tre.
+    //
+    // Le tre prove qui sopra dicono cosa risulta; l'abbonamento dice cosa è
+    // dovuto, e nessuna delle tre crea un diritto che il contratto non dà. L'8
+    // settembre l'ordine di Giulia — piano Small, un sacco — è stato pagato
+    // 24,60 €, cioè due, perché il rider aveva letto due tag e nessuno ha
+    // guardato il piano.
+    const tetto = await sacchiInclusi(svc, ordine.customer_id);
+    const conto = sacchiDaContare(sacchiOsservati(ordine.bags_arrivati, scansionati, ordine.bags), tetto);
+    const sacchi = conto.sacchi;
+    if (conto.limitato) {
+      console.warn(`[payout] ordine ${orderId}: risultavano più sacchi del dovuto, pagati ${sacchi} come da abbonamento`);
+    }
 
     const { error } = await svc.from("laundry_payouts").insert({
       laundry_id: ordine.laundry_id,

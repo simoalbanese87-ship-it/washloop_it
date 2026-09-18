@@ -13,7 +13,7 @@ import { LAVORAZIONE_APERTA, signedProofUrl, type OrderStatus } from "@/lib/orde
 import { SEGNALABILE } from "@/lib/segnalazioni";
 import { fmtFull } from "@/lib/format";
 import { createServiceClient } from "@/lib/supabase/server";
-import { sacchiPerFranchigia } from "@/lib/franchigia";
+import { sacchiPerFranchigia, sacchiOsservati, sacchiDaContare } from "@/lib/franchigia";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +31,9 @@ type PartnerOrder = {
   bags_scansionati: number;
   /** Quanti ne ha contati la lavanderia sul banco. NULL finché non conferma. */
   bags_arrivati: number | null;
+  /** Quanti ne comprende l'abbonamento. È il tetto: si paga il minore fra
+   *  questo e quelli contati. `null` = non lo sappiamo. */
+  sacchi_inclusi: number | null;
   service: string | null;
   fragrance: string | null;
   status: OrderStatus;
@@ -70,7 +73,7 @@ export default async function LaundryOrderDetail({
   const [{ data: order }, { data: specials }, { data: listino }, { data: issues }] = await Promise.all([
     supabase
       .from("partner_orders")
-      .select("order_id, client_code, bags, bags_scansionati, bags_arrivati, service, fragrance, status, eta_ready_at, created_at")
+      .select("order_id, client_code, bags, bags_scansionati, bags_arrivati, sacchi_inclusi, service, fragrance, status, eta_ready_at, created_at")
       .eq("order_id", orderId)
       .maybeSingle<PartnerOrder>(),
     supabase
@@ -102,7 +105,9 @@ export default async function LaundryOrderDetail({
   // Gli stessi sacchi che userà `addSpecial`: se qui e lì il numero differisse,
   // la schermata direbbe una cosa e il conto ne farebbe un'altra — che è
   // esattamente com'è nato il guasto del 15 settembre.
-  const sacchiFranchigia = sacchiPerFranchigia(order.bags_arrivati, order.bags_scansionati, order.bags);
+  const osservati = sacchiOsservati(order.bags_arrivati, order.bags_scansionati, order.bags);
+  const dovuti = sacchiDaContare(osservati, order.sacchi_inclusi);
+  const sacchiFranchigia = sacchiPerFranchigia(order.bags_arrivati, order.bags_scansionati, order.bags, order.sacchi_inclusi);
   const items = specials ?? [];
   const totComp = items.reduce((s, i) => s + i.comp_lav_cents * i.qty, 0);
 
@@ -143,9 +148,18 @@ export default async function LaundryOrderDetail({
           <dl className="mt-3 space-y-2 text-sm font-medium text-muted">
             <div className="flex justify-between">
               <dt>Sacchi</dt>
-              <dd className="font-bold text-navy">
-                {order.bags_arrivati ?? (order.bags_scansionati || order.bags)}
+              <dd className="text-right font-bold text-navy">
+                {dovuti.sacchi}
                 {order.bags_arrivati == null && <span className="ml-1 text-xs font-semibold text-[#C9881F]">da confermare</span>}
+                {/* Quando il conto supera l'abbonamento si dice, invece di
+                    mostrare un numero più basso di quello contato senza
+                    spiegazione: da lì sembrerebbe che il portale abbia perso
+                    un sacco. */}
+                {dovuti.limitato && (
+                  <span className="mt-0.5 block text-xs font-semibold text-[#C9881F]">
+                    ne risultano {osservati}, l&apos;abbonamento ne comprende {order.sacchi_inclusi}
+                  </span>
+                )}
               </dd>
             </div>
             {order.service && <div className="flex justify-between"><dt>Servizio</dt><dd className="font-bold text-navy">{order.service}</dd></div>}
@@ -166,7 +180,7 @@ export default async function LaundryOrderDetail({
               <div className="font-display text-sm font-extrabold text-[#C9881F]">Quanti sacchi sono arrivati?</div>
               <p className="mt-1 text-xs font-medium text-navy/75">
                 {order.bags_arrivati == null
-                  ? `Ne aspettavamo ${order.bags}, il rider ne ha registrati ${order.bags_scansionati}. Conta quelli che hai sul banco: è il numero con cui ti paghiamo.`
+                  ? `Ne aspettavamo ${order.bags}, il rider ne ha registrati ${order.bags_scansionati}. Conta quelli che hai sul banco.${order.sacchi_inclusi ? ` L'abbonamento ne comprende ${order.sacchi_inclusi}: oltre quel numero il compenso non sale, ma scrivi comunque quello che hai contato.` : ""}`
                   : `Hai contato ${order.bags_arrivati}. Se ti sei accorto di un errore puoi correggerlo finché il lavoro è in corso.`}
               </p>
               <div className="mt-2 flex items-center gap-2">
@@ -227,9 +241,11 @@ export default async function LaundryOrderDetail({
                     e quando non torna il conto sembra che il modulo sia rotto. */}
                 <span className="mt-1 block font-medium text-navy/75">
                   Conto fatto su <strong>{sacchiFranchigia} {sacchiFranchigia === 1 ? "sacco" : "sacchi"}</strong>
-                  {order.bags_arrivati == null
-                    ? " — non ancora confermati. Se non torna, conferma il conteggio qui a sinistra: i capi già registrati si ricalcolano da soli."
-                    : ", confermati da te."}
+                  {dovuti.limitato
+                    ? ` — l'abbonamento ne comprende ${order.sacchi_inclusi}, anche se ne risultano ${osservati}.`
+                    : order.bags_arrivati == null
+                      ? " — non ancora confermati. Se non torna, conferma il conteggio qui a sinistra: i capi già registrati si ricalcolano da soli."
+                      : ", confermati da te."}
                 </span>
               </p>
               <div className="mt-4">

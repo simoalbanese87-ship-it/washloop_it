@@ -70,10 +70,55 @@ export function sacchiPerFranchigia(
   arrivati: number | null | undefined,
   scansionati: number | null | undefined,
   previsti: number | null | undefined,
+  /** Quanti sacchi comprende l'abbonamento. `null` = non lo sappiamo. */
+  inclusiAbbonamento?: number | null,
+): number {
+  return sacchiDaContare(sacchiOsservati(arrivati, scansionati, previsti), inclusiAbbonamento).sacchi;
+}
+
+/** Quanti sacchi risultano, prima di guardare l'abbonamento. */
+export function sacchiOsservati(
+  arrivati: number | null | undefined,
+  scansionati: number | null | undefined,
+  previsti: number | null | undefined,
 ): number {
   if (typeof arrivati === "number") return Math.max(0, Math.trunc(arrivati));
   if (typeof scansionati === "number" && scansionati > 0) return Math.trunc(scansionati);
   return Math.max(1, Math.trunc(previsti ?? 1));
+}
+
+/** Il tetto dell'abbonamento, applicato al numero osservato.
+ *
+ *  Perché esiste
+ *  -------------
+ *  Un cliente con un abbonamento da un sacco ne ha diritto a uno. Le prove che
+ *  raccogliamo — i tag letti dal rider, il conteggio sul banco, la previsione
+ *  della prenotazione — possono dire di più: un tag passato due volte, due
+ *  etichette su un sacco solo, una prenotazione compilata a caso. Nessuna di
+ *  quelle tre cose crea un diritto che l'abbonamento non dà.
+ *
+ *  L'8 settembre l'ordine di Giulia — abbonamento Small, un sacco — è stato
+ *  pagato 24,60 €, cioè due, perché il rider aveva letto due tag e nessuno ha
+ *  guardato il piano. Il tetto non è un dettaglio contabile: è la sola fonte
+ *  che dice quanto è dovuto, e va guardata per prima.
+ *
+ *  Quando il tetto non si conosce
+ *  ------------------------------
+ *  Se non sappiamo quanti sacchi comprende l'abbonamento — succede su chi ha
+ *  un prezzo personalizzato e nessun piano collegato — non si inventa un
+ *  numero: si conta quello che si è osservato e si dice che il tetto manca. Un
+ *  tetto immaginato sarebbe peggio di nessun tetto, perché nessuno saprebbe da
+ *  dove viene. */
+export function sacchiDaContare(
+  osservati: number,
+  inclusiAbbonamento?: number | null,
+): { sacchi: number; limitato: boolean; tettoNoto: boolean } {
+  const n = Math.max(0, Math.trunc(osservati));
+  if (typeof inclusiAbbonamento !== "number" || inclusiAbbonamento < 0) {
+    return { sacchi: n, limitato: false, tettoNoto: false };
+  }
+  const tetto = Math.trunc(inclusiAbbonamento);
+  return { sacchi: Math.min(n, tetto), limitato: n > tetto, tettoNoto: true };
 }
 
 /** Rifà il conto della franchigia su righe già registrate.

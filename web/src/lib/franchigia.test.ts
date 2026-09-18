@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { conteggiaConFranchigia, sacchiPerFranchigia, ridistribuisciFranchigia } from "./franchigia.ts";
+import { conteggiaConFranchigia, sacchiPerFranchigia, ridistribuisciFranchigia, sacchiDaContare } from "./franchigia.ts";
 
 test("il caso Giulia: 3 camicie in 1 sacco sono tutte incluse", () => {
   const c = conteggiaConFranchigia(3, 3, 1);
@@ -75,4 +75,33 @@ test("più righe: la franchigia si consuma in ordine di registrazione", () => {
 test("più sacchi confermati: quello che era da pagare torna compreso", () => {
   const out = ridistribuisciFranchigia([{ id: "a", qtyTotale: 6 }], 6);
   assert.deepEqual(out, [{ id: "a", incluse: 6, daAddebitare: 0 }]);
+});
+
+test("l'abbonamento fa da tetto: tre tag su un piano da un sacco restano uno", () => {
+  const r = sacchiDaContare(3, 1);
+  assert.equal(r.sacchi, 1);
+  assert.equal(r.limitato, true);
+});
+
+test("il caso Giulia: due tag, piano Small, si paga un sacco", () => {
+  assert.equal(sacchiPerFranchigia(2, 2, 2, 1), 1);
+});
+
+test("sotto il tetto non si arrotonda in su: chi porta meno, meno gli si paga", () => {
+  const r = sacchiDaContare(1, 3);
+  assert.equal(r.sacchi, 1);
+  assert.equal(r.limitato, false);
+});
+
+test("tetto sconosciuto: si conta l'osservato e lo si dichiara", () => {
+  const r = sacchiDaContare(2, null);
+  assert.equal(r.sacchi, 2);
+  assert.equal(r.tettoNoto, false);
+});
+
+test("con il tetto, la franchigia camicie segue i sacchi dovuti, non i tag", () => {
+  // 9 camicie, piano da 1 sacco: 3 comprese e 6 da addebitare, non 6 e 3.
+  const sacchi = sacchiPerFranchigia(2, 2, 2, 1);
+  assert.equal(conteggiaConFranchigia(9, 3, sacchi).incluse, 3);
+  assert.equal(conteggiaConFranchigia(9, 3, sacchi).daAddebitare, 6);
 });

@@ -7,7 +7,8 @@ import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus, notifySegnalazioneCliente, notifySegnalazioneOps } from "@/lib/notify";
 import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
 import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione } from "@/lib/segnalazioni";
-import { conteggiaConFranchigia, sacchiPerFranchigia, ridistribuisciFranchigia } from "@/lib/franchigia";
+import { conteggiaConFranchigia, sacchiPerFranchigia, ridistribuisciFranchigia, sacchiDaContare } from "@/lib/franchigia";
+import { sacchiInclusi } from "@/lib/abbonamento-sacchi";
 import { incassaExtraDelRitiro } from "@/lib/incasso-extra";
 import { notificaExtraIncassati } from "@/lib/notify";
 import { dataServizio } from "@/lib/periodo-servizio";
@@ -206,12 +207,15 @@ export async function addSpecial(formData: FormData) {
   // sacco che il cliente non ha portato. Verificato registrandone quattro: la
   // quarta risultava ancora «compresa».
   const [{ data: ordine }, { count: scansionati }] = await Promise.all([
-    svc.from("orders").select("bags, bags_arrivati").eq("id", orderId).maybeSingle<{ bags: number | null; bags_arrivati: number | null }>(),
+    svc.from("orders").select("customer_id, bags, bags_arrivati").eq("id", orderId).maybeSingle<{ customer_id: string; bags: number | null; bags_arrivati: number | null }>(),
     svc.from("order_bags").select("id", { count: "exact", head: true }).eq("order_id", orderId),
   ]);
   // Il conteggio del rider mancava proprio qui, e il 15 settembre è costato sei
   // camicie: la schermata mostrava «Sacchi 1», la franchigia ne usava 2.
-  const sacchiVeri = sacchiPerFranchigia(ordine?.bags_arrivati, scansionati, ordine?.bags);
+  // Il tetto dell'abbonamento sta sopra a tutto: le camicie comprese sono tre
+  // per sacco **dovuto**, non per sacco che risulta da una scansione.
+  const tetto = ordine ? await sacchiInclusi(svc, ordine.customer_id) : null;
+  const sacchiVeri = sacchiPerFranchigia(ordine?.bags_arrivati, scansionati, ordine?.bags, tetto);
   const { data: precedenti } = await svc
     .from("order_specials")
     .select("qty, qty_totale")
@@ -503,7 +507,12 @@ export async function confermaSacchiArrivati(formData: FormData) {
     .eq("id", orderId);
   if (error) throw new Error(error.message);
 
-  const rifatti = await rifaiFranchigia(svc, orderId, n, profile.laundry_id!);
+  // Anche il numero appena scritto dalla lavanderia passa dal tetto: se il
+  // banco ne conta tre su un abbonamento da uno, il conto resta a uno.
+  const { data: cli } = await svc.from("orders").select("customer_id").eq("id", orderId).maybeSingle<{ customer_id: string }>();
+  const tetto = cli ? await sacchiInclusi(svc, cli.customer_id) : null;
+  const dovuti = sacchiDaContare(n, tetto);
+  const rifatti = await rifaiFranchigia(svc, orderId, dovuti.sacchi, profile.laundry_id!);
 
   revalidatePath("/laundry");
   revalidatePath(`/laundry/${orderId}`);
