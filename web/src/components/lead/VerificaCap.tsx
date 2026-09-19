@@ -18,8 +18,8 @@ import { esitoCap, formatoCapValido, type EsitoCap } from "@/lib/copertura";
  *  quel punto se ne va.
  *
  *  Qui il CAP si scrive dove si sta leggendo, la risposta arriva subito in una
- *  finestra, e nella stessa finestra si lasciano i contatti. Nessun salto di
- *  pagina finché non c'è qualcosa da confermare.
+ *  finestra, e nella stessa finestra si lasciano nome e contatti. Nessun salto
+ *  di pagina finché non c'è qualcosa da confermare.
  *
  *  Perché `<dialog>` e non un div
  *  ------------------------------
@@ -30,6 +30,13 @@ import { esitoCap, formatoCapValido, type EsitoCap } from "@/lib/copertura";
 
 const campo =
   "min-h-[52px] w-full rounded-[14px] border border-line bg-ice pl-11 pr-4 text-base font-semibold text-navy outline-none transition-colors placeholder:text-navy/35 focus:border-blue";
+
+const IconaPersona = () => (
+  <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <circle cx="12" cy="8" r="3.6" />
+    <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+  </svg>
+);
 
 const IconaMail = () => (
   <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -183,8 +190,8 @@ export function VerificaCap({ onVerificato }: { onVerificato?: (cap: string) => 
           </h2>
           <p className="mt-2 text-sm font-medium leading-relaxed text-muted">
             {inZona
-              ? "Lasciaci un contatto e ti mandiamo tutte le informazioni: come funziona, quanto costa e i prossimi slot disponibili."
-              : "Lasciaci comunque un contatto: decidiamo dove aprire guardando da dove ci scrivono, e ti avvisiamo appena arriviamo nella tua zona."}
+              ? "Lasciaci i tuoi dati e ti mandiamo tutte le informazioni: come funziona, quanto costa e i prossimi slot disponibili."
+              : "Lasciaci comunque i tuoi dati: decidiamo dove aprire guardando da dove ci scrivono, e ti avvisiamo appena arriviamo nella tua zona."}
           </p>
 
           <form action={inviaConUtm} className="mt-6 space-y-3.5">
@@ -196,6 +203,17 @@ export function VerificaCap({ onVerificato }: { onVerificato?: (cap: string) => 
             {/* Il CAP è quello appena verificato: chiederlo di nuovo qui sarebbe
                 la ripetizione da cui questa finestra esiste per uscire. */}
             <input type="hidden" name="cap" value={cap} />
+
+            {/* Il nome, come nel form della home.
+                Senza, la richiesta arriva anonima: in elenco è una riga che non
+                si sa di chi sia, e per farne un cliente bisogna prima
+                telefonare. Un campo in più costa qualche compilazione; una
+                riga senza nome costa una chiamata. */}
+            <div className="relative">
+              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-blue"><IconaPersona /></span>
+              <label htmlFor="vc-name" className="sr-only">Nome e cognome</label>
+              <input id="vc-name" name="full_name" type="text" required minLength={2} autoComplete="name" placeholder="Nome e cognome" className={campo} />
+            </div>
 
             <div className="relative">
               <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-blue"><IconaMail /></span>
