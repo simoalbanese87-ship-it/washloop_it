@@ -144,7 +144,18 @@ export default function Home() {
         <Bubbles />
         <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-16 md:py-20 lg:grid-cols-[1.05fr_1fr] lg:gap-14">
           <div>
-            <h1 className="font-display text-4xl font-black leading-[1.05] tracking-[-0.03em] md:text-5xl xl:text-6xl">
+            {/* La riga sopra il titolo dice cos'è il servizio, e il titolo no.
+                «Scopri in 10 secondi se WashLoop passa anche da te» è una
+                promessa, non una descrizione: chi arriva da una ricerca non ci
+                trova dentro nessuna delle parole che ha digitato. Questa riga
+                le mette in chiaro, sopra la piega e in testo vero.
+
+                Un `<p>` e non un secondo titolo: due intestazioni in cima si
+                toglierebbero peso a vicenda, e l'H1 della pagina resta uno. */}
+            <p className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-cyan">
+              Lavanderia a domicilio in abbonamento
+            </p>
+            <h1 className="mt-5 font-display text-4xl font-black leading-[1.05] tracking-[-0.03em] md:text-5xl xl:text-6xl">
               Scopri in 10 secondi
               <br />
               se WashLoop passa <span className="text-cyan">anche da te.</span>
