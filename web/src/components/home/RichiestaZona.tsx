@@ -8,12 +8,14 @@ import { useZona } from "./ZonaContext";
 
 /** Il form della home: due campi e una spunta.
  *
- *  Perché non chiede il nome
- *  -------------------------
- *  Perché ogni campo in più è gente che non compila, e il nome lo chiediamo
- *  comunque nella telefonata di verifica, che c'è sempre — la copertura la
- *  confermiamo a voce. Quello che serve subito è **come richiamarti**: email e
- *  telefono. (`leads.full_name` è diventata facoltativa con la migration 0072.)
+ *  Il nome
+ *  -------
+ *  Chiesto, e obbligatorio. Era stato tolto per avere due campi invece di tre —
+ *  ogni campo in più è gente che non compila — ma un contatto senza nome non si
+ *  può trasformare in cliente senza prima telefonare, e in elenco è una riga
+ *  che non si sa di chi sia. In colonna `leads.full_name` resta facoltativa
+ *  (migration 0072), perché la finestra delle pagine di servizio il nome non lo
+ *  chiede: qui è il form a pretenderlo, non il database.
  *
  *  Perché il verdetto sta qui e non nell'hero
  *  ------------------------------------------
@@ -37,6 +39,13 @@ function Invia() {
     </button>
   );
 }
+
+const IconaPersona = () => (
+  <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <circle cx="12" cy="8" r="3.6" />
+    <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+  </svg>
+);
 
 const IconaMail = () => (
   <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -83,10 +92,10 @@ export function RichiestaZona() {
         : "Verifichiamo se passiamo da te.";
   const sottotitolo =
     esito === "in-zona"
-      ? "Lasciaci due contatti: ti chiamiamo per confermare la disponibilità e i prossimi slot."
+      ? "Lasciaci i tuoi dati: ti chiamiamo per confermare la disponibilità e i prossimi slot."
       : esito === "fuori-zona"
-        ? "Lasciaci comunque i contatti: decidiamo dove aprire guardando da dove ci scrivono, e ti avvisiamo appena arriviamo."
-        : "Scrivi il tuo CAP e lasciaci due contatti: ti diciamo noi come siamo messi nella tua zona.";
+        ? "Lasciaci comunque i tuoi dati: decidiamo dove aprire guardando da dove ci scrivono, e ti avvisiamo appena arriviamo."
+        : "Scrivi il tuo CAP e lasciaci i tuoi dati: ti diciamo noi come siamo messi nella tua zona.";
 
   return (
     <div className="mx-auto max-w-xl">
@@ -109,6 +118,21 @@ export function RichiestaZona() {
           <input id="home-azienda" name="azienda" type="text" tabIndex={-1} autoComplete="off" />
         </div>
         <div className="space-y-3.5">
+          <div className="relative">
+            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-blue"><IconaPersona /></span>
+            <label htmlFor="home-name" className="sr-only">Nome e cognome</label>
+            <input
+              id="home-name"
+              name="full_name"
+              type="text"
+              required
+              minLength={2}
+              autoComplete="name"
+              placeholder="Nome e cognome"
+              className={campo}
+            />
+          </div>
+
           <div className="relative">
             <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-blue"><IconaMail /></span>
             <label htmlFor="home-email" className="sr-only">La tua email</label>

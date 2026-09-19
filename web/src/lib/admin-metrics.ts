@@ -275,7 +275,11 @@ export async function leadsByStatusSource(): Promise<LeadsResult> {
       .returns<{ user_id: string; status: string; created_at: string }[]>(),
     waitlistLeads(),
     svc.from("leads").select("id, full_name, email, phone, cap, plan, covered, created_at, contact_status").order("created_at", { ascending: false })
-      .returns<{ id: string; full_name: string; email: string; phone: string | null; cap: string | null; plan: string | null; covered: boolean; created_at: string; contact_status: string }[]>(),
+      // `full_name` può mancare: la finestra sulle pagine di servizio chiede
+      // solo email e telefono. Tipizzarla non-nulla non la rendeva piena —
+      // faceva solo comparire una riga senza nome in elenco, senza che nessuno
+      // sapesse perché.
+      .returns<{ id: string; full_name: string | null; email: string; phone: string | null; cap: string | null; plan: string | null; covered: boolean; created_at: string; contact_status: string }[]>(),
   ]);
 
   const latest = new Map<string, string>();
@@ -354,7 +358,9 @@ export async function leadsByStatusSource(): Promise<LeadsResult> {
     if (knownEmails.has(emailKey) || (phoneKey && knownPhones.has(phoneKey))) continue;
     leads.push({
       key: `landing-${l.id}`,
-      name: l.full_name,
+      // Senza nome si dice «Senza nome», non si lascia il vuoto: una riga vuota
+      // in elenco sembra un difetto, e chi la vede non sa se chiamare o no.
+      name: l.full_name?.trim() || "Senza nome",
       phone: l.phone,
       email: l.email,
       source: "landing",

@@ -249,7 +249,7 @@ export async function convertLeadToCustomer(formData: FormData) {
     .from("leads")
     .select("id, full_name, email, phone, plan")
     .eq("id", id)
-    .maybeSingle<{ id: string; full_name: string; email: string; phone: string | null; plan: string | null }>();
+    .maybeSingle<{ id: string; full_name: string | null; email: string; phone: string | null; plan: string | null }>();
   if (!lead) redirect(backWith(formData, { warn: "Lead non trovato." }));
 
   // Senza nome non si crea un cliente: comparirebbe come riga vuota in ogni

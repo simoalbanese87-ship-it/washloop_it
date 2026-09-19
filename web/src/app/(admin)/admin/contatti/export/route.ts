@@ -10,7 +10,8 @@ import { CONTACT_STATUS_LABEL, isContactStatus } from "@/lib/lead-status";
  *  qui e non solo nel layout. */
 
 type Row = {
-  full_name: string;
+  /** Può mancare: la finestra delle pagine di servizio non chiede il nome. */
+  full_name: string | null;
   email: string;
   phone: string | null;
   cap: string | null;
@@ -70,7 +71,7 @@ export async function GET(req: Request) {
     if (fonte && (l.source ?? "landing") !== fonte) return false;
     if (nuovi === "7g" && Date.parse(l.created_at) < settimanaFa) return false;
     if (!needle) return true;
-    return `${l.full_name} ${l.email} ${l.phone ?? ""} ${l.cap ?? ""} ${l.zones?.name ?? ""}`.toLowerCase().includes(needle);
+    return `${l.full_name ?? ""} ${l.email} ${l.phone ?? ""} ${l.cap ?? ""} ${l.zones?.name ?? ""}`.toLowerCase().includes(needle);
   });
 
   const lines = [
@@ -78,7 +79,7 @@ export async function GET(req: Request) {
     ...rows.map((l) =>
       [
         fmtDate(l.created_at),
-        l.full_name,
+        l.full_name ?? "",
         l.email,
         l.phone,
         l.cap,
