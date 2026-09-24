@@ -18,9 +18,11 @@
  *  Sono invarianti, non casi particolari: i test le affermano su ancore
  *  casuali, non su tre esempi scelti bene. */
 
-/** Il paracadute, in giorni: entro quanto va prenotato il primo ritiro. Il
- *  valore vero sta su `plans.prova_giorni` — questo è il ripiego se il piano
- *  non lo dice. */
+/** Il paracadute, in giorni: entro quanto va prenotato il primo ritiro.
+ *
+ *  Dieci e non sette: un ritiro prenotato all'ultimo, più 72 ore di
+ *  lavorazione, resta sotto il tetto. E dieci giorni stanno dentro i 14 di
+ *  recesso, quindi nessuno paga prima di poter recedere. */
 export const GIORNI_PER_PRENOTARE = 10;
 
 /** Il muro. Qualunque cosa succeda agli ordini, la prova non va oltre.

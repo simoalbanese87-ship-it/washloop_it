@@ -218,12 +218,13 @@ export async function updatePlan(formData: FormData) {
       price_month_cents: Number.isFinite(euro) ? Math.round(euro * 100) : 0,
       turnaround_hours: Number(formData.get("turnaround_hours") ?? TURNAROUND_ORE) || TURNAROUND_ORE,
       pickups_per_week: Number(formData.get("pickups_per_week") ?? 1) || 1,
-      // I sacchi compresi e i giorni di prova erano in database ma non
-      // modificabili da nessuna schermata: per cambiarli si doveva aprire
-      // l'editor SQL. Sono le due leve dell'offerta, e accendere o spegnere la
-      // prova gratuita non deve richiedere un deploy.
+      // I sacchi compresi erano in database ma non modificabili da nessuna
+      // schermata: per cambiarli si doveva aprire l'editor SQL.
+      //
+      // La prima settimana gratuita NON sta qui, di proposito: si concede una
+      // persona alla volta dal link di abbonamento personalizzato. Una casella
+      // su un piano attivo è una promessa fatta in anticipo a chiunque passi.
       bags_per_week: Math.max(1, Math.min(9, Number(formData.get("bags_per_week") ?? 1) || 1)),
-      prova_giorni: Math.max(0, Math.min(30, Number(formData.get("prova_giorni") ?? 0) || 0)),
       active: formData.has("active"),
     })
     .eq("id", id);

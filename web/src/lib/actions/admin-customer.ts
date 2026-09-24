@@ -17,6 +17,7 @@ import { inviaSollecito } from "@/lib/dunning";
 import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
 import { METODI_CHECKOUT } from "@/lib/metodi-accettati";
 import { salvaNotaCliente } from "@/lib/note-interne";
+import { paracadute, tetto } from "@/lib/prova";
 import { TURNAROUND_ORE } from "@/lib/planning-rider";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -79,15 +80,29 @@ export async function createCustomer(formData: FormData) {
  *  ritorna il link Stripe Checkout da inviare al cliente: paga, salva la carta e
  *  da lì l'addebito si rinnova da solo ogni mese. Funziona anche per clienti
  *  senza carta. Alla conferma pagamento il webhook registra la subscription con
- *  `custom_price_cents`. Gli extra una-tantum restano gli "Addebiti personalizzati". */
+ *  `custom_price_cents`. Gli extra una-tantum restano gli "Addebiti personalizzati".
+ *
+ *  Prima settimana gratuita
+ *  ------------------------
+ *  `prova_settimana` è **l'unico posto** da cui una prova può nascere: la si
+ *  concede a una persona alla volta, al telefono, mentre si concorda il prezzo.
+ *  Con la spunta il cliente non paga al momento del link — lascia la carta a
+ *  garanzia — e l'addebito si sposta al giorno dopo la riconsegna del primo
+ *  ritiro (`allineaProva`). Se non prenota, parte comunque al paracadute.
+ *
+ *  La prova nasce **già con una data di fine** su Stripe, mai aperta: se poi
+ *  qualcosa si rompe, il peggio che capita è che il cliente abbia avuto gratis
+ *  la finestra di prenotazione. `prova_tetto_at` viaggia nei metadata perché al
+ *  momento del link la riga in `subscriptions` non esiste ancora. */
 export async function createCustomSubscriptionLink(
-  input: { customer_id: string; description?: string; amount_eur: string },
+  input: { customer_id: string; description?: string; amount_eur: string; prova_settimana?: boolean },
 ): Promise<{ url: string } | { error: string }> {
   try {
     await requireAdmin();
     const customerId = String(input.customer_id ?? "");
     const amount = eurToCents(String(input.amount_eur ?? ""));
     const description = (input.description ?? "").trim() || "Abbonamento WashLoop personalizzato";
+    const conProva = input.prova_settimana === true;
     if (!customerId) return { error: "Cliente mancante" };
     if (!Number.isFinite(amount) || amount <= 0) return { error: "Importo non valido" };
 
@@ -127,8 +142,27 @@ export async function createCustomSubscriptionLink(
       }],
       success_url: `${siteUrl()}/checkout/grazie?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl()}/app/abbonamento?checkout=cancel`,
+      // Con la prova non si addebita nulla oggi, ma la carta si prende
+      // comunque: è la garanzia, ed è il motivo per cui la prova può esistere.
+      payment_method_collection: "always",
       metadata: { supabase_user_id: customerId, custom_price_cents: String(amount) },
-      subscription_data: { metadata: { supabase_user_id: customerId, custom_price_cents: String(amount) } },
+      subscription_data: {
+        metadata: {
+          supabase_user_id: customerId,
+          custom_price_cents: String(amount),
+          ...(conProva ? { prova_tetto_at: tetto(new Date().toISOString()) } : {}),
+        },
+        ...(conProva
+          ? {
+              // `trial_end` assoluto e non `trial_period_days`: solo il primo
+              // torna indietro da Stripe, e questa data poi si muove.
+              trial_end: Math.floor(Date.parse(paracadute(new Date().toISOString())) / 1000),
+              // Se a fine prova la carta non c'è, l'abbonamento si chiude
+              // invece di restare `trialing` per sempre.
+              trial_settings: { end_behavior: { missing_payment_method: "cancel" as const } },
+            }
+          : {}),
+      },
     });
     if (!session.url) return { error: "Stripe non ha restituito un link" };
 
@@ -137,7 +171,7 @@ export async function createCustomSubscriptionLink(
     const me = await getCurrentProfile();
     await svc.from("subscription_offers").insert({
       user_id: customerId,
-      description,
+      description: conProva ? `${description} · prima settimana gratuita` : description,
       amount_cents: amount,
       checkout_url: session.url,
       checkout_session_id: session.id,

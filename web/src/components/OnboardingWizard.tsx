@@ -10,11 +10,9 @@ import { sendWelcomeIfNeeded } from "@/lib/actions/welcome";
 import { registraUtente, segnaConsenso } from "@/lib/registrazione";
 import { PasswordField } from "@/components/ui/PasswordField";
 import { ACCESS_MODE_LABEL } from "@/lib/orders";
-import { paracadute } from "@/lib/prova";
-import { fmtDate } from "@/lib/format";
 import { planRecap } from "@/lib/plan-copy";
 
-export type WizPlan = { id: string; code: string; name: string; price_month_cents: number; pickups_per_week: number; turnaround_hours: number; prova_giorni: number };
+export type WizPlan = { id: string; code: string; name: string; price_month_cents: number; pickups_per_week: number; turnaround_hours: number };
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT");
 const input =
@@ -52,11 +50,6 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
   const initial = plans.find((p) => p.code === initialPlanCode);
   const [planId, setPlanId] = useState(initial?.id ?? plans[0]?.id ?? "");
   const plan = plans.find((p) => p.id === planId);
-  // La prova gratuita e la sua scadenza. La data si calcola con la stessa
-  // funzione pura che la scrive su Stripe — non è `server-only` apposta, così
-  // qui e là non possono dire due cose diverse.
-  const prova = plan?.prova_giorni ?? 0;
-  const scadenzaProva = prova > 0 ? fmtDate(paracadute(new Date().toISOString(), prova)) : "";
 
   async function doRegister() {
     if (!accepted) return setError("Devi accettare i Termini e la Privacy per continuare.");
@@ -245,37 +238,21 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
             <div className="mt-7 flex-1">
               <div className="font-display text-[12px] font-extrabold uppercase tracking-[0.18em] text-cyan">Pagamento sicuro</div>
               <h2 className="mt-2.5 font-display text-[30px] font-black leading-[1.08]">Attiva<br />l&apos;abbonamento.</h2>
-              <p className="mt-2.5 text-[15px] font-medium text-white/70">
-                {prova > 0
-                  ? "Oggi non paghi nulla. La carta serve solo a garanzia: il primo addebito arriva il giorno dopo che ti riportiamo il bucato."
-                  : "Primo addebito oggi, poi ogni mese. Disdici quando vuoi."}
-              </p>
+              <p className="mt-2.5 text-[15px] font-medium text-white/70">Primo addebito oggi, poi ogni mese. Disdici quando vuoi.</p>
               <div className="mt-6 rounded-[18px] border border-white/15 bg-white/[0.07] p-5">
                 <div className="flex items-center justify-between py-2 text-[15px]">
                   <span className="font-medium text-white/65">Piano {plan?.name}</span>
                   <span className="font-display font-extrabold text-white">{plan ? eur(plan.price_month_cents) : "—"}/mese</span>
                 </div>
                 <div className="flex items-center justify-between border-t border-white/12 py-2 text-[15px]">
-                  <span className="font-medium text-white/65">{prova > 0 ? "Prima settimana" : "Attivazione"}</span>
+                  <span className="font-medium text-white/65">Attivazione</span>
                   <span className="font-display font-extrabold text-[#5ce6a8]">Gratis</span>
                 </div>
                 <div className="flex items-center justify-between border-t border-white/12 pt-3 text-[15px]">
                   <span className="font-display font-extrabold text-white">Oggi paghi</span>
-                  <span className="font-display text-xl font-black text-white">
-                    {prova > 0 ? eur(0) : plan ? eur(plan.price_month_cents) : "—"}
-                  </span>
+                  <span className="font-display text-xl font-black text-white">{plan ? eur(plan.price_month_cents) : "—"}</span>
                 </div>
               </div>
-              {/* La riga che tutti nascondono, ed è esattamente quella che, non
-                  detta, produce lo storno sulla carta e la recensione a una
-                  stella. Sta a schermo, in chiaro, prima del bottone. */}
-              {prova > 0 && (
-                <p className="mt-3 text-[13px] font-medium leading-relaxed text-white/55">
-                  Se non prenoti il primo ritiro entro {prova} giorni, l&apos;abbonamento parte comunque il{" "}
-                  <strong className="font-bold text-white/80">{scadenzaProva}</strong>, a{" "}
-                  {plan ? eur(plan.price_month_cents) : "—"}/mese. Disdici prima e non ti addebitiamo nulla.
-                </p>
-              )}
               <div className="mt-3 flex items-center justify-center gap-2 text-xs font-bold text-white/60"><Lock /> Pagamento protetto · Stripe</div>
             </div>
           )}
@@ -309,7 +286,7 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
               <form action={startCheckout}>
                 <input type="hidden" name="plan_id" value={planId} />
                 <button type="submit" className="flex h-[54px] w-full items-center justify-center gap-2 rounded-full bg-gradient-to-br from-blue to-cyan font-display text-base font-extrabold text-white shadow-[0_16px_36px_-16px_rgba(43,127,212,0.7)]">
-                  <Lock /> {prova > 0 ? "Attiva la prova gratuita" : `Paga ${plan ? eur(plan.price_month_cents) : ""} e attiva`}
+                  <Lock /> Paga {plan ? eur(plan.price_month_cents) : ""} e attiva
                 </button>
               </form>
             )}
