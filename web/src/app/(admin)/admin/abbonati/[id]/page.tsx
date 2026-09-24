@@ -483,9 +483,15 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             </div>
           </div>
 
+          {/* La stessa nota si scrive anche da /admin/persone. Il valore con cui
+              la pagina è stata aperta viaggia nascosto, e l'action tocca la nota
+              solo se il campo è cambiato: senza, salvare il telefono da una
+              scheda rimasta aperta cancellerebbe una nota scritta nel frattempo
+              dall'elenco. */}
+          <input type="hidden" name="staff_notes_originale" value={nota?.note ?? ""} />
           <label className="block text-xs font-bold text-muted">
             Note interne
-            <span className="ml-2 font-medium normal-case">visibili solo a noi, mai al cliente</span>
+            <span className="ml-2 font-medium normal-case">visibili solo a noi, mai al cliente · le stesse che vedi in Persone</span>
             <textarea
               name="staff_notes"
               rows={3}

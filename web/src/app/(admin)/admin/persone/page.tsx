@@ -4,6 +4,7 @@ import { elencoPersone, STADI, STADIO_LABEL, STADIO_TONO, type Stadio } from "@/
 import { importaFunnelSeServe } from "@/lib/funnel-import";
 import { fmtDate, eurCents } from "@/lib/format";
 import { LeadStatusSelect } from "@/components/admin/LeadStatusSelect";
+import { NotaPersona } from "@/components/admin/NotaPersona";
 import { LeadActions } from "@/components/admin/LeadActions";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { impersonate } from "@/lib/actions/impersonate";
@@ -147,7 +148,7 @@ export default async function PersonePage({
 
       <Card>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1080px] text-left text-sm">
+          <table className="w-full min-w-[1240px] text-left text-sm">
             <thead>
               <tr className="border-b border-line text-xs font-bold uppercase tracking-wide text-muted">
                 <th className="py-2">Persona</th>
@@ -157,6 +158,7 @@ export default async function PersonePage({
                 <th className="py-2">Valore</th>
                 <th className="py-2">Ordini</th>
                 <th className="py-2">Da</th>
+                <th className="py-2">Note</th>
                 <th className="py-2 text-right">Azioni</th>
               </tr>
             </thead>
@@ -211,6 +213,12 @@ export default async function PersonePage({
                     {p.ultimoOrdine && <div className="text-[11px]">ultimo {fmtDate(p.ultimoOrdine)}</div>}
                   </td>
                   <td className="py-2.5 text-xs text-muted">{fmtDate(p.creatoIl)}</td>
+                  {/* Dove si telefona è anche dove si scrive cosa ci si è detti.
+                      Sui clienti è la stessa casella della scheda, non una
+                      seconda: se fossero due, nessuno saprebbe quale vale. */}
+                  <td className="py-2.5 align-top">
+                    <NotaPersona profileId={p.profileId} leadId={p.leadId} nota={p.nota} back={qui} />
+                  </td>
                   <td className="py-2.5">
                     <div className="flex items-center justify-end gap-3">
                       {p.profileId ? (

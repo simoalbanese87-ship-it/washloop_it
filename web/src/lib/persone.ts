@@ -46,6 +46,11 @@ export type Persona = {
   ultimoOrdine: string | null;
   creatoIl: string;
   isTest: boolean;
+  /** Cosa ci siamo detti al telefono. Per chi ha un profilo viene da
+   *  `customer_notes` — la stessa casella della scheda cliente — per chi è
+   *  ancora un lead da `leads.nota_interna`. Mai da `leads.notes`, che è del
+   *  questionario del funnel. */
+  nota: string | null;
 };
 
 const norm = (e: string | null | undefined) => (e ?? "").trim().toLowerCase();
@@ -58,17 +63,24 @@ const normTel = (p: string | null | undefined) => {
 export async function elencoPersone(includiProva = false): Promise<Persona[]> {
   const svc = createServiceClient();
 
-  const [{ data: profili }, { data: subs }, { data: leads }, { data: ordini }] = await Promise.all([
+  const [{ data: profili }, { data: subs }, { data: leads }, { data: ordini }, { data: note }] = await Promise.all([
     svc.from("profiles").select("id, full_name, phone, client_code, created_at, is_test, contact_status").eq("role", "customer")
       .returns<{ id: string; full_name: string | null; phone: string | null; client_code: string | null; created_at: string; is_test: boolean; contact_status: string | null }[]>(),
     svc.from("subscriptions").select("user_id, status, custom_price_cents, current_period_end, created_at, plans(name, price_month_cents)")
       .order("created_at", { ascending: false })
       .returns<{ user_id: string; status: string; custom_price_cents: number | null; current_period_end: string | null; created_at: string; plans: { name: string; price_month_cents: number } | null }[]>(),
-    svc.from("leads").select("id, full_name, email, phone, created_at, source, contact_status, covered")
-      .returns<{ id: string; full_name: string; email: string; phone: string | null; created_at: string; source: string | null; contact_status: string; covered: boolean }[]>(),
+    svc.from("leads").select("id, full_name, email, phone, created_at, source, contact_status, covered, nota_interna")
+      .returns<{ id: string; full_name: string; email: string; phone: string | null; created_at: string; source: string | null; contact_status: string; covered: boolean; nota_interna: string | null }[]>(),
     svc.from("orders").select("customer_id, created_at").neq("status", "cancelled")
       .returns<{ customer_id: string | null; created_at: string }[]>(),
+    // Dentro la stessa Promise.all e non dopo: in fila sarebbe un viaggio in
+    // più a ogni apertura della pagina. Una riga per cliente che ha una nota,
+    // niente join.
+    svc.from("customer_notes").select("customer_id, note")
+      .returns<{ customer_id: string; note: string }[]>(),
   ]);
+
+  const notaDi = new Map((note ?? []).map((n) => [n.customer_id, n.note]));
 
   // Email dei profili: stanno in auth, non in `profiles`. Una sola chiamata
   // paginata invece di una per persona — con otto clienti erano otto richieste
@@ -127,6 +139,7 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       ultimoOrdine: ord?.ultimo ?? null,
       creatoIl: p.created_at,
       isTest: p.is_test,
+      nota: notaDi.get(p.id) ?? null,
     });
   }
 
@@ -162,6 +175,7 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       ultimoOrdine: null,
       creatoIl: l.created_at,
       isTest: false,
+      nota: l.nota_interna,
     });
   }
 

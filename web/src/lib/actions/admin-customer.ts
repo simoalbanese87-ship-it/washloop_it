@@ -16,6 +16,7 @@ import { lavanderiaPredefinita } from "@/lib/lavanderia";
 import { inviaSollecito } from "@/lib/dunning";
 import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
 import { METODI_CHECKOUT } from "@/lib/metodi-accettati";
+import { salvaNotaCliente } from "@/lib/note-interne";
 import { TURNAROUND_ORE } from "@/lib/planning-rider";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -818,20 +819,25 @@ export async function aggiornaAnagraficaCliente(formData: FormData) {
     .eq("id", customerId);
   if (error) redirect(`${back}?warn=${encodeURIComponent(`Anagrafica non salvata: ${error.message}`)}`);
 
-  // Le note interne stanno in `customer_notes`, non su `profiles`: una colonna
-  // sul profilo sarebbe leggibile dal cliente stesso, perché la SELECT concessa
-  // a livello di tabella copre ogni colonna e revocarne una non toglie niente.
-  // Verificato con `has_column_privilege` prima di cambiare strada.
-  const nota = testo("staff_notes");
-  const { error: erroreNota } = nota
-    ? await svc.from("customer_notes").upsert({
-        customer_id: customerId,
-        note: nota,
-        updated_at: new Date().toISOString(),
-        updated_by: (await getCurrentProfile())?.id ?? null,
-      })
-    : await svc.from("customer_notes").delete().eq("customer_id", customerId);
-  if (erroreNota) redirect(`${back}?warn=${encodeURIComponent(`Note non salvate: ${erroreNota.message}`)}`);
+  // La nota si tocca **solo se è cambiata** rispetto a quella che questa pagina
+  // aveva davanti quando è stata aperta.
+  //
+  // Da quando si scrive anche da /admin/persone, i punti d'ingresso sono due, e
+  // questa form cancella la nota quando la textarea è vuota: chi avesse aperto
+  // la scheda dieci minuti prima, scritto la nota dall'elenco e poi salvato qui
+  // il telefono, si sarebbe visto sparire la nota senza nessun avviso. Il
+  // confronto con il valore originale chiude quella corsa.
+  const notaGrezza = formData.get("staff_notes");
+  const notaOriginale = formData.get("staff_notes_originale");
+  if (notaGrezza != null && String(notaGrezza).trim() !== String(notaOriginale ?? "").trim()) {
+    const { error: erroreNota } = await salvaNotaCliente(
+      svc,
+      customerId,
+      String(notaGrezza),
+      (await getCurrentProfile())?.id ?? null,
+    );
+    if (erroreNota) redirect(`${back}?warn=${encodeURIComponent(`Note non salvate: ${erroreNota}`)}`);
+  }
 
   revalidatePath(back);
   revalidatePath("/admin/abbonati");

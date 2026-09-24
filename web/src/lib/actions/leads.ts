@@ -12,6 +12,8 @@ import { appendLeadToSheet } from "@/lib/leads-sheet";
 import { sendLeadConfirmation } from "@/lib/lead-email";
 import { getCurrentProfile } from "@/lib/auth";
 import { notifyNewCustomer } from "@/lib/notify";
+import { normalizzaNota, destinazioneNota } from "@/lib/nota-persona";
+import { salvaNotaCliente } from "@/lib/note-interne";
 import { CONTACT_STATUS_LABEL, isContactStatus, type ContactStatus } from "@/lib/lead-status";
 
 /** Invio del form della landing "/disponibilita" — pubblico e non autenticato.
@@ -239,6 +241,42 @@ export async function deleteLead(formData: FormData) {
  *  `createCustomer` in admin-customer.ts, con i dati presi dal lead.
  *  Il lead resta in tabella marcato "convertito"; sparisce dall'elenco lead
  *  perché la deduplica in admin-metrics lo riconosce come cliente. */
+/** La nota su una persona dell'elenco: cosa ci siamo detti al telefono.
+ *
+ *  Una riga di /admin/persone è un profilo **oppure** un lead, mai entrambi, e
+ *  la nota segue quella distinzione: `customer_notes` per chi ha un account —
+ *  la stessa casella della scheda cliente, così le due schermate non divergono
+ *  — e `leads.nota_interna` per chi è ancora solo un contatto.
+ *
+ *  **Mai `leads.notes`**: lì ci sono le risposte del questionario del funnel,
+ *  che l'import riempie solo se il campo è vuoto. Scrivendoci sopra si
+ *  cancellerebbero per sempre. */
+export async function salvaNotaPersona(formData: FormData) {
+  await requireAdmin();
+  const profileId = String(formData.get("profile_id") ?? "");
+  const leadId = String(formData.get("lead_id") ?? "");
+  const nota = normalizzaNota(String(formData.get("nota") ?? ""));
+
+  const dove = destinazioneNota({ profileId, leadId });
+  if (dove === "mancante" || dove === "ambigua") {
+    redirect(backWith(formData, { warn: "Non so a chi appartiene questa nota: ricarica la pagina e riprova." }));
+  }
+
+  const svc = createServiceClient();
+  if (dove === "cliente") {
+    const { error } = await salvaNotaCliente(svc, profileId, nota, (await getCurrentProfile())?.id ?? null);
+    if (error) redirect(backWith(formData, { warn: `Nota non salvata: ${error}` }));
+    // La scheda del cliente mostra la stessa nota: senza questo resta indietro.
+    revalidatePath(`/admin/abbonati/${profileId}`);
+  } else {
+    const { error } = await svc.from("leads").update({ nota_interna: nota }).eq("id", leadId);
+    if (error) redirect(backWith(formData, { warn: `Nota non salvata: ${error.message}` }));
+  }
+
+  revalidatePath("/admin/persone");
+  redirect(backWith(formData, { ok: nota ? "Nota salvata." : "Nota cancellata." }));
+}
+
 export async function convertLeadToCustomer(formData: FormData) {
   await requireAdmin();
   const id = String(formData.get("lead_id") ?? "");
@@ -247,9 +285,9 @@ export async function convertLeadToCustomer(formData: FormData) {
   const svc = createServiceClient();
   const { data: lead } = await svc
     .from("leads")
-    .select("id, full_name, email, phone, plan")
+    .select("id, full_name, email, phone, plan, nota_interna, notes")
     .eq("id", id)
-    .maybeSingle<{ id: string; full_name: string | null; email: string; phone: string | null; plan: string | null }>();
+    .maybeSingle<{ id: string; full_name: string | null; email: string; phone: string | null; plan: string | null; nota_interna: string | null; notes: string | null }>();
   if (!lead) redirect(backWith(formData, { warn: "Lead non trovato." }));
 
   // Senza nome non si crea un cliente: comparirebbe come riga vuota in ogni
@@ -274,6 +312,22 @@ export async function convertLeadToCustomer(formData: FormData) {
   }
   const uid = created!.user.id;
   await svc.from("profiles").update({ full_name: lead.full_name, phone: lead.phone }).eq("id", uid);
+
+  // La nota scritta sul lead deve seguire la persona.
+  //
+  // Appena il lead diventa cliente, la deduplica di `elencoPersone` fa sparire
+  // la riga-lead dall'elenco: quello che ci si era detti al telefono — cioè
+  // proprio la conversazione che ha portato alla conversione — diventerebbe
+  // invisibile per sempre, nel caso d'uso più normale che esista. Con lei
+  // vengono le risposte del questionario del funnel, che su un cliente nuovo
+  // sono la cosa più utile che abbiamo.
+  const notaPortata = [
+    lead.nota_interna?.trim() || null,
+    lead.notes?.trim() ? `Dal questionario: ${lead.notes.trim()}` : null,
+  ].filter(Boolean).join("\n\n");
+  if (notaPortata) {
+    await salvaNotaCliente(svc, uid, notaPortata, (await getCurrentProfile())?.id ?? null);
+  }
 
   // Piano preferito indicato nel form: è una preferenza, non un acquisto.
   let planId: string | null = null;
