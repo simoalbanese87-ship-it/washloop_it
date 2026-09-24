@@ -83,10 +83,14 @@ export async function gatherDigest(hours = 24): Promise<DigestData> {
     .select("full_name, email, phone, cap, plan, covered, created_at")
     .gte("created_at", sinceIso)
     .order("created_at", { ascending: false })
-    .returns<{ full_name: string; email: string; phone: string | null; cap: string | null; plan: string | null; covered: boolean; created_at: string }[]>();
+    // `full_name` è nullable in database: tipizzarlo `string` e passarlo dritto
+    // a `esc()` faceva saltare l'intero digest il giorno in cui arrivava un
+    // lead senza nome — non una riga mancante, proprio nessuna email. Lo stesso
+    // errore era già costato l'export dei contatti in admin-metrics.
+    .returns<{ full_name: string | null; email: string; phone: string | null; cap: string | null; plan: string | null; covered: boolean; created_at: string }[]>();
 
   const newLandingLeads: DigestLandingLead[] = (landing ?? []).map((l) => ({
-    name: l.full_name,
+    name: l.full_name ?? "Senza nome",
     email: l.email,
     phone: l.phone ?? "",
     cap: l.cap ?? "",
@@ -227,6 +231,13 @@ export async function sendDailyDigest(hours = 24): Promise<{ sent: boolean; cust
   return { sent: true, customers: data.newCustomers.length, leads: leadCount, recipients: to.length };
 }
 
-function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+/** Sfugge il testo per l'HTML dell'email.
+ *
+ *  Accetta anche `null`, di proposito: qui dentro finiscono nomi, indirizzi e
+ *  messaggi di guasto che arrivano da fuori, e un `.replace` su null non
+ *  toglieva una cella — faceva saltare l'invio di tutto il riepilogo. È
+ *  successo il 20 settembre. Meglio una riga che dice «—» che una mattina
+ *  senza email in cui nessuno sa perché. */
+function esc(s: string | null | undefined): string {
+  return String(s ?? "—").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

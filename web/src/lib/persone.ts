@@ -70,7 +70,10 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       .order("created_at", { ascending: false })
       .returns<{ user_id: string; status: string; custom_price_cents: number | null; current_period_end: string | null; created_at: string; plans: { name: string; price_month_cents: number } | null }[]>(),
     svc.from("leads").select("id, full_name, email, phone, created_at, source, contact_status, covered, nota_interna")
-      .returns<{ id: string; full_name: string; email: string; phone: string | null; created_at: string; source: string | null; contact_status: string; covered: boolean; nota_interna: string | null }[]>(),
+      // `full_name` è nullable: tipizzarlo `string` non lo rende tale, rende
+      // solo cieco chi legge. Senza il ripiego qui sotto, un lead senza nome
+      // finiva in tabella come riga vuota e nella ricerca come «null».
+      .returns<{ id: string; full_name: string | null; email: string; phone: string | null; created_at: string; source: string | null; contact_status: string; covered: boolean; nota_interna: string | null }[]>(),
     svc.from("orders").select("customer_id, created_at").neq("status", "cancelled")
       .returns<{ customer_id: string | null; created_at: string }[]>(),
     // Dentro la stessa Promise.all e non dopo: in fila sarebbe un viaggio in
@@ -161,7 +164,7 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       id: l.id,
       profileId: null,
       leadId: l.id,
-      nome: l.full_name,
+      nome: l.full_name ?? "Senza nome",
       email: l.email,
       telefono: l.phone,
       clientCode: null,
