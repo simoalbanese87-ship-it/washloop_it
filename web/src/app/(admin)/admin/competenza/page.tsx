@@ -72,12 +72,13 @@ export default async function Competenza() {
         }[]>(),
       svc
         .from("subscriptions")
-        .select("user_id, status, custom_price_cents, created_at, plans(price_month_cents, bags_per_week), profiles(full_name, is_test)")
+        .select("user_id, status, custom_price_cents, bags_per_week, created_at, plans(price_month_cents, bags_per_week), profiles(full_name, is_test)")
         .order("created_at", { ascending: false })
         .returns<{
           user_id: string;
           status: string;
           custom_price_cents: number | null;
+          bags_per_week: number | null;
           created_at: string;
           plans: { price_month_cents: number; bags_per_week: number } | null;
           profiles: { full_name: string | null; is_test: boolean } | null;
@@ -132,9 +133,12 @@ export default async function Competenza() {
       };
     });
 
-  // Un canone per cliente, il più recente. `bags_per_week` esiste solo sui
-  // piani: sugli abbonamenti su misura resta null, e il costo previsto non si
-  // calcola su di loro invece di inventarne uno.
+  // Un canone per cliente, il più recente. I sacchi previsti vengono
+  // dall'accordo sull'abbonamento o, in mancanza, dal piano — e da nient'altro:
+  // il ripiego sulla ricorrenza che il tetto operativo usa (scegliTetto) qui
+  // non c'è di proposito, perché il «previsto» non deve poter essere un numero
+  // che nessuno ha deciso. Chi non ce l'ha resta fuori invece di entrarci con
+  // una cifra inventata.
   const visti = new Set<string>();
   const canoni: CanoneCliente[] = [];
   for (const s of abbonamenti ?? []) {
@@ -144,8 +148,9 @@ export default async function Competenza() {
     if (!["active", "trialing"].includes(s.status)) continue;
     const piano = uno(s.plans);
     const canoneCents = s.custom_price_cents ?? piano?.price_month_cents ?? 0;
-    const sacchiPrevisti = s.custom_price_cents != null ? null : piano?.bags_per_week ?? null;
-    canoni.push({ clienteId: s.user_id, canoneCents, sacchiPrevisti });
+    const sacchiPrevisti =
+      s.bags_per_week ?? (s.custom_price_cents != null ? null : piano?.bags_per_week ?? null);
+    canoni.push({ clienteId: s.user_id, nome: uno(s.profiles)?.full_name ?? null, canoneCents, sacchiPrevisti });
   }
 
   const extraPerSettimana = new Map<string, number>();
@@ -202,27 +207,38 @@ export default async function Competenza() {
         <Riquadro valore={eur(totCosto)} etichetta="costo lavanderia" />
         <Riquadro valore={eur(totMargine)} etichetta="margine" tono={totMargine < 0 ? "male" : "bene"} />
         <Riquadro
-          valore={previsto.conPiano > 0 ? eur(previsto.cents) : "—"}
+          valore={previsto.conSacchi > 0 ? eur(previsto.cents) : "—"}
           etichetta="costo previsto a settimana"
           nota={
-            previsto.senzaPiano > 0
-              ? `su ${previsto.conPiano} ${previsto.conPiano === 1 ? "cliente con piano" : "clienti con piano"}`
+            previsto.senzaSacchi > 0
+              ? `su ${previsto.conSacchi} ${previsto.conSacchi === 1 ? "cliente" : "clienti"} su ${previsto.conSacchi + previsto.senzaSacchi}`
               : undefined
           }
         />
       </div>
 
-      {previsto.senzaPiano > 0 && (
+      {previsto.senzaSacchi > 0 && (
         <Card className="mb-4 !border-[#C9881F]/35 !bg-[#C9881F]/[0.07]">
           <p className="text-sm font-semibold text-[#C9881F]">
-            {previsto.senzaPiano} {previsto.senzaPiano === 1 ? "abbonamento è su misura" : "abbonamenti sono su misura"} e
-            non {previsto.senzaPiano === 1 ? "ha" : "hanno"} un numero di sacchi previsto.
+            {previsto.senzaSacchi} {previsto.senzaSacchi === 1 ? "abbonamento non ha" : "abbonamenti non hanno"} un
+            numero di sacchi a settimana.
           </p>
           <p className="mt-1 text-sm font-medium text-navy/75">
-            Il «costo previsto» li lascia fuori invece di inventare una cifra: se contasse anche loro con un
-            numero a caso, il confronto con l&apos;effettivo direbbe quello che vogliamo sentirci dire. Per
-            includerli basta collegarli a un piano da{" "}
-            <Link href="/admin/impostazioni" className="underline">Impostazioni</Link>.
+            Il «costo previsto» {previsto.senzaSacchi === 1 ? "lo lascia" : "li lascia"} fuori invece di inventare
+            una cifra: se {previsto.senzaSacchi === 1 ? "lo contasse" : "li contasse"} con un numero a caso, il
+            confronto con l&apos;effettivo direbbe quello che vogliamo sentirci dire. Il numero si scrive nella
+            scheda del cliente, sotto «Abbonamento».
+          </p>
+          <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+            {previsto.mancanti.map((m) => (
+              <Link
+                key={m.clienteId}
+                href={`/admin/abbonati/${m.clienteId}`}
+                className="font-display text-sm font-extrabold text-[#C9881F] underline"
+              >
+                {m.nome ?? "Senza nome"} →
+              </Link>
+            ))}
           </p>
         </Card>
       )}
@@ -249,7 +265,7 @@ export default async function Competenza() {
               <tbody>
                 {settimane.map((s) => {
                   const m = margineCents(s);
-                  const scostamento = previsto.conPiano > 0 ? s.costoCents - previsto.cents : null;
+                  const scostamento = previsto.conSacchi > 0 ? s.costoCents - previsto.cents : null;
                   return (
                     <tr key={s.settimana} className="border-b border-line/60 last:border-0">
                       <td className="px-4 py-3 font-display font-bold text-navy">{etichettaSettimana(s.settimana)}</td>

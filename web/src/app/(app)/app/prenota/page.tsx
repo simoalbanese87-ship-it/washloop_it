@@ -3,6 +3,7 @@ import { BookFlow, type Address, type Slot, type SpecialCategory } from "@/compo
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/auth";
 import { pickupCounts, deliveryCounts } from "@/lib/slots";
+import { TURNAROUND_ORE } from "@/lib/planning-rider";
 
 type Cat = { id: string; name: string; emoji: string; sort: number };
 type Item = { category_id: string; name: string; price_cli_cents: number; sort: number };
@@ -38,7 +39,7 @@ export default async function PrenotaPage() {
   const deliverySlots: Slot[] = (rawDelivery ?? []).map((s) => ({
     id: s.id, starts_at: s.starts_at, ends_at: s.ends_at, laundry_id: s.laundry_id, remaining: residuo(s, dCounts),
   }));
-  const turnaroundHours = sub?.plans?.turnaround_hours ?? 48;
+  const turnaroundHours = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
 
   const categories: SpecialCategory[] = (cats ?? []).map((c) => ({
     id: c.id,

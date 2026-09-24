@@ -7,6 +7,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { romeLocalToISO } from "@/lib/format";
 import { geocodeAddress } from "@/lib/geo";
 import { zoneIdForCap } from "@/lib/zones";
+import { TURNAROUND_ORE } from "@/lib/planning-rider";
 
 /** Verifica che a chiamare sia un amministratore.
  *
@@ -215,7 +216,7 @@ export async function updatePlan(formData: FormData) {
     .update({
       name: String(formData.get("name") ?? "").trim() || "Piano",
       price_month_cents: Number.isFinite(euro) ? Math.round(euro * 100) : 0,
-      turnaround_hours: Number(formData.get("turnaround_hours") ?? 48) || 48,
+      turnaround_hours: Number(formData.get("turnaround_hours") ?? TURNAROUND_ORE) || TURNAROUND_ORE,
       pickups_per_week: Number(formData.get("pickups_per_week") ?? 1) || 1,
       active: formData.has("active"),
     })

@@ -16,6 +16,7 @@ import { lavanderiaPredefinita } from "@/lib/lavanderia";
 import { inviaSollecito } from "@/lib/dunning";
 import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
 import { METODI_CHECKOUT } from "@/lib/metodi-accettati";
+import { TURNAROUND_ORE } from "@/lib/planning-rider";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -183,6 +184,57 @@ export async function resendCredentials(formData: FormData) {
 /** Pausa / riprendi / disdici / **attiva** l'abbonamento (Stripe se collegato,
  *  altrimenti DB). "activate" = conferma pagamento per gli abbonamenti manuali:
  *  porta lo stato ad "active" e imposta il periodo. */
+/** Quanti sacchi a settimana comprende questo abbonamento.
+ *
+ *  Esiste perché il numero non stava da nessuna parte per chi ha un prezzo
+ *  concordato e nessun piano: il costo previsto in /admin/competenza li lasciava
+ *  fuori, e il tetto con cui paghiamo la lavanderia si reggeva sulla ricorrenza,
+ *  cioè su una richiesta del cliente invece che su un accordo.
+ *
+ *  Vuoto significa «torna a valere il piano, o in mancanza la ricorrenza», non
+ *  zero. Zero si rifiuta dicendo perché: `sacchiDaContare` lo prenderebbe per
+ *  buono e azzererebbe compenso e franchigia senza che nessuno se ne accorga. */
+export async function impostaSacchiSettimana(formData: FormData) {
+  await requireAdmin();
+  const subId = String(formData.get("sub_id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  const grezzo = String(formData.get("sacchi") ?? "").trim();
+  if (!subId || !customerId) throw new Error("Parametri mancanti");
+
+  const backTo = `/admin/abbonati/${customerId}`;
+
+  let sacchi: number | null = null;
+  if (grezzo !== "") {
+    const n = Number(grezzo);
+    if (!Number.isInteger(n) || n <= 0 || n > 9) {
+      redirect(
+        `${backTo}?warn=${encodeURIComponent(
+          n === 0
+            ? "Zero sacchi non è un abbonamento: azzererebbe il compenso alla lavanderia e la franchigia sulle camicie. Lascia il campo vuoto se il numero non lo sai."
+            : "I sacchi a settimana devono essere un numero intero da 1 a 9.",
+        )}`,
+      );
+    }
+    sacchi = n;
+  }
+
+  const svc = createServiceClient();
+  const { error } = await svc.from("subscriptions").update({ bags_per_week: sacchi }).eq("id", subId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(backTo);
+  // Senza questo il numero nuovo non compare dove serviva: è la pagina per cui
+  // il campo è stato fatto.
+  revalidatePath("/admin/competenza");
+  redirect(
+    `${backTo}?ok=${encodeURIComponent(
+      sacchi == null
+        ? "Sacchi a settimana tolti: torna a valere il piano, o in mancanza il ritiro settimanale."
+        : `Sacchi a settimana: ${sacchi}.`,
+    )}`,
+  );
+}
+
 export async function changeSubscription(formData: FormData) {
   await requireAdmin();
   const subId = String(formData.get("sub_id") ?? "");
@@ -618,7 +670,7 @@ export async function adminCreatePickup(formData: FormData) {
   ]);
   if (!slot) redirect(back({ warn: "Fascia di ritiro non trovata." }));
 
-  const turnaround = sub?.plans?.turnaround_hours ?? 48;
+  const turnaround = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
   const eta = new Date(new Date(slot!.starts_at).getTime() + turnaround * 3600_000).toISOString();
 
   const { data, error } = await svc

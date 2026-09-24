@@ -26,20 +26,40 @@ test("un mese senza ritiri non matura canone e non divide per zero", () => {
   assert.equal(quotaPerRitiro(16000, 0), 0);
 });
 
-test("il costo previsto si calcola solo su chi ha un piano", () => {
+test("il costo previsto si calcola solo su chi ha un numero di sacchi dichiarato", () => {
   const r = costoPrevistoCents(
     [
-      { clienteId: "a", canoneCents: 16000, sacchiPrevisti: 1 },
-      { clienteId: "b", canoneCents: 28000, sacchiPrevisti: 2 },
-      { clienteId: "c", canoneCents: 6000, sacchiPrevisti: null }, // su misura
+      { clienteId: "a", nome: "A", canoneCents: 16000, sacchiPrevisti: 1 },
+      { clienteId: "b", nome: "B", canoneCents: 28000, sacchiPrevisti: 2 },
+      { clienteId: "c", nome: "C", canoneCents: 6000, sacchiPrevisti: null },
     ],
     1230,
   );
   assert.equal(r.cents, 1230 * 3);
-  assert.equal(r.conPiano, 2);
-  // Chi resta fuori va detto: un previsto che ignora un cliente senza dirlo
-  // fa sembrare che stiamo spendendo più del dovuto.
-  assert.equal(r.senzaPiano, 1);
+  assert.equal(r.conSacchi, 2);
+  // Chi resta fuori va detto, e per nome: un previsto che ignora un cliente
+  // senza dirlo fa sembrare che stiamo spendendo più del dovuto.
+  assert.equal(r.senzaSacchi, 1);
+  assert.deepEqual(r.mancanti, [{ clienteId: "c", nome: "C" }]);
+});
+
+test("i cinque sacchi dei quattro abbonamenti attivi valgono 61,50 € a settimana", () => {
+  // Il collaudo del lavoro sui sacchi su misura, con i numeri veri: fabia 2,
+  // Saverio 1, federica 1, Giulia 1 dal piano Small. Se qualcuno rimettesse
+  // l'esclusione su custom_price_cents, il conto tornerebbe a 12,30 € e questo
+  // test lo direbbe.
+  const r = costoPrevistoCents(
+    [
+      { clienteId: "fabia", nome: "fabia", canoneCents: 3000, sacchiPrevisti: 2 },
+      { clienteId: "saverio", nome: "Saverio", canoneCents: 6000, sacchiPrevisti: 1 },
+      { clienteId: "federica", nome: "federica", canoneCents: 6000, sacchiPrevisti: 1 },
+      { clienteId: "giulia", nome: "Giulia", canoneCents: 16000, sacchiPrevisti: 1 },
+    ],
+    1230,
+  );
+  assert.equal(r.cents, 6150);
+  assert.equal(r.conSacchi, 4);
+  assert.equal(r.senzaSacchi, 0);
 });
 
 test("ogni ritiro porta la sua quota di canone nella sua settimana", () => {
@@ -47,7 +67,7 @@ test("ogni ritiro porta la sua quota di canone nella sua settimana", () => {
     { clienteId: "a", settimana: "2026-09-07", mese: "2026-09", sacchi: 1 },
     { clienteId: "a", settimana: "2026-09-14", mese: "2026-09", sacchi: 2 },
   ];
-  const s = settimaneDiCompetenza(ritiri, [{ clienteId: "a", canoneCents: 16000, sacchiPrevisti: 1 }], new Map(), new Map());
+  const s = settimaneDiCompetenza(ritiri, [{ clienteId: "a", nome: null, canoneCents: 16000, sacchiPrevisti: 1 }], new Map(), new Map());
   assert.equal(s.length, 2);
   // Due ritiri nel mese: 8000 ciascuno.
   assert.equal(s[0].ricavoCanoneCents, 8000);

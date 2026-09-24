@@ -5,6 +5,7 @@ import { notifyOrderStatus } from "@/lib/notify";
 import { registraGuasto } from "@/lib/incidenti";
 import { lavanderiaPredefinita } from "@/lib/lavanderia";
 import { assegnaRiderIniziale } from "@/lib/assegna-rider";
+import { TURNAROUND_ORE } from "@/lib/planning-rider";
 
 /** Cron giornaliero: genera gli ordini delle ricorrenze settimanali attive,
  *  agganciandoli a uno slot reale con stesso giorno+ora (Europe/Rome) nei
@@ -76,7 +77,7 @@ export async function GET(req: Request) {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>();
-      turnaround = sub && ["active", "trialing"].includes(sub.status) ? (sub.plans?.turnaround_hours ?? 48) : 0;
+      turnaround = sub && ["active", "trialing"].includes(sub.status) ? (sub.plans?.turnaround_hours ?? TURNAROUND_ORE) : 0;
       turnaroundCache.set(rec.customer_id, turnaround);
     }
     if (turnaround === 0) continue; // abbonamento non attivo → niente generazione

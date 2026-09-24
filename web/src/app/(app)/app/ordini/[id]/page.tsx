@@ -11,6 +11,7 @@ import { spostaRitiro, spostaRiconsegna, clienteDisdiceRitiro } from "@/lib/acti
 import { deliveryCounts, pickupCounts } from "@/lib/slots";
 import { fasceProponibili } from "@/lib/riconsegna";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
+import { TURNAROUND_ORE } from "@/lib/planning-rider";
 
 type Item = { id: string; kind: string | null; status: ItemStatus; photo_url: string | null };
 
@@ -189,7 +190,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
     fasceRiconsegna = fasceProponibili(
       (slots ?? []).filter((s) => s.id === order.delivery_slot_id || s.capacity == null || (occupati.get(s.id) ?? 0) < s.capacity),
       inizioRitiro,
-      sub?.plans?.turnaround_hours ?? 48,
+      sub?.plans?.turnaround_hours ?? TURNAROUND_ORE,
     ).slice(0, 12);
   }
   const riconsegnaArchiviata = consegnaFissata?.archived_at != null;

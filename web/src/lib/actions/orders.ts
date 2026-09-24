@@ -15,6 +15,12 @@ import { deliveryCounts, slotFullMessage } from "@/lib/slots";
 import { riconsegnaDopoSpostamento } from "@/lib/riconsegna";
 import { lavanderiaPredefinita } from "@/lib/lavanderia";
 import { assegnaRiderIniziale } from "@/lib/assegna-rider";
+// Il ripiego quando il piano manca. Era 48, mentre i tre piani in database
+// dicono 72 e il sito promette «entro 3 giorni feriali»: i clienti a prezzo
+// concordato, che un piano collegato non ce l'hanno, si vedevano una riconsegna
+// prevista un giorno prima del vero. Un solo numero, e sta dove sta il
+// calendario del rider.
+import { TURNAROUND_ORE } from "@/lib/planning-rider";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
  *  Calcola l'ETA "pronto" = inizio ritiro + turnaround del piano attivo. */
@@ -56,7 +62,7 @@ export async function createPickup(formData: FormData) {
   if (!sub || !["active", "trialing"].includes(sub.status)) {
     redirect("/app/abbonamento?need=1");
   }
-  const turnaround = sub?.plans?.turnaround_hours ?? 48;
+  const turnaround = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
   const eta = slot?.starts_at ? new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString() : null;
 
   const { data, error } = await supabase
@@ -123,7 +129,7 @@ export async function bookPickup(input: {
   if (!sub || !["active", "trialing"].includes(sub.status)) {
     return { ok: false, error: "Serve un abbonamento attivo." };
   }
-  const turnaround = sub?.plans?.turnaround_hours ?? 48;
+  const turnaround = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
   const eta = slot?.starts_at ? new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString() : null;
 
   const { data, error } = await supabase
@@ -833,7 +839,7 @@ async function oreDiLavorazione(svc: ReturnType<typeof createServiceClient>, cus
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle<{ plans: { turnaround_hours: number } | null }>();
-  return sub?.plans?.turnaround_hours ?? 48;
+  return sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
 }
 
 /** Rimette la riconsegna in riga dopo che il ritiro si è spostato.

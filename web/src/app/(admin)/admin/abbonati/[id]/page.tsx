@@ -4,7 +4,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana } from "@/lib/actions/admin-customer";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { addebitaCapoSpeciale, addebitaSubitoCapo } from "@/lib/actions/charge";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
@@ -23,7 +23,7 @@ const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
-type Sub = { id: string; status: string; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number } | null };
+type Sub = { id: string; status: string; bags_per_week: number | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null } | null };
 type Addr = {
   id: string; label: string | null; street: string; cap: string | null; civico: string | null;
   intercom: string | null; floor: string | null; notes: string | null;
@@ -65,7 +65,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: proposte }] = await Promise.all([
     svc.auth.admin.getUserById(id),
-    svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, plans(name, price_month_cents)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, plans(name, price_month_cents, bags_per_week)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street, cap, civico, intercom, floor, notes, access_mode, access_note, concierge_hours, lat, lng").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
@@ -529,6 +529,34 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             <>
               <div className="mt-3 space-y-1 text-sm font-medium text-muted">
                 <div>Piano: <span className="font-bold text-navy">{sub.plans?.name ?? "—"}</span> · {priceLabel}/mese {sub.manual && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">manuale</span>}</div>
+                {/* I sacchi compresi: è il tetto con cui paghiamo la lavanderia
+                    e contiamo la franchigia, ed è quello che fa entrare questo
+                    cliente nel «costo previsto» di Competenza. Prima non si
+                    poteva scrivere da nessuna parte. */}
+                <form action={impostaSacchiSettimana} className="flex flex-wrap items-baseline gap-2">
+                  <input type="hidden" name="sub_id" value={sub.id} />
+                  <input type="hidden" name="customer_id" value={id} />
+                  <label htmlFor="sacchi-settimana">Sacchi a settimana:</label>
+                  <input
+                    id="sacchi-settimana"
+                    name="sacchi"
+                    type="number"
+                    min={1}
+                    max={9}
+                    step={1}
+                    defaultValue={sub.bags_per_week ?? ""}
+                    placeholder={sub.plans?.bags_per_week != null ? String(sub.plans.bags_per_week) : "—"}
+                    className="w-16 rounded-[10px] border border-line bg-white px-2 py-1 text-sm font-bold text-navy outline-none focus:border-blue"
+                  />
+                  <button type="submit" className="font-display text-sm font-bold text-blue hover:underline">Salva</button>
+                  <span className="text-xs">
+                    {sub.bags_per_week != null
+                      ? "concordato qui"
+                      : sub.plans?.bags_per_week != null
+                        ? `dal piano ${sub.plans.name} (${sub.plans.bags_per_week})`
+                        : "non impostato: vale il ritiro settimanale, e il costo previsto non lo conta"}
+                  </span>
+                </form>
                 <div>
                   Stato: <span className={`font-bold ${active ? "text-[#1F8A5B]" : "text-[#C9881F]"}`}>{statoAbbonamentoItaliano(sub.status)}</span>
                   {disdettaProgrammata && (

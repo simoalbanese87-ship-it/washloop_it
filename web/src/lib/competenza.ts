@@ -31,11 +31,14 @@ export type RitiroPerCompetenza = {
 
 export type CanoneCliente = {
   clienteId: string;
+  /** Serve al banner per dire **chi** manca: un elenco di numeri non dice a chi
+   *  telefonare. */
+  nome: string | null;
   /** Canone mensile in centesimi, IVA inclusa. */
   canoneCents: number;
-  /** Sacchi a settimana previsti dal piano. `null` sugli abbonamenti su misura,
-   *  dove il piano non c'è: lì un «previsto» non esiste e inventarlo
-   *  falserebbe il confronto. */
+  /** Sacchi a settimana dichiarati: l'accordo sull'abbonamento, o in mancanza
+   *  il piano. `null` quando nessuno dei due lo dice, e allora il cliente resta
+   *  fuori dal previsto invece di entrarci con un numero inventato. */
   sacchiPrevisti: number | null;
 };
 
@@ -82,26 +85,34 @@ export function quotaPerRitiro(canoneCents: number, ritiriDelMese: number): numb
   return Math.round(canoneCents / ritiriDelMese);
 }
 
-/** Il costo che ci aspetteremmo in una settimana, se ogni cliente con un piano
- *  usasse tutti i suoi sacchi.
+/** Il costo che ci aspetteremmo in una settimana, se ogni cliente usasse tutti
+ *  i suoi sacchi.
  *
- *  Si calcola **solo sui clienti con un piano**: su un abbonamento su misura i
- *  sacchi previsti non esistono, e metterci un numero a caso trasformerebbe il
- *  confronto in un'opinione. Chi resta fuori va detto, non nascosto. */
+ *  Si calcola **solo su chi ha un numero di sacchi dichiarato** — dall'accordo
+ *  sull'abbonamento o dal piano. Su chi non ce l'ha, metterci un numero a caso
+ *  trasformerebbe il confronto con l'effettivo in un'opinione: direbbe quello
+ *  che vogliamo sentirci dire. Chi resta fuori va detto per nome, non nascosto,
+ *  perché è l'unica cosa che fa venire voglia di sistemarlo.
+ *
+ *  Qui, a differenza del tetto operativo di `scegliTetto`, **non si ripiega mai
+ *  su `recurring_pickups`**: quella è una richiesta del cliente, non un accordo,
+ *  e il «previsto» non deve poter essere un numero che nessuno ha deciso. Le due
+ *  catene divergono di proposito. */
 export function costoPrevistoCents(canoni: CanoneCliente[], compensoSaccoCents: number): {
   cents: number;
-  conPiano: number;
-  senzaPiano: number;
+  conSacchi: number;
+  senzaSacchi: number;
+  mancanti: { clienteId: string; nome: string | null }[];
 } {
   let cents = 0;
-  let conPiano = 0;
-  let senzaPiano = 0;
+  let conSacchi = 0;
+  const mancanti: { clienteId: string; nome: string | null }[] = [];
   for (const c of canoni) {
-    if (c.sacchiPrevisti == null) { senzaPiano++; continue; }
-    conPiano++;
+    if (c.sacchiPrevisti == null) { mancanti.push({ clienteId: c.clienteId, nome: c.nome }); continue; }
+    conSacchi++;
     cents += c.sacchiPrevisti * compensoSaccoCents;
   }
-  return { cents, conPiano, senzaPiano };
+  return { cents, conSacchi, senzaSacchi: mancanti.length, mancanti };
 }
 
 /** Aggrega i ritiri per settimana, spalmando il canone di ciascun cliente sui
