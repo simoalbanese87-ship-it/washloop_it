@@ -13,10 +13,13 @@ import type { MetadataRoute } from "next";
  *  voluto: serve alle campagne a pagamento e non deve competere in organico. */
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = "https://washloop.it";
-  const aggiornato = new Date("2026-09-16");
+  const aggiornato = new Date("2026-09-24");
   return [
     { url: `${base}/`, changeFrequency: "weekly", priority: 1, lastModified: aggiornato },
     { url: `${base}/lavanderia-a-domicilio-milano`, changeFrequency: "monthly", priority: 0.9, lastModified: aggiornato },
     { url: `${base}/servizio-stiro-a-domicilio-milano`, changeFrequency: "monthly", priority: 0.9, lastModified: aggiornato },
+    // I prezzi cambiano più spesso delle due pagine di servizio, e la pagina li
+    // legge dal database: quando cambiano in pannello, cambia anche qui.
+    { url: `${base}/prezzi`, changeFrequency: "weekly", priority: 0.9, lastModified: aggiornato },
   ];
 }

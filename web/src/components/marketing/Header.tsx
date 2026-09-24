@@ -10,10 +10,14 @@ import { MobileMenu } from "@/components/marketing/MobileMenu";
  *  a raccogliere contatti, non a spiegare tutto. Lasciare le voci avrebbe
  *  significato tre link che non aprono niente, che è peggio di tre voci in
  *  meno. Chi vuole la spiegazione lunga la trova nelle due pagine di servizio,
- *  linkate nel piè di pagina; i prezzi stanno dove si comprano, dietro «Attiva
- *  WashLoop». */
+ *  linkate nel piè di pagina.
+ *
+ *  «Prezzi» è tornato quando la pagina è esistita davvero. Prima il prezzo si
+ *  vedeva solo dentro l'onboarding, cioè dopo aver deciso di registrarsi — ed è
+ *  la prima cosa che si cerca *prima* di decidere. */
 const nav = [
   { href: "/#come-funziona", label: "Come funziona" },
+  { href: "/prezzi", label: "Prezzi" },
   { href: "/#richiesta", label: "Verifica il tuo CAP" },
 ];
 
