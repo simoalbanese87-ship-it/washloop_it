@@ -158,7 +158,7 @@ export default async function PersonePage({
                 <th className="py-2">Valore</th>
                 <th className="py-2">Ordini</th>
                 <th className="py-2">Da</th>
-                <th className="py-2">Note</th>
+                <th className="w-[230px] py-2">Note</th>
                 <th className="py-2 text-right">Azioni</th>
               </tr>
             </thead>
@@ -216,7 +216,9 @@ export default async function PersonePage({
                   {/* Dove si telefona è anche dove si scrive cosa ci si è detti.
                       Sui clienti è la stessa casella della scheda, non una
                       seconda: se fossero due, nessuno saprebbe quale vale. */}
-                  <td className="py-2.5 align-top">
+                  {/* Larghezza fissa: senza, una nota lunga allargava la colonna
+                      e spingeva «Azioni» oltre il bordo della tabella. */}
+                  <td className="w-[230px] max-w-[230px] py-2.5 align-top">
                     <NotaPersona profileId={p.profileId} leadId={p.leadId} nota={p.nota} back={qui} />
                   </td>
                   <td className="py-2.5">

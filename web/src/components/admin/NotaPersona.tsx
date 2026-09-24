@@ -34,7 +34,7 @@ export function NotaPersona({
     <details className="group">
       <summary className="cursor-pointer list-none">
         {anteprima ? (
-          <span className="block max-w-[220px] text-xs font-medium leading-snug text-navy/80 group-open:hidden" title={nota ?? undefined}>
+          <span className="block w-full text-xs font-medium leading-snug text-navy/80 group-open:hidden" title={nota ?? undefined}>
             {anteprima}
           </span>
         ) : (
@@ -42,7 +42,7 @@ export function NotaPersona({
         )}
         <span className="hidden font-display text-xs font-bold text-muted group-open:inline">Nota</span>
       </summary>
-      <form action={salvaNotaPersona} className="mt-1.5 w-[260px] space-y-1.5">
+      <form action={salvaNotaPersona} className="mt-1.5 w-full space-y-1.5">
         {profileId ? (
           <input type="hidden" name="profile_id" value={profileId} />
         ) : (
