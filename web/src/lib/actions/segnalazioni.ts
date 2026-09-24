@@ -45,6 +45,7 @@ export async function pubblicaSegnalazione(formData: FormData) {
 
   revalidatePath(`/admin/ordini/${orderId}`);
   revalidatePath(`/app/ordini/${orderId}`);
+  revalidatePath("/admin/segnalazioni");
   revalidatePath("/admin");
 }
 
@@ -65,5 +66,6 @@ export async function chiudiSegnalazione(formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/ordini/${orderId}`);
+  revalidatePath("/admin/segnalazioni");
   revalidatePath("/admin");
 }

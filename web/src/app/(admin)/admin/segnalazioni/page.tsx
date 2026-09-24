@@ -3,6 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { SegnalazioneRiga, type Segnalazione } from "@/components/app/SegnalazioneRiga";
 import { createServiceClient } from "@/lib/supabase/server";
 import { signedProofUrl } from "@/lib/orders";
+import { chiudiSegnalazione, pubblicaSegnalazione } from "@/lib/actions/segnalazioni";
 
 export const dynamic = "force-dynamic";
 
@@ -90,19 +91,59 @@ export default async function SegnalazioniAperte({
         <div className="space-y-3">
           {righe.map((r) => (
             <SegnalazioneRiga key={r.id} s={r} fotoUrl={r.fotoUrl}>
-              <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-line/70 pt-3">
-                <span className="font-display text-sm font-extrabold text-navy">
-                  {r.orders?.profiles?.full_name ?? "Cliente"}
-                </span>
-                <span className="rounded-full bg-ice px-2.5 py-1 font-display text-xs font-bold text-navy">
-                  {r.orders?.profiles?.client_code ?? "—"}
-                </span>
-                <Link
-                  href={`/admin/ordini/${r.order_id}`}
-                  className="ml-auto font-display text-sm font-extrabold text-blue hover:underline"
-                >
-                  Apri l&apos;ordine →
-                </Link>
+              <div className="mt-3 space-y-3 border-t border-line/70 pt-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="font-display text-sm font-extrabold text-navy">
+                    {r.orders?.profiles?.full_name ?? "Cliente"}
+                  </span>
+                  <span className="rounded-full bg-ice px-2.5 py-1 font-display text-xs font-bold text-navy">
+                    {r.orders?.profiles?.client_code ?? "—"}
+                  </span>
+                  <Link
+                    href={`/admin/ordini/${r.order_id}`}
+                    className="ml-auto font-display text-sm font-extrabold text-blue hover:underline"
+                  >
+                    Apri l&apos;ordine →
+                  </Link>
+                </div>
+
+                {!r.published_at && (
+                  <form action={pubblicaSegnalazione}>
+                    <input type="hidden" name="issue_id" value={r.id} />
+                    <input type="hidden" name="order_id" value={r.order_id} />
+                    <p className="mb-2 text-xs font-medium text-muted">
+                      Prima di premere: decidi cosa proponi (rimborso, rilavaggio, sostituzione) e scrivilo al cliente.
+                      Da qui parte solo l&apos;avviso con il testo della lavanderia.
+                    </p>
+                    <button type="submit" className="font-display text-sm font-extrabold text-blue hover:underline">
+                      Avvisa il cliente →
+                    </button>
+                  </form>
+                )}
+
+                {!r.resolved_at && (
+                  <form action={chiudiSegnalazione} className="space-y-2">
+                    <input type="hidden" name="issue_id" value={r.id} />
+                    <input type="hidden" name="order_id" value={r.order_id} />
+                    {r.trattenuto_at && !r.restituito_at && (
+                      <p className="text-xs font-medium text-[#C9881F]">
+                        Il capo è ancora in lavanderia. Chiudere la segnalazione non lo riconsegna: resta da restituire
+                        nel portale finché non torna.
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        name="resolution"
+                        maxLength={200}
+                        placeholder="Come è finita (es. rimborsata la camicia, €35)"
+                        className="min-w-0 flex-1 rounded-[10px] border border-line bg-white px-3 py-2 text-sm font-medium text-navy outline-none focus:border-blue"
+                      />
+                      <button type="submit" className="font-display text-sm font-bold text-navy/70 hover:text-navy">
+                        Chiudi
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
             </SegnalazioneRiga>
           ))}
