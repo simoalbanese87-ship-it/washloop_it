@@ -5,7 +5,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { eventoGiaVisto, syncSubscription } from "@/lib/subscription-sync";
 import { sendMail } from "@/lib/email";
 import { registraIncasso } from "@/lib/fatturazione";
-import { chargeEmailHtml } from "@/lib/email-templates";
+import { chargeEmailHtml, provaInScadenzaEmailHtml } from "@/lib/email-templates";
 import { LEGAL } from "@/lib/legal";
 import { fmtDate } from "@/lib/format";
 import { inviaSollecito, chiudiRecupero } from "@/lib/dunning";
@@ -78,7 +78,13 @@ export async function POST(request: NextRequest) {
           status_transitions?: { paid_at?: number | null };
           lines?: { data?: { description?: string | null; amount?: number }[] };
         };
-        if (!inv.amount_paid || inv.amount_paid <= 0) break; // niente da notificare (es. €0)
+        // La fattura di apertura di una prova gratuita passa di qui, ed esce
+        // qui: è a €0 e non si è mosso nessun soldo. Da quando le prove
+        // esistono questo `break` non è più solo difensivo, è funzionale — e
+        // deve restare. Una ricevuta da €0,00 nella casella del cliente
+        // spaventa e non informa; una riga da zero nel registro di
+        // fatturazione la dovrebbe poi togliere qualcuno a mano.
+        if (!inv.amount_paid || inv.amount_paid <= 0) break;
 
         // I soldi sono arrivati: si chiude il recupero. Va fatto prima di
         // qualsiasi altra cosa — se il banner "pagamento non riuscito" resta in
@@ -182,6 +188,69 @@ export async function POST(request: NextRequest) {
     // (che paga in un tap, senza nemmeno accedere) e il contatore dei
     // solleciti. Da quella traccia vivono il banner in app e il cron che manda
     // il secondo e il terzo avviso.
+    // Tre giorni prima dell'addebito: l'unico momento in cui possiamo dire al
+    // cliente, con anticipo, la data vera. Su una prova che si muove non esiste
+    // un momento equivalente.
+    case "customer.subscription.trial_will_end": {
+      const sub = event.data.object as Stripe.Subscription;
+      after(async () => {
+        try {
+          const { data: sott } = await db
+            .from("subscriptions")
+            .select("id, user_id, prova_avviso_inviato_at, custom_price_cents, plans(price_month_cents)")
+            .eq("stripe_subscription_id", sub.id)
+            .maybeSingle<{
+              id: string;
+              user_id: string;
+              prova_avviso_inviato_at: string | null;
+              custom_price_cents: number | null;
+              plans: { price_month_cents: number } | null;
+            }>();
+          if (!sott) return;
+
+          // Deduplica su questa colonna e **non** sull'evento: spostando
+          // `trial_end` Stripe riemette questo evento con un id nuovo, e
+          // `eventoGiaVisto` non lo ferma. Senza, il cliente riceverebbe
+          // l'avviso a ogni prenotazione.
+          if (sott.prova_avviso_inviato_at) return;
+
+          const { data: utente } = await db.auth.admin.getUserById(sott.user_id);
+          const to = utente?.user?.email;
+          if (!to) return;
+
+          const { data: prof } = await db
+            .from("profiles")
+            .select("full_name")
+            .eq("id", sott.user_id)
+            .maybeSingle<{ full_name: string | null }>();
+
+          const cents = sott.custom_price_cents ?? sott.plans?.price_month_cents ?? 0;
+          // La data si stampa da `sub.trial_end`, mai «fra tre giorni»: se la
+          // prova è stata spostata a meno di tre giorni, Stripe emette questo
+          // evento subito e quella frase sarebbe falsa.
+          await sendMail({
+            to,
+            subject: "La tua prova WashLoop sta per finire",
+            html: provaInScadenzaEmailHtml({
+              fullName: prof?.full_name ?? null,
+              quando: sub.trial_end ? fmtDate(new Date(sub.trial_end * 1000)) : "a breve",
+              importo: cents ? `€${(cents / 100).toFixed(2).replace(".", ",")}` : "l'importo del tuo piano",
+            }),
+          });
+          await db
+            .from("subscriptions")
+            .update({ prova_avviso_inviato_at: new Date().toISOString() })
+            .eq("id", sott.id);
+        } catch (err) {
+          await registraGuasto("stripe", "Avviso di fine prova non inviato", {
+            subscription: sub.id,
+            errore: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
+      break;
+    }
+
     case "invoice.payment_failed": {
       const inv = event.data.object as unknown as {
         customer: string; customer_email?: string | null; customer_name?: string | null;

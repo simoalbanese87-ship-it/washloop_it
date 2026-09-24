@@ -68,22 +68,26 @@ export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false, 
       return {
         titolo: "Ricorrente atteso",
         spiegazione:
-          "Un abbonamento per cliente, contato solo se lo stato è attivo E il periodo non è ancora finito. È una previsione: dice quanto dovrebbe entrare, non quanto è entrato. Chi ha un prezzo concordato a zero resta in elenco e somma zero: è attivo come servizio, non come ricavo.",
+          "Un abbonamento per cliente, contato solo se lo stato è attivo E il periodo non è ancora finito. È una previsione: dice quanto dovrebbe entrare, non quanto è entrato. Chi ha un prezzo concordato a zero resta in elenco e somma zero: è attivo come servizio, non come ricavo. Chi è in prova gratuita compare ma non somma: il servizio gira, i soldi non sono ancora arrivati e contarli al prezzo pieno gonfierebbe proprio il numero che si guarda per capire se l'offerta funziona.",
         righe: attivi.map((a) => ({
           etichetta: a.nome,
-          dettaglio: `${a.piano ?? "piano non a listino"} · rinnovo ${data(a.fino)}`,
-          importoCents: a.prezzoCents,
+          dettaglio: a.inProva
+            ? `${a.piano ?? "piano non a listino"} · in prova fino al ${data(a.fino)}`
+            : `${a.piano ?? "piano non a listino"} · rinnovo ${data(a.fino)}`,
+          importoCents: a.inProva ? 0 : a.prezzoCents,
           href: `/admin/abbonati/${a.userId}`,
           // Un cliente a zero fa sembrare rotto il totale: chi legge conta le
           // righe, vede due abbonati e un solo importo, e pensa a un bug. È
           // un omaggio, e va detto.
-          nota: a.prezzoCents === 0
-            ? "prezzo concordato a zero: non entra nel ricorrente perché non fattura nulla"
-            : a.manuale
-              ? "abbonamento manuale, non addebitato da Stripe"
-              : undefined,
+          nota: a.inProva
+            ? `in prova gratuita: varrà ${(a.prezzoCents / 100).toLocaleString("it-IT", { minimumFractionDigits: 2 })} € dal primo addebito`
+            : a.prezzoCents === 0
+              ? "prezzo concordato a zero: non entra nel ricorrente perché non fattura nulla"
+              : a.manuale
+                ? "abbonamento manuale, non addebitato da Stripe"
+                : undefined,
         })),
-        totaleCents: attivi.reduce((t, a) => t + a.prezzoCents, 0),
+        totaleCents: attivi.reduce((t, a) => t + (a.inProva ? 0 : a.prezzoCents), 0),
       };
     }
 

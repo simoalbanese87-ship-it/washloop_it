@@ -15,6 +15,7 @@ import { deliveryCounts, slotFullMessage } from "@/lib/slots";
 import { riconsegnaDopoSpostamento } from "@/lib/riconsegna";
 import { lavanderiaPredefinita } from "@/lib/lavanderia";
 import { assegnaRiderIniziale } from "@/lib/assegna-rider";
+import { allineaProva } from "@/lib/prova-stripe";
 // Il ripiego quando il piano manca. Era 48, mentre i tre piani in database
 // dicono 72 e il sito promette «entro 3 giorni feriali»: i clienti a prezzo
 // concordato, che un piano collegato non ce l'hanno, si vedevano una riconsegna
@@ -84,6 +85,9 @@ export async function createPickup(formData: FormData) {
   // Il rider, subito: prima l'ordine nasceva scoperto e restava tale finché
   // qualcuno non premeva «assegna» nel board.
   await assegnaRiderIniziale(createServiceClient(), data!.id, address_id);
+  // Chi è in prova paga il giorno dopo la riconsegna di questo ritiro: è il
+  // momento in cui quella data smette di essere il paracadute.
+  await allineaProva(createServiceClient(), user.id, data!.id, "primo-ordine");
   await notifyOrderStatus(data!.id, "pickup_scheduled");
   revalidatePath("/app");
   redirect(`/app/ordini/${data!.id}`);
@@ -151,6 +155,7 @@ export async function bookPickup(input: {
 
   // Come sopra: il giro ha un rider da subito, non da quando qualcuno guarda.
   await assegnaRiderIniziale(createServiceClient(), data!.id, address_id);
+  await allineaProva(createServiceClient(), user.id, data!.id, "primo-ordine");
 
   // Ricorrenza settimanale opzionale: salva il pattern (giorno+ora di Roma) e
   // lega l'ordine appena creato. Il cron genererà le settimane successive.
@@ -403,6 +408,15 @@ export async function cancelOrder(formData: FormData) {
     })
     .eq("id", id);
   if (error) throw new Error(error.message);
+
+  // Se era il ritiro a cui la prova gratuita era agganciata, l'addebito torna
+  // al paracadute: chi disdice torna dov'è chi non ha mai prenotato, non
+  // meglio.
+  {
+    const { data: chi } = await supabase.from("orders").select("customer_id").eq("id", id)
+      .maybeSingle<{ customer_id: string | null }>();
+    if (chi?.customer_id) await allineaProva(createServiceClient(), chi.customer_id, id, "ordine-disdetto");
+  }
 
   // Il cliente lo deve sapere: il testo «Ritiro annullato» esiste già.
   await notifyOrderStatus(id, "cancelled");
@@ -959,6 +973,10 @@ export async function spostaRiconsegna(formData: FormData) {
     redirect(`${dove}?err=${encodeURIComponent(slotFullMessage(error) ?? "Questa fascia non è disponibile. Provane un'altra.")}`);
   }
 
+  // La fascia concordata batte la proiezione a 72 ore, quindi l'addebito della
+  // prova si ricalcola da qui.
+  if (ordine!.customer_id) await allineaProva(svc, ordine!.customer_id, id, "ritiro-spostato");
+
   revalidatePath(`/app/ordini/${id}`);
   revalidatePath(`/admin/ordini/${id}`);
   revalidatePath("/admin/ordini");
@@ -1023,6 +1041,8 @@ export async function spostaRitiro(formData: FormData) {
   // ritrovava la riconsegna prima che il bucato fosse pronto — o addirittura
   // prima del ritiro — senza nessun avviso.
   const nota = await allineaRiconsegna(svc, id);
+  // La riconsegna si è mossa, e con lei la data dell'addebito di chi è in prova.
+  if (p.ordine.customer_id) await allineaProva(svc, p.ordine.customer_id, id, "ritiro-spostato");
 
   revalidatePath(`/app/ordini/${id}`);
   revalidatePath(`/admin/ordini/${id}`);
@@ -1066,6 +1086,10 @@ export async function clienteDisdiceRitiro(formData: FormData) {
     })
     .eq("id", id);
   if (error) redirect(`${dove}?err=${encodeURIComponent("Non siamo riusciti ad annullarlo. Riprova.")}`);
+
+  // Come in cancelOrder: se la prova era agganciata a questo ritiro, torna al
+  // paracadute.
+  if (p.ordine.customer_id) await allineaProva(svc, p.ordine.customer_id, id, "ordine-disdetto");
 
   let coda = "";
   if (ancheProssimi) {

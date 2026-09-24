@@ -8,7 +8,7 @@ import { CostsExplainer } from "@/components/app/CostsExplainer";
 import { DatiFatturaForm } from "@/components/app/DatiFatturaForm";
 
 type Plan = { id: string; code: string; name: string; price_month_cents: number; pickups_per_week: number; turnaround_hours: number };
-type Sub = { status: string; current_period_end: string | null; plan_id: string | null; last_failed_invoice_url: string | null; plans: { name: string } | null };
+type Sub = { status: string; current_period_end: string | null; plan_id: string | null; last_failed_invoice_url: string | null; prova_fine_at: string | null; prova_ordine_id: string | null; plans: { name: string } | null };
 
 const euro = (cents: number) => (cents / 100).toLocaleString("it-IT");
 
@@ -29,12 +29,18 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
   const [{ need }, { data: plans }, { data: sub }, { data: monthOrders }, { data: monthSpecials }] = await Promise.all([
     searchParams,
     supabase.from("plans").select("id, code, name, price_month_cents, pickups_per_week, turnaround_hours").eq("active", true).order("sort").returns<Plan[]>(),
-    supabase.from("subscriptions").select("status, current_period_end, plan_id, last_failed_invoice_url, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    supabase.from("subscriptions").select("status, current_period_end, plan_id, last_failed_invoice_url, prova_fine_at, prova_ordine_id, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     supabase.from("orders").select("bags, status, created_at").gte("created_at", monthStartIso).neq("status", "cancelled").returns<{ bags: number; status: string; created_at: string }[]>(),
     supabase.from("order_specials").select("price_cli_cents, created_at").gte("created_at", monthStartIso).returns<{ price_cli_cents: number; created_at: string }[]>(),
   ]);
 
   const active = sub?.status === "active" || sub?.status === "trialing";
+  // In prova non c'è ancora nulla di pagato, e due frasi di questa pagina
+  // diventerebbero false: «Rinnovo il …» (che in prova è la fine della prova,
+  // non un rinnovo — detto a chi non ha versato un euro) e «il periodo già
+  // pagato non è rimborsabile».
+  const inProva = sub?.status === "trialing";
+  const primoAddebito = sub?.prova_fine_at ?? sub?.current_period_end ?? null;
   // Fattura rimasta aperta. Finora tutto quello che serve a chi si trova qui —
   // lo stato del piano, il portale Stripe, il link per pagare — stava dentro
   // rami `active &&`, cioè irraggiungibile proprio a lui: vedeva il listino
@@ -116,8 +122,25 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
           <div className="mt-1 font-display text-[24px] font-black leading-tight">{sub?.plans?.name ?? "Attivo"}</div>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-medium text-white/65">
             <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-display text-xs font-bold text-cyan">{STATUS_LABEL[sub?.status ?? ""] ?? sub?.status}</span>
-            {sub?.current_period_end && <span>Rinnovo il {fmtDate(sub.current_period_end)}</span>}
+            {inProva
+              ? primoAddebito && <span>Primo addebito il {fmtDate(primoAddebito)}</span>
+              : sub?.current_period_end && <span>Rinnovo il {fmtDate(sub.current_period_end)}</span>}
           </div>
+          {inProva && (
+            <p className="mt-3 max-w-md text-sm font-medium leading-relaxed text-white/70">
+              {sub?.prova_ordine_id
+                ? "Fino al primo addebito non paghi nulla: la data è il giorno dopo la riconsegna prevista del tuo primo ritiro."
+                : "Fino al primo addebito non paghi nulla. Prenota il primo ritiro e sposteremo l'addebito al giorno dopo che ti riportiamo il bucato."}
+            </p>
+          )}
+          {inProva && !sub?.prova_ordine_id && (
+            <Link
+              href="/app/prenota"
+              className="mt-3 inline-flex rounded-full bg-cyan px-4 py-2 font-display text-sm font-extrabold text-navy"
+            >
+              Prenota il primo ritiro →
+            </Link>
+          )}
           <form action={openPortal} className="mt-4">
             <button type="submit" className="inline-flex rounded-full bg-white/15 px-4 py-2 font-display text-sm font-extrabold text-white backdrop-blur transition-colors hover:bg-white/25">
               Gestisci abbonamento →
@@ -204,7 +227,9 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
             </button>
           </form>
           <p className="mx-auto mt-2 max-w-md text-[11px] leading-relaxed text-muted/80">
-            La disdetta ferma il rinnovo automatico a fine periodo. Il periodo già pagato non è rimborsabile una volta avviato il servizio.
+            {inProva
+              ? `Disdici prima del ${primoAddebito ? fmtDate(primoAddebito) : "primo addebito"} e non ti addebitiamo nulla.`
+              : "La disdetta ferma il rinnovo automatico a fine periodo. Il periodo già pagato non è rimborsabile una volta avviato il servizio."}
           </p>
         </div>
       )}

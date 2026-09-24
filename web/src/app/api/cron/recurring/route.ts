@@ -5,6 +5,7 @@ import { notifyOrderStatus } from "@/lib/notify";
 import { registraGuasto } from "@/lib/incidenti";
 import { lavanderiaPredefinita } from "@/lib/lavanderia";
 import { assegnaRiderIniziale } from "@/lib/assegna-rider";
+import { allineaProva } from "@/lib/prova-stripe";
 import { TURNAROUND_ORE } from "@/lib/planning-rider";
 
 /** Cron giornaliero: genera gli ordini delle ricorrenze settimanali attive,
@@ -147,6 +148,9 @@ export async function GET(req: Request) {
         // riga nascevano tutti senza rider, e il calendario del mattino era
         // rosso su ogni riga.
         await assegnaRiderIniziale(sb, ins.id, rec.address_id);
+        // Un cliente ancora in prova con la ricorrenza già accesa: l'addebito
+        // si aggancia al primo ritiro generato, come se l'avesse prenotato lui.
+        await allineaProva(sb, rec.customer_id, ins.id, "primo-ordine");
         await notifyOrderStatus(ins.id, "pickup_scheduled"); // email+push cliente + heads-up lavanderia
       } else if (error) {
         // Prima finiva qui, in silenzio: il ritiro settimanale del cliente non

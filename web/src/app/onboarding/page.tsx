@@ -14,7 +14,7 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
   const [{ plan }, supabase] = await Promise.all([searchParams, createClient()]);
   const { data: plans } = await supabase
     .from("plans")
-    .select("id, code, name, price_month_cents, pickups_per_week, turnaround_hours")
+    .select("id, code, name, price_month_cents, pickups_per_week, turnaround_hours, prova_giorni")
     .eq("active", true)
     .order("sort")
     .returns<WizPlan[]>();

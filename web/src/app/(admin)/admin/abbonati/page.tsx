@@ -9,7 +9,7 @@ import { fmtDate } from "@/lib/format";
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 type Plan = { id: string; name: string };
 type Prof = { id: string; full_name: string | null; phone: string | null; created_at: string };
-type Sub = { user_id: string; status: string; current_period_end: string | null; created_at: string; plans: { name: string } | null };
+type Sub = { user_id: string; status: string; current_period_end: string | null; created_at: string; prova_fine_at: string | null; plans: { name: string } | null };
 
 type Row = {
   user_id: string;
@@ -30,8 +30,12 @@ const STATUS_LABEL: Record<string, string> = {
  *  l'abbonamento, altrimenti l'addebito su Stripe continuerebbe. */
 const ATTIVI_PER_ELIMINA = ["active", "trialing", "past_due"];
 
+/** Il verde è di chi paga. Chi è in prova prenota e viene servito, ma non ha
+ *  ancora versato un euro: metterlo nello stesso colore nasconderebbe proprio la
+ *  distinzione che conta guardando questo elenco. */
 const tone = (s: string) =>
-  s === "active" || s === "trialing" ? "bg-[#1F8A5B]/15 text-[#1F8A5B]"
+  s === "trialing" ? "bg-[#C9881F]/15 text-[#C9881F]"
+    : s === "active" ? "bg-[#1F8A5B]/15 text-[#1F8A5B]"
     : s === "past_due" || s === "unpaid" ? "bg-[#C0392B]/12 text-[#C0392B]"
     : s === "pending" || s === "incomplete" ? "bg-[#C9881F]/15 text-[#C9881F]"
     : "bg-navy/10 text-navy";
@@ -43,7 +47,7 @@ export default async function AbbonatiPage({ searchParams }: { searchParams: Pro
   const svc = createServiceClient();
   const [{ data: profiles }, { data: subsAll }, { data: plans }] = await Promise.all([
     svc.from("profiles").select("id, full_name, phone, created_at").eq("role", "customer").eq("is_test", false).order("created_at", { ascending: false }).returns<Prof[]>(),
-    svc.from("subscriptions").select("user_id, status, current_period_end, created_at, plans(name)").order("created_at", { ascending: false }).returns<Sub[]>(),
+    svc.from("subscriptions").select("user_id, status, current_period_end, created_at, prova_fine_at, plans(name)").order("created_at", { ascending: false }).returns<Sub[]>(),
     svc.from("plans").select("id, name").eq("active", true).order("sort").returns<Plan[]>(),
   ]);
 
@@ -66,16 +70,19 @@ export default async function AbbonatiPage({ searchParams }: { searchParams: Pro
         s && ["active", "trialing"].includes(s.status) && s.current_period_end && new Date(s.current_period_end).getTime() < Date.now()
           ? "canceled"
           : s?.status ?? "pending",
-      current_period_end: s?.current_period_end ?? null,
+      // In prova la data che conta è il primo addebito, non il rinnovo: sono
+      // due cose diverse e finora la colonna ne mostrava una sola.
+      current_period_end: (s?.status === "trialing" ? s?.prova_fine_at : null) ?? s?.current_period_end ?? null,
       created_at: p.created_at,
     };
   });
-  const active = rows.filter((r) => r.status === "active" || r.status === "trialing").length;
+  const paganti = rows.filter((r) => r.status === "active").length;
+  const inProva = rows.filter((r) => r.status === "trialing").length;
   const pending = rows.filter((r) => r.status === "pending").length;
 
   return (
     <>
-      <PageTitle kicker="Abbonati" title="Clienti & piani" sub={`${rows.length} clienti · ${active} attivi · ${pending} pending`} />
+      <PageTitle kicker="Abbonati" title="Clienti & piani" sub={`${rows.length} clienti · ${paganti} ${paganti === 1 ? "pagante" : "paganti"}${inProva > 0 ? ` · ${inProva} in prova` : ""} · ${pending} pending`} />
 
       {ok && (
         <div className="mb-4 rounded-[14px] border border-[#1F8A5B]/30 bg-[#1F8A5B]/8 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>

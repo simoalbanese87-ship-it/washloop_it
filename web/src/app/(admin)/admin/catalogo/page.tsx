@@ -25,7 +25,7 @@ type Courier = { id: string; full_name: string | null };
 type DepotRow = { id: string; name: string; address: string | null; lat: number | null; lng: number | null };
 type Laundry = { id: string; name: string; zone_id: string | null; address: string | null; phone: string | null; email: string | null; active: boolean; bag_comp_cents: number | null };
 type Slot = { id: string; kind: string; starts_at: string; ends_at: string; capacity: number | null; laundries: { name: string } | null };
-type Plan = { id: string; name: string; price_month_cents: number; turnaround_hours: number; pickups_per_week: number; active: boolean; stripe_price_id: string | null };
+type Plan = { id: string; name: string; price_month_cents: number; turnaround_hours: number; pickups_per_week: number; bags_per_week: number; prova_giorni: number; active: boolean; stripe_price_id: string | null };
 
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 const DAYS = [
@@ -59,7 +59,7 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
       .order("starts_at")
       .limit(600)
       .returns<Slot[]>(),
-    supabase.from("plans").select("id, name, price_month_cents, turnaround_hours, pickups_per_week, active, stripe_price_id").order("sort").returns<Plan[]>(),
+    supabase.from("plans").select("id, name, price_month_cents, turnaround_hours, pickups_per_week, bags_per_week, prova_giorni, active, stripe_price_id").order("sort").returns<Plan[]>(),
     supabase.from("profiles").select("id, full_name").eq("role", "courier").order("full_name").returns<Courier[]>(),
   ]);
   const { data: depot } = await supabase.from("depots").select("id, name, address, lat, lng").eq("active", true).limit(1).maybeSingle<DepotRow>();
@@ -100,12 +100,16 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
           <div className="mt-4 space-y-4">
             {(plans ?? []).map((p) => (
               <div key={p.id} className="rounded-[14px] border border-line p-4">
-                <form action={updatePlan} className="grid gap-2 sm:grid-cols-[1.4fr_1fr_1fr_1fr_auto_auto] sm:items-end">
+                <form action={updatePlan} className="grid gap-2 sm:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1fr_auto_auto] sm:items-end">
                   <input type="hidden" name="plan_id" value={p.id} />
                   <label className="text-xs font-bold text-muted">Nome<input name="name" defaultValue={p.name} className={input} /></label>
                   <label className="text-xs font-bold text-muted">€/mese<input name="price_eur" type="number" step="1" defaultValue={p.price_month_cents / 100} className={input} /></label>
                   <label className="text-xs font-bold text-muted">Pronto (h)<input name="turnaround_hours" type="number" defaultValue={p.turnaround_hours} className={input} /></label>
                   <label className="text-xs font-bold text-muted">Ritiri/sett<input name="pickups_per_week" type="number" defaultValue={p.pickups_per_week} className={input} /></label>
+                  <label className="text-xs font-bold text-muted">Sacchi/sett<input name="bags_per_week" type="number" min={1} max={9} defaultValue={p.bags_per_week} className={input} /></label>
+                  {/* Da qui si accende e si spegne la prima settimana gratuita,
+                      senza deploy. 0 = niente prova. */}
+                  <label className="text-xs font-bold text-muted">Prova (gg)<input name="prova_giorni" type="number" min={0} max={30} defaultValue={p.prova_giorni} className={input} /></label>
                   <label className="flex h-10 items-center gap-1.5 text-xs font-bold text-navy"><input type="checkbox" name="active" defaultChecked={p.active} className="accent-[#2b7fd4]" />Attivo</label>
                   <Button type="submit" size="md" variant="ghost-navy">Salva</Button>
                 </form>

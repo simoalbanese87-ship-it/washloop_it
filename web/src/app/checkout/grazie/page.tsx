@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { ConversionTracker } from "@/components/ConversionTracker";
 import { syncFromCheckoutSession } from "@/lib/subscription-sync";
+import { fmtDate } from "@/lib/format";
 
 export const metadata = {
   title: "Ordine confermato",
@@ -26,7 +27,7 @@ export default async function GraziePage({
   const { session_id } = await searchParams;
   // Se manca il session_id (link aperto a mano) non possiamo verificare nulla:
   // meglio un messaggio prudente che una bugia.
-  const esito = session_id ? await syncFromCheckoutSession(session_id) : { attivo: false };
+  const esito = session_id ? await syncFromCheckoutSession(session_id) : { attivo: false, prova: null };
 
   return (
     <main
@@ -45,13 +46,20 @@ export default async function GraziePage({
           </svg>
         </div>
         <h1 className="mt-6 font-display text-[28px] font-black leading-tight">
-          {esito.attivo ? "Tutto confermato! 🎉" : "Pagamento ricevuto"}
+          {esito.prova ? "Prova attiva! 🎉" : esito.attivo ? "Tutto confermato! 🎉" : "Pagamento ricevuto"}
         </h1>
         <p className="mt-3 text-sm font-medium text-white/70">
-          {esito.attivo
-            ? "Il tuo abbonamento WashLoop è attivo. Ti abbiamo inviato un'email di conferma: ora puoi prenotare il primo ritiro dall'app."
-            : "Stiamo completando l'attivazione: di solito è questione di secondi. Se prenotando non ti risulta ancora attivo, ricarica tra un minuto o scrivici a info@washloop.it — ci pensiamo noi."}
+          {esito.prova
+            ? "Non ti abbiamo addebitato nulla. Prenota il primo ritiro: paghi il giorno dopo che ti riportiamo il bucato."
+            : esito.attivo
+              ? "Il tuo abbonamento WashLoop è attivo. Ti abbiamo inviato un'email di conferma: ora puoi prenotare il primo ritiro dall'app."
+              : "Stiamo completando l'attivazione: di solito è questione di secondi. Se prenotando non ti risulta ancora attivo, ricarica tra un minuto o scrivici a info@washloop.it — ci pensiamo noi."}
         </p>
+        {esito.prova && (
+          <p className="mt-2 text-xs font-medium text-white/50">
+            Se non prenoti, l&apos;abbonamento parte comunque il {fmtDate(esito.prova.fineIso)}.
+          </p>
+        )}
 
         <div className="mt-7 space-y-3">
           <Link

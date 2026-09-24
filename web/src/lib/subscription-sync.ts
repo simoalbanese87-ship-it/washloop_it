@@ -37,7 +37,16 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
     // ricompariva pochi secondi dopo essere stato premuto.
     cancel_at_period_end: sub.cancel_at_period_end === true,
     current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
+    // La data dell'addebito la tiene Stripe; questa è la copia, riallineata a
+    // ogni webhook. Così anche una modifica fatta a mano dalla dashboard arriva
+    // in app, e non esiste un percorso in cui la data che mostriamo al cliente
+    // è diversa da quella su cui Stripe incassa davvero.
+    prova_fine_at: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
   };
+  // Il tetto arriva dal checkout nei metadata e non si tocca mai più: è
+  // congelato alla creazione apposta. Si scrive solo se non c'è già.
+  const tettoDaiMetadata = sub.metadata?.prova_tetto_at;
+  if (tettoDaiMetadata) row.prova_tetto_at = tettoDaiMetadata;
   const customCents = sub.metadata?.custom_price_cents ? parseInt(sub.metadata.custom_price_cents, 10) : NaN;
   if (Number.isFinite(customCents)) row.custom_price_cents = customCents;
 
@@ -51,6 +60,16 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
       .update({ activated_at: new Date().toISOString() })
       .eq("stripe_subscription_id", sub.id)
       .is("activated_at", null);
+    // La prova si consuma qui, la prima volta che se ne vede una. Senza questa
+    // riga, disdire durante la prova e riscriversi darebbe un'altra settimana
+    // gratis ogni volta: è l'unico modo di entrare gratis per sempre che questo
+    // disegno lascerebbe aperto.
+    if (sub.status === "trialing") {
+      await db.from("profiles")
+        .update({ prova_usata_at: new Date().toISOString() })
+        .eq("id", userId)
+        .is("prova_usata_at", null);
+    }
     // `canceled_at` si azzera solo se la disdetta non è nemmeno programmata:
     // è la data in cui è stata **chiesta**, e su un abbonamento che finisce a
     // fine periodo quella data esiste eccome.
@@ -70,11 +89,15 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
 /** Rete di sicurezza del ritorno da Checkout: se il webhook non è ancora
  *  passato, allinea l'abbonamento leggendo la sessione direttamente da Stripe.
  *  Non lancia mai: la pagina di ringraziamento deve aprirsi comunque. */
-export async function syncFromCheckoutSession(sessionId: string): Promise<{ attivo: boolean }> {
+export async function syncFromCheckoutSession(
+  sessionId: string,
+): Promise<{ attivo: boolean; prova: { fineIso: string } | null }> {
   try {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
-    if (session.payment_status !== "paid" && session.status !== "complete") return { attivo: false };
-    if (!session.subscription) return { attivo: false };
+    // Con una prova a 0 € la sessione si completa senza `payment_status: paid`:
+    // guardare solo il pagamento avrebbe fatto dire «non attivo» a ogni prova.
+    if (session.payment_status !== "paid" && session.status !== "complete") return { attivo: false, prova: null };
+    if (!session.subscription) return { attivo: false, prova: null };
 
     const sub = await stripe().subscriptions.retrieve(session.subscription as string);
     // I metadata stanno sulla sessione quando la subscription è appena nata.
@@ -83,10 +106,16 @@ export async function syncFromCheckoutSession(sessionId: string): Promise<{ atti
     }
     const res = await syncSubscription(sub);
     if (!res.ok) console.error("[checkout] sync fallita:", res.error);
-    return { attivo: ["active", "trialing"].includes(sub.status) };
+    return {
+      attivo: ["active", "trialing"].includes(sub.status),
+      prova:
+        sub.status === "trialing" && sub.trial_end
+          ? { fineIso: new Date(sub.trial_end * 1000).toISOString() }
+          : null,
+    };
   } catch (err) {
     console.error("[checkout] impossibile verificare la sessione:", err);
-    return { attivo: false };
+    return { attivo: false, prova: null };
   }
 }
 

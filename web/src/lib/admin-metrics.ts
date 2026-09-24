@@ -18,6 +18,19 @@ function bounds() {
 
 const ACTIVE = ["active", "trialing"];
 
+/** Chi paga davvero, separato da chi sta provando.
+ *
+ *  `trialing` conta come abbonamento vivo — il cliente prenota, la lavanderia
+ *  lavora, il servizio gira — ma **non è ricavo ricorrente**: è una promessa
+ *  che si avvera fra qualche giorno. Sommarli al prezzo pieno gonfia proprio il
+ *  numero che si guarda per decidere se l'offerta funziona. Questo file porta
+ *  già la cicatrice dello stesso errore da un'altra porta (vedi
+ *  `abbonamentoVivo`, che è nato perché nel ricorrente finivano 440 € di due
+ *  account di prova scaduti). */
+export function soloPaganti(a: AbbonamentoAttivo[]): AbbonamentoAttivo[] {
+  return a.filter((x) => !x.inProva);
+}
+
 /** Un abbonamento conta come attivo solo se lo stato lo dice E il periodo non è
  *  finito. Guardare solo lo stato faceva contare nel ricorrente 440 € di due
  *  account di prova il cui periodo era scaduto da settimane: lo stato resta
@@ -31,6 +44,8 @@ function abbonamentoVivo(s: { status: string; current_period_end: string | null 
 
 export type AbbonamentoAttivo = {
   userId: string;
+  /** In prova gratuita: non è ricavo, è una promessa. */
+  inProva: boolean;
   nome: string;
   prezzoCents: number;
   piano: string | null;
@@ -50,11 +65,11 @@ export async function abbonamentiAttivi(includiProva = false): Promise<Abbonamen
   const svc = createServiceClient();
   const { data } = await svc
     .from("subscriptions")
-    .select("user_id, status, manual, custom_price_cents, current_period_end, created_at, plans(name, price_month_cents), profiles(full_name, is_test)")
+    .select("user_id, status, manual, custom_price_cents, current_period_end, created_at, prova_fine_at, plans(name, price_month_cents), profiles(full_name, is_test)")
     .order("created_at", { ascending: false })
     .returns<{
       user_id: string; status: string; manual: boolean | null; custom_price_cents: number | null;
-      current_period_end: string | null; created_at: string;
+      current_period_end: string | null; created_at: string; prova_fine_at: string | null;
       plans: { name: string; price_month_cents: number } | null;
       profiles: { full_name: string | null; is_test: boolean } | null;
     }[]>();
@@ -68,10 +83,11 @@ export async function abbonamentiAttivi(includiProva = false): Promise<Abbonamen
     if (!abbonamentoVivo(r)) continue;
     out.push({
       userId: r.user_id,
+      inProva: r.status === "trialing",
       nome: r.profiles?.full_name ?? "—",
       prezzoCents: r.custom_price_cents ?? r.plans?.price_month_cents ?? 0,
       piano: r.plans?.name ?? null,
-      fino: r.current_period_end,
+      fino: r.status === "trialing" ? r.prova_fine_at ?? r.current_period_end : r.current_period_end,
       manuale: r.manual === true,
     });
   }
@@ -115,7 +131,11 @@ export async function revenueMetrics(includiProva = false): Promise<RevenueMetri
   // pagati: resta come ripiego se Stripe non risponde.
   const stripePerMese = await incassiStripePerMese(Math.floor(new Date(yearStart).getTime() / 1000));
 
-  const coreMrrCents = attivi.reduce((t, a) => t + a.prezzoCents, 0);
+  // Solo i paganti. Chi è in prova gratuita prenota e viene servito, ma non
+  // versa ancora niente: sommarlo al prezzo pieno gonfierebbe il ricorrente di
+  // tutte le prove in corso, cioè proprio del numero che si guarda per capire
+  // se l'offerta funziona.
+  const coreMrrCents = soloPaganti(attivi).reduce((t, a) => t + a.prezzoCents, 0);
 
   let extraMonthCents = 0, extraYearCents = 0;
   for (const x of specials ?? []) {

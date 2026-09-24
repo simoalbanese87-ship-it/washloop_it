@@ -236,6 +236,43 @@ export async function impostaSacchiSettimana(formData: FormData) {
   );
 }
 
+/** Chiude la prova gratuita adesso e fa partire l'addebito.
+ *
+ *  Il caso: il cliente non prenota, l'abbiamo sentito al telefono, si parte. È
+ *  l'unico modo di far scattare un addebito prima del paracadute senza entrare
+ *  nella dashboard di Stripe — e chi risponde al telefono lì dentro non ci deve
+ *  andare. */
+export async function terminaProvaOra(formData: FormData) {
+  await requireAdmin();
+  const subId = String(formData.get("sub_id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  if (!subId || !customerId) throw new Error("Parametri mancanti");
+  const backTo = `/admin/abbonati/${customerId}`;
+
+  const svc = createServiceClient();
+  const { data: sub } = await svc
+    .from("subscriptions")
+    .select("id, status, stripe_subscription_id")
+    .eq("id", subId)
+    .maybeSingle<{ id: string; status: string; stripe_subscription_id: string | null }>();
+
+  if (!sub || sub.status !== "trialing") {
+    redirect(`${backTo}?warn=${encodeURIComponent("Questo abbonamento non è in prova: non c'è niente da terminare.")}`);
+  }
+  if (!sub!.stripe_subscription_id) {
+    redirect(`${backTo}?warn=${encodeURIComponent("Questa prova non ha una subscription su Stripe: non si può addebitare da qui.")}`);
+  }
+
+  try {
+    await stripe().subscriptions.update(sub!.stripe_subscription_id!, { trial_end: "now", proration_behavior: "none" });
+  } catch (err) {
+    redirect(`${backTo}?warn=${encodeURIComponent(`Stripe ha rifiutato: ${err instanceof Error ? err.message : "errore"}`)}`);
+  }
+
+  revalidatePath(backTo);
+  redirect(`${backTo}?ok=${encodeURIComponent("Prova terminata: Stripe emette la fattura e prova ad addebitare la carta.")}`);
+}
+
 export async function changeSubscription(formData: FormData) {
   await requireAdmin();
   const subId = String(formData.get("sub_id") ?? "");
