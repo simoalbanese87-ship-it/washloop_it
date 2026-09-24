@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { registraGuasto } from "@/lib/incidenti";
+import { eseguiCron } from "@/lib/cron-log";
 import { createServiceClient } from "@/lib/supabase/server";
 import { prossimoSollecito } from "@/lib/dunning-piano";
 import { inviaSollecito } from "@/lib/dunning";
@@ -35,50 +35,53 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  try {
-    const db = createServiceClient();
-    const { data: righe, error } = await db
-      .from("subscriptions")
-      .select("id, user_id, status, dunning_step, dunning_last_sent_at, last_failed_invoice_url")
-      .in("status", ["past_due", "unpaid"])
-      .gt("dunning_step", 0)
-      .returns<Riga[]>();
-    if (error) throw new Error(error.message);
+  const r = await eseguiCron(
+    "dunning",
+    async () => {
+      const db = createServiceClient();
+      const { data: righe, error } = await db
+        .from("subscriptions")
+        .select("id, user_id, status, dunning_step, dunning_last_sent_at, last_failed_invoice_url")
+        .in("status", ["past_due", "unpaid"])
+        .gt("dunning_step", 0)
+        .returns<Riga[]>();
+      if (error) throw new Error(error.message);
 
-    const adesso = Date.now();
-    // Solo chi è davvero in scadenza di sollecito: il resto non si tocca.
-    const daSollecitare = (righe ?? [])
-      .map((r) => ({ riga: r, step: prossimoSollecito(r, adesso) }))
-      .filter((x): x is { riga: Riga; step: number } => x.step !== null);
+      const adesso = Date.now();
+      // Solo chi è davvero in scadenza di sollecito: il resto non si tocca.
+      const daSollecitare = (righe ?? [])
+        .map((r) => ({ riga: r, step: prossimoSollecito(r, adesso) }))
+        .filter((x): x is { riga: Riga; step: number } => x.step !== null);
 
-    let inviati = 0;
-    for (const { riga, step } of daSollecitare) {
-      // Nome ed email non stanno insieme: il nome è in `profiles`, l'email in
-      // `auth.users`. Una coppia di letture per cliente, ma sono pochi per
-      // definizione — se diventassero tanti, il problema non è questo cron.
-      const [{ data: prof }, { data: utente }] = await Promise.all([
-        db.from("profiles").select("full_name").eq("id", riga.user_id).maybeSingle<{ full_name: string | null }>(),
-        db.auth.admin.getUserById(riga.user_id),
-      ]);
+      let inviati = 0;
+      for (const { riga, step } of daSollecitare) {
+        // Nome ed email non stanno insieme: il nome è in `profiles`, l'email in
+        // `auth.users`. Una coppia di letture per cliente, ma sono pochi per
+        // definizione — se diventassero tanti, il problema non è questo cron.
+        const [{ data: prof }, { data: utente }] = await Promise.all([
+          db.from("profiles").select("full_name").eq("id", riga.user_id).maybeSingle<{ full_name: string | null }>(),
+          db.auth.admin.getUserById(riga.user_id),
+        ]);
 
-      const esito = await inviaSollecito({
-        subscriptionId: riga.id,
-        step,
-        invoiceUrl: riga.last_failed_invoice_url,
-        destinatario: {
-          userId: riga.user_id,
-          email: utente?.user?.email ?? null,
-          nome: prof?.full_name ?? null,
-        },
-      });
-      if (esito.inviato) inviati++;
-      else console.error(`[cron/dunning] sollecito ${step} non registrato per ${riga.id}: ${esito.motivo}`);
-    }
+        const esito = await inviaSollecito({
+          subscriptionId: riga.id,
+          step,
+          invoiceUrl: riga.last_failed_invoice_url,
+          destinatario: {
+            userId: riga.user_id,
+            email: utente?.user?.email ?? null,
+            nome: prof?.full_name ?? null,
+          },
+        });
+        if (esito.inviato) inviati++;
+        else console.error(`[cron/dunning] sollecito ${step} non registrato per ${riga.id}: ${esito.motivo}`);
+      }
+      return { inRecupero: righe?.length ?? 0, inviati };
+    },
+    (e) => (e.inviati === 0 ? `nessun sollecito da mandare (${e.inRecupero} in recupero)` : `${e.inviati} solleciti inviati su ${e.inRecupero} in recupero`),
+  );
 
-    return NextResponse.json({ ok: true, inRecupero: righe?.length ?? 0, inviati });
-  } catch (e) {
-    console.error("[cron/dunning] errore:", e);
-    await registraGuasto("cron", `Cron dunning fallito: ${e instanceof Error ? e.message : "errore"}`);
-    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "errore" }, { status: 500 });
-  }
+  return r.ok
+    ? NextResponse.json({ ok: true, ...r.esito })
+    : NextResponse.json({ ok: false, error: r.errore }, { status: 500 });
 }

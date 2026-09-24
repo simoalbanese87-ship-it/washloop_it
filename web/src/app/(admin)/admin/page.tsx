@@ -8,7 +8,10 @@ import { incassiMensili } from "@/lib/incassi-mensili";
 import { GraficoIncassi } from "@/components/admin/GraficoIncassi";
 import { revenueMetrics, laundryMetrics, subscriberMetrics, customersList } from "@/lib/admin-metrics";
 import { sendDigestNow } from "@/lib/actions/digest";
-import { eurCents } from "@/lib/format";
+import { eurCents, fmtFull } from "@/lib/format";
+import { statoDelleAutomazioni } from "@/lib/automazioni";
+import { quanteDaGuardare } from "@/lib/cron-stato";
+import { guastiRecenti } from "@/lib/incidenti";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +57,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     return includiProva ? q : q.eq("orders.profiles.is_test", false);
   };
 
-  const [daRichiamare, inRitardo, senzaRider, senzaLavanderia, pagamentiKo, segnalazioni, extraInAttesa, rev, laundry, subs, customers, mesiIncassi] = await Promise.all([
+  const [daRichiamare, inRitardo, senzaRider, senzaLavanderia, pagamentiKo, segnalazioni, extraInAttesa, rev, laundry, subs, customers, mesiIncassi, automazioni, guasti] = await Promise.all([
     // Non una query sui soli `leads`: quella contava anche chi nel frattempo è
     // diventato cliente. `daContattare` passa dalla stessa deduplica di Persone,
     // così il numero e la pagina che apre dicono la stessa cosa.
@@ -87,7 +90,11 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     subscriberMetrics(includiProva),
     customersList(includiProva),
     incassiMensili(includiProva),
+    statoDelleAutomazioni(),
+    guastiRecenti(24),
   ]);
+
+  const daGuardare = quanteDaGuardare(automazioni);
 
   // I capi dei profili di prova non sono soldi da incassare.
   const nExtra = (extraInAttesa.data ?? []).filter((r) => {
@@ -248,11 +255,86 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
         <CustomersPanel customers={customers} />
       </Card>
 
+      {/* Le automazioni, e i guasti che finora si vedevano solo per email.
+          Un lavoro che non parte non lascia un errore da cercare: lascia una
+          cosa che non succede. Qui il silenzio si vede, perché la riga
+          dell'ultimo giro resta lì a invecchiare. */}
+      <Card className="mb-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-display text-base font-extrabold text-navy">Automazioni</h2>
+          {daGuardare > 0 ? (
+            <span className="rounded-full bg-[#C0392B]/12 px-2.5 py-1 font-display text-xs font-bold text-[#C0392B]">
+              {daGuardare} {daGuardare === 1 ? "da guardare" : "da guardare"}
+            </span>
+          ) : (
+            <span className="rounded-full bg-[#1F8A5B]/12 px-2.5 py-1 font-display text-xs font-bold text-[#1F8A5B]">
+              tutte in orario
+            </span>
+          )}
+        </div>
+        <p className="mt-1 text-sm font-medium text-muted">
+          Cosa gira da solo, e quando è girato l&apos;ultima volta. «Non aveva niente da fare» è scritto come gli
+          altri esiti: senza, sarebbe uguale a «non è partito».
+        </p>
+
+        <div className="mt-4 space-y-2">
+          {automazioni.map((a) => {
+            const male = a.inRitardo || a.fallito;
+            return (
+              <div
+                key={a.nome}
+                className={`rounded-[12px] border p-3 ${male ? "border-[#C0392B]/30 bg-[#C0392B]/[0.05]" : "border-line bg-ice/50"}`}
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <span className="font-display text-sm font-extrabold text-navy">{a.cosaFa}</span>
+                  <span className={`font-display text-xs font-bold ${male ? "text-[#C0392B]" : "text-muted"}`}>
+                    {a.ultimo ? fmtFull(a.ultimo.started_at) : "mai partito"}
+                  </span>
+                </div>
+                <div className="mt-0.5 text-xs font-medium text-muted">
+                  {a.quando}
+                  {a.ultimo?.riassunto ? ` · ${a.ultimo.riassunto}` : ""}
+                </div>
+                {a.fallito && a.ultimo?.errore && (
+                  <div className="mt-1 text-xs font-semibold text-[#C0392B]">Ultimo giro fallito: {a.ultimo.errore}</div>
+                )}
+                {a.inRitardo && (
+                  <div className="mt-1 text-xs font-semibold text-[#C0392B]">
+                    {a.ultimo
+                      ? `Fermo da ${Math.round(a.oreFa ?? 0)} ore: dovrebbe girare ogni giorno.`
+                      : "Non ha mai lasciato traccia di essere partito."}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {guasti.length > 0 && (
+          <div className="mt-5 border-t border-line pt-4">
+            <div className="font-display text-sm font-extrabold text-navy">Guasti delle ultime 24 ore</div>
+            <p className="mt-1 text-xs font-medium text-muted">
+              Finora finivano solo nel riepilogo via email: se quella non partiva, non li vedeva nessuno.
+            </p>
+            <div className="mt-3 space-y-1.5">
+              {guasti.map((g) => (
+                <div key={`${g.area}|${g.messaggio}`} className="flex flex-wrap items-baseline gap-x-2 text-xs">
+                  <span className="rounded-full bg-navy/10 px-2 py-0.5 font-display font-bold text-navy">{g.area}</span>
+                  <span className="font-medium text-navy/80">{g.messaggio}</span>
+                  {g.quante > 1 && <span className="font-display font-bold text-muted">×{g.quante}</span>}
+                  <span className="ml-auto font-medium text-muted">{fmtFull(g.ultimo)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
       {/* Il riepilogo che prima stava in "Novità" */}
       <Card>
         <h2 className="font-display text-base font-extrabold text-navy">Riepilogo agli admin</h2>
         <p className="mt-1 text-sm font-medium text-muted">
-          Parte da solo ogni mattina alle 6:30 con le novità delle ultime 24 ore. Da qui lo mandi subito.
+          Parte da solo ogni mattina alle 8:30 con le novità delle ultime 24 ore. Da qui lo mandi subito.
         </p>
         <form action={sendDigestNow} className="mt-3">
           <button type="submit" className="rounded-full border-2 border-navy/25 px-5 py-2 font-display text-sm font-extrabold text-navy hover:bg-navy/5">

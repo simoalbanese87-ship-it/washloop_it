@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { notifyPromemoria } from "@/lib/notify";
 import { fmtSlot } from "@/lib/format";
 import { registraGuasto } from "@/lib/incidenti";
+import { eseguiCron } from "@/lib/cron-log";
 
 /** Cron della sera: avvisa chi domani ha un ritiro o una riconsegna.
  *
@@ -60,85 +61,98 @@ export async function GET(req: Request) {
   // Risultato: non hanno MAI funzionato — zero promemoria inviati su 11 ordini e
   // zero ordini generati dalle ricorrenze attive — e si è scoperto solo quando
   // il registro dei guasti ha iniziato a raccogliere gli errori.
-  const sb = createServiceClient();
+  const r = await eseguiCron(
+    "reminders",
+    async () => {
+    const sb = createServiceClient();
 
-  const { da, a } = domaniRoma();
+    const { da, a } = domaniRoma();
 
-  // `!inner` è indispensabile: senza, il filtro su una colonna dell'embed
-  // filtrerebbe solo l'embed e lascerebbe passare tutti gli ordini padre con lo
-  // slot a null — cioè un promemoria a chiunque abbia un ordine aperto.
-  const selRitiri =
-    "id, bags, customer_id, status, pickup_slot:slots!orders_pickup_slot_id_fkey!inner(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)";
-  const selConsegne =
-    "id, bags, customer_id, status, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey!inner(starts_at, ends_at)";
+    // `!inner` è indispensabile: senza, il filtro su una colonna dell'embed
+    // filtrerebbe solo l'embed e lascerebbe passare tutti gli ordini padre con lo
+    // slot a null — cioè un promemoria a chiunque abbia un ordine aperto.
+    const selRitiri =
+      "id, bags, customer_id, status, pickup_slot:slots!orders_pickup_slot_id_fkey!inner(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)";
+    const selConsegne =
+      "id, bags, customer_id, status, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey!inner(starts_at, ends_at)";
 
-  const [ritiri, consegne] = await Promise.all([
-    sb
-      .from("orders")
-      .select(selRitiri)
-      .eq("status", "pickup_scheduled")
-      .is("pickup_reminder_at", null)
-      .gte("pickup_slot.starts_at", da)
-      .lt("pickup_slot.starts_at", a)
-      .returns<Riga[]>(),
-    sb
-      .from("orders")
-      .select(selConsegne)
-      .eq("status", "delivery_scheduled")
-      .is("delivery_reminder_at", null)
-      .gte("delivery_slot.starts_at", da)
-      .lt("delivery_slot.starts_at", a)
-      .returns<Riga[]>(),
-  ]);
+    const [ritiri, consegne] = await Promise.all([
+      sb
+        .from("orders")
+        .select(selRitiri)
+        .eq("status", "pickup_scheduled")
+        .is("pickup_reminder_at", null)
+        .gte("pickup_slot.starts_at", da)
+        .lt("pickup_slot.starts_at", a)
+        .returns<Riga[]>(),
+      sb
+        .from("orders")
+        .select(selConsegne)
+        .eq("status", "delivery_scheduled")
+        .is("delivery_reminder_at", null)
+        .gte("delivery_slot.starts_at", da)
+        .lt("delivery_slot.starts_at", a)
+        .returns<Riga[]>(),
+    ]);
 
-  let inviati = 0;
-  const errori: string[] = [];
+    let inviati = 0;
+    const errori: string[] = [];
 
-  for (const o of ritiri.data ?? []) {
-    const s = uno(o.pickup_slot);
-    if (!s || !o.customer_id) continue;
-    await notifyPromemoria(o.customer_id, {
-      tipo: "ritiro",
-      fascia: fmtSlot(s.starts_at, s.ends_at),
-      orderId: o.id,
-      bags: o.bags ?? 1,
-    });
-    const { error } = await sb.from("orders").update({ pickup_reminder_at: new Date().toISOString() }).eq("id", o.id);
-    if (error) errori.push(`${o.id}: ${error.message}`);
-    inviati++;
-  }
+    for (const o of ritiri.data ?? []) {
+      const s = uno(o.pickup_slot);
+      if (!s || !o.customer_id) continue;
+      await notifyPromemoria(o.customer_id, {
+        tipo: "ritiro",
+        fascia: fmtSlot(s.starts_at, s.ends_at),
+        orderId: o.id,
+        bags: o.bags ?? 1,
+      });
+      const { error } = await sb.from("orders").update({ pickup_reminder_at: new Date().toISOString() }).eq("id", o.id);
+      if (error) errori.push(`${o.id}: ${error.message}`);
+      inviati++;
+    }
 
-  for (const o of consegne.data ?? []) {
-    const s = uno(o.delivery_slot);
-    if (!s || !o.customer_id) continue;
-    await notifyPromemoria(o.customer_id, {
-      tipo: "consegna",
-      fascia: fmtSlot(s.starts_at, s.ends_at),
-      orderId: o.id,
-      bags: o.bags ?? 1,
-    });
-    const { error } = await sb.from("orders").update({ delivery_reminder_at: new Date().toISOString() }).eq("id", o.id);
-    if (error) errori.push(`${o.id}: ${error.message}`);
-    inviati++;
-  }
+    for (const o of consegne.data ?? []) {
+      const s = uno(o.delivery_slot);
+      if (!s || !o.customer_id) continue;
+      await notifyPromemoria(o.customer_id, {
+        tipo: "consegna",
+        fascia: fmtSlot(s.starts_at, s.ends_at),
+        orderId: o.id,
+        bags: o.bags ?? 1,
+      });
+      const { error } = await sb.from("orders").update({ delivery_reminder_at: new Date().toISOString() }).eq("id", o.id);
+      if (error) errori.push(`${o.id}: ${error.message}`);
+      inviati++;
+    }
+      if (ritiri.error || consegne.error) {
+        // Una query fallita qui significa che nessuno è stato avvisato: è un
+        // guasto, non un giro andato a vuoto, e deve far fallire l'esecuzione
+        // perché il registro lo dica.
+        throw new Error((ritiri.error ?? consegne.error)?.message ?? "query fallita");
+      }
+      if (errori.length) {
+        console.error("[cron/reminders] marcature fallite:", errori);
+        // Marcatura fallita = il promemoria può ripartire domani allo stesso
+        // cliente. Va visto, non solo loggato.
+        await registraGuasto("cron", `Reminders: ${errori.length} marcature non salvate`, { errori: errori.slice(0, 5) });
+      }
 
-  if (ritiri.error || consegne.error) {
-    console.error("[cron/reminders] query fallita:", ritiri.error ?? consegne.error);
-    await registraGuasto("cron", `Cron reminders fallito: ${(ritiri.error ?? consegne.error)?.message ?? "errore"}`);
-    return NextResponse.json({ ok: false, error: (ritiri.error ?? consegne.error)?.message }, { status: 500 });
-  }
-  if (errori.length) {
-    console.error("[cron/reminders] marcature fallite:", errori);
-    // Marcatura fallita = il promemoria può ripartire domani allo stesso
-    // cliente. Va visto, non solo loggato.
-    await registraGuasto("cron", `Reminders: ${errori.length} marcature non salvate`, { errori: errori.slice(0, 5) });
-  }
+      return {
+        finestra: { da, a },
+        ritiri: ritiri.data?.length ?? 0,
+        consegne: consegne.data?.length ?? 0,
+        inviati,
+        marcatureFallite: errori.length,
+      };
+    },
+    (e) =>
+      e.inviati === 0
+        ? `nessun promemoria da mandare (${e.ritiri} ritiri, ${e.consegne} consegne domani)`
+        : `${e.inviati} promemoria inviati (${e.ritiri} ritiri, ${e.consegne} consegne)${e.marcatureFallite ? `, ${e.marcatureFallite} marcature non salvate` : ""}`,
+  );
 
-  return NextResponse.json({
-    ok: true,
-    finestra: { da, a },
-    ritiri: ritiri.data?.length ?? 0,
-    consegne: consegne.data?.length ?? 0,
-    inviati,
-  });
+  return r.ok
+    ? NextResponse.json({ ok: true, ...r.esito })
+    : NextResponse.json({ ok: false, error: r.errore }, { status: 500 });
 }
