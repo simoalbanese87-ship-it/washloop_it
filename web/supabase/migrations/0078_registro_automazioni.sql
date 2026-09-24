@@ -42,3 +42,12 @@ create policy "cron_runs: solo admin legge" on public.cron_runs
 
 -- Scrive il service client dei cron, che salta la RLS: nessuna policy di
 -- inserimento, così nessun altro può sporcare il registro.
+
+-- L'ancora del registro.
+--
+-- Il periodo di grazia — «questo lavoro non ha righe, ma il registro è appena
+-- nato, quindi non è fermo» — si misura dalla riga più vecchia. Senza questa,
+-- quella riga non esiste proprio nel momento in cui servirebbe, e il pannello
+-- dichiara guasti tutti e cinque i lavori il giorno in cui si accende.
+insert into public.cron_runs (job, started_at, finished_at, ok, riassunto)
+values ('_avvio', now(), now(), true, 'registro delle automazioni acceso');
