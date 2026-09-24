@@ -65,3 +65,25 @@ test("date malformate non fanno passare un lavoro fermo per sano", () => {
   assert.equal(r.oreFa, null);
   assert.equal(r.inRitardo, true);
 });
+
+test("il giorno in cui si accende il registro, nessun lavoro è «fermo»", () => {
+  // Un allarme che parte quando va tutto bene insegna a ignorarlo.
+  const registroDa = new Date(ADESSO - 2 * ORA).toISOString();
+  const s = statoAutomazioni([], ADESSO, registroDa);
+  assert.ok(s.every((x) => x.inAttesa && !x.inRitardo));
+  assert.equal(quanteDaGuardare(s), 0);
+});
+
+test("passata la soglia, il silenzio torna a essere un sintomo", () => {
+  const registroDa = new Date(ADESSO - 40 * ORA).toISOString();
+  const s = statoAutomazioni([], ADESSO, registroDa);
+  assert.ok(s.every((x) => !x.inAttesa && x.inRitardo));
+});
+
+test("un registro giovane non copre un lavoro che ha girato male", () => {
+  const registroDa = new Date(ADESSO - 2 * ORA).toISOString();
+  const s = statoAutomazioni([giro("dunning", 1, false)], ADESSO, registroDa);
+  const d = s.find((x) => x.nome === "dunning")!;
+  assert.equal(d.fallito, true);
+  assert.equal(quanteDaGuardare(s), 1);
+});

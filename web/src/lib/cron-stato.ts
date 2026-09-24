@@ -47,6 +47,9 @@ export type StatoJob = Job & {
   inRitardo: boolean;
   /** L'ultimo giro è finito male. */
   fallito: boolean;
+  /** Il registro è troppo giovane perché questo lavoro abbia potuto scriverci:
+   *  non sappiamo ancora niente, e non sapere non è un guasto. */
+  inAttesa: boolean;
 };
 
 /** Lo stato di ogni automazione, dato l'ultimo giro di ciascuna.
@@ -54,7 +57,20 @@ export type StatoJob = Job & {
  *  «Mai girato» conta come in ritardo, non come «non lo sappiamo»: un lavoro in
  *  elenco che non ha mai lasciato una riga è esattamente il caso che questo
  *  registro esiste per far vedere. */
-export function statoAutomazioni(ultimi: UltimoGiro[], adesso: number = Date.now()): StatoJob[] {
+/** @param registroDa  da quando il registro raccoglie. Un lavoro senza righe
+ *                      mentre il registro è più giovane della sua soglia non è
+ *                      fermo: semplicemente non ha ancora avuto il suo turno.
+ *                      Senza questa distinzione, il giorno in cui si accende il
+ *                      registro il pannello urla che tutto è rotto — e un
+ *                      allarme che parte quando va tutto bene insegna a
+ *                      ignorarlo. */
+export function statoAutomazioni(
+  ultimi: UltimoGiro[],
+  adesso: number = Date.now(),
+  registroDa?: string | null,
+): StatoJob[] {
+  const inizioRegistro = registroDa ? Date.parse(registroDa) : NaN;
+  const oreDiRegistro = Number.isFinite(inizioRegistro) ? (adesso - inizioRegistro) / 3600_000 : Infinity;
   const perJob = new Map<string, UltimoGiro>();
   for (const u of ultimi) {
     const prima = perJob.get(u.job);
@@ -65,11 +81,13 @@ export function statoAutomazioni(ultimi: UltimoGiro[], adesso: number = Date.now
     const ultimo = perJob.get(j.nome) ?? null;
     const t = ultimo ? Date.parse(ultimo.started_at) : NaN;
     const oreFa = Number.isFinite(t) ? (adesso - t) / 3600_000 : null;
+    const inAttesa = oreFa == null && oreDiRegistro < j.sogliaOre;
     return {
       ...j,
       ultimo,
       oreFa,
-      inRitardo: oreFa == null || oreFa > j.sogliaOre,
+      inAttesa,
+      inRitardo: !inAttesa && (oreFa == null || oreFa > j.sogliaOre),
       fallito: ultimo?.ok === false,
     };
   });

@@ -266,6 +266,10 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
             <span className="rounded-full bg-[#C0392B]/12 px-2.5 py-1 font-display text-xs font-bold text-[#C0392B]">
               {daGuardare} {daGuardare === 1 ? "da guardare" : "da guardare"}
             </span>
+          ) : automazioni.some((a) => a.inAttesa) ? (
+            <span className="rounded-full bg-[#C9881F]/15 px-2.5 py-1 font-display text-xs font-bold text-[#C9881F]">
+              in attesa del primo giro
+            </span>
           ) : (
             <span className="rounded-full bg-[#1F8A5B]/12 px-2.5 py-1 font-display text-xs font-bold text-[#1F8A5B]">
               tutte in orario
@@ -280,15 +284,16 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
         <div className="mt-4 space-y-2">
           {automazioni.map((a) => {
             const male = a.inRitardo || a.fallito;
+            const attesa = a.inAttesa;
             return (
               <div
                 key={a.nome}
-                className={`rounded-[12px] border p-3 ${male ? "border-[#C0392B]/30 bg-[#C0392B]/[0.05]" : "border-line bg-ice/50"}`}
+                className={`rounded-[12px] border p-3 ${male ? "border-[#C0392B]/30 bg-[#C0392B]/[0.05]" : attesa ? "border-[#C9881F]/30 bg-[#C9881F]/[0.05]" : "border-line bg-ice/50"}`}
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <span className="font-display text-sm font-extrabold text-navy">{a.cosaFa}</span>
-                  <span className={`font-display text-xs font-bold ${male ? "text-[#C0392B]" : "text-muted"}`}>
-                    {a.ultimo ? fmtFull(a.ultimo.started_at) : "mai partito"}
+                  <span className={`font-display text-xs font-bold ${male ? "text-[#C0392B]" : attesa ? "text-[#C9881F]" : "text-muted"}`}>
+                    {a.ultimo ? fmtFull(a.ultimo.started_at) : attesa ? "primo giro non ancora arrivato" : "mai partito"}
                   </span>
                 </div>
                 <div className="mt-0.5 text-xs font-medium text-muted">
@@ -303,6 +308,11 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
                     {a.ultimo
                       ? `Fermo da ${Math.round(a.oreFa ?? 0)} ore: dovrebbe girare ogni giorno.`
                       : "Non ha mai lasciato traccia di essere partito."}
+                  </div>
+                )}
+                {attesa && (
+                  <div className="mt-1 text-xs font-semibold text-[#C9881F]">
+                    Il registro è appena stato acceso: la prima riga arriva al prossimo giro.
                   </div>
                 )}
               </div>
