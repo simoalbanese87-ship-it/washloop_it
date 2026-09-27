@@ -5,6 +5,7 @@ import { prossimoPassaggio, type OrdinePerPassaggi } from "@/lib/passaggi";
 import { ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtDate, fmtFull, fmtSlot, WEEKDAY_IT } from "@/lib/format";
 import { cancelRecurring, confirmRecurring, rejectRecurring } from "@/lib/actions/orders";
+import { passiMancanti, PASSO_TESTO } from "@/lib/passi-mancanti";
 
 type OrderRow = { id: string; status: OrderStatus; created_at: string; bags: number; eta_ready_at: string | null; pickup_slot: { starts_at: string; ends_at: string } | null; delivery_slot: { starts_at: string; ends_at: string } | null };
 type SubRow = { status: string; current_period_end: string | null; plans: { name: string; bags_per_week: number } | null };
@@ -52,6 +53,12 @@ export default async function Home() {
   // pagava da mesi comparive «Attiva un abbonamento».
   const sofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
   const senzaIndirizzo = (quantiIndirizzi ?? 0) === 0;
+  // Cosa manca per poter prenotare, tutto insieme. Prima la home sceglieva un
+  // messaggio solo e l'indirizzo veniva prima dell'abbonamento: a chi mancavano
+  // entrambi diceva «manca solo l'indirizzo», che è una promessa falsa — la
+  // persona lo metteva, tornava, e scopriva di dover anche pagare.
+  const passi = passiMancanti({ abbonamentoAttivo: active, haIndirizzo: !senzaIndirizzo });
+  const daFare = passi.length > 1;
   const ongoing = (orders ?? []).find((o) => ACTIVE_ORDER.includes(o.status));
 
   // In cima si mette la cosa che la persona è venuta a cercare: quando ci
@@ -109,6 +116,37 @@ export default async function Home() {
             <Link href="/app/abbonamento" className="mt-4 inline-flex rounded-full bg-gradient-to-br from-blue to-cyan px-5 py-2.5 font-display text-sm font-extrabold text-white shadow-[0_10px_24px_-10px_rgba(0,200,240,0.7)]">
               Sistema il pagamento →
             </Link>
+          </>
+        ) : daFare ? (
+          <>
+            <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan">Ci siamo quasi</div>
+            <div className="mt-2 font-display text-[26px] font-black leading-tight">
+              Mancano {passi.length} cose
+            </div>
+            <p className="mt-1.5 text-sm font-medium text-white/70">
+              Poi puoi prenotare il primo ritiro. Te le diciamo tutte e due adesso, così sai cosa ti aspetta.
+            </p>
+            <div className="mt-4 space-y-2">
+              {passi.map((passo, i) => {
+                const t = PASSO_TESTO[passo];
+                return (
+                  <Link
+                    key={passo}
+                    href={t.href}
+                    className="flex items-center gap-3 rounded-[14px] bg-white/10 p-3 backdrop-blur transition-colors hover:bg-white/20"
+                  >
+                    <span className="grid h-7 w-7 flex-none place-items-center rounded-full bg-cyan font-display text-sm font-black text-navy">
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block font-display text-sm font-extrabold text-white">{t.titolo}</span>
+                      <span className="block text-xs font-medium text-white/60">{t.dettaglio}</span>
+                    </span>
+                    <span className="ml-auto flex-none font-display text-sm font-extrabold text-cyan">→</span>
+                  </Link>
+                );
+              })}
+            </div>
           </>
         ) : senzaIndirizzo ? (
           <>
