@@ -167,7 +167,12 @@ export async function submitLead(_prev: LeadFormState, formData: FormData): Prom
   // Da dove è partita la richiesta, per tornarci: la home e la landing hanno la
   // stessa pagina di ringraziamento, ma chi arriva dalla home non deve
   // ritrovarsi su un indirizzo che parla di un'altra pagina.
-  redirect(`/grazie?c=${covered ? 1 : 0}`);
+  //
+  // `ok` è un gettone usa e getta: esiste solo se il lead è stato **salvato**,
+  // e cambia a ogni invio. Serve alla conversione Meta per due cose insieme —
+  // non contare chi apre /grazie a mano, e non contare due volte chi ricarica
+  // la pagina. Non identifica nessuno: è un numero casuale.
+  redirect(`/grazie?c=${covered ? 1 : 0}&ok=${crypto.randomBytes(6).toString("hex")}`);
 }
 
 // ---------------------------------------------------------------------------

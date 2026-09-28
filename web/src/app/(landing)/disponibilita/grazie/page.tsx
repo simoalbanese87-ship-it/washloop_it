@@ -10,8 +10,12 @@ import { redirect } from "next/navigation";
 export default async function GrazieRedirect({
   searchParams,
 }: {
-  searchParams: Promise<{ c?: string }>;
+  searchParams: Promise<{ c?: string; ok?: string }>;
 }) {
-  const { c } = await searchParams;
-  redirect(`/grazie${c ? `?c=${c === "1" ? "1" : "0"}` : ""}`);
+  const { c, ok } = await searchParams;
+  // Il gettone va portato avanti, o chi passa di qui non verrebbe contato.
+  const q = new URLSearchParams();
+  if (c) q.set("c", c === "1" ? "1" : "0");
+  if (ok && /^[a-f0-9]{1,32}$/.test(ok)) q.set("ok", ok);
+  redirect(`/grazie${q.toString() ? `?${q}` : ""}`);
 }

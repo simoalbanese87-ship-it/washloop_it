@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
 import { ConversionTracker } from "@/components/ConversionTracker";
+import { MetaEvent } from "@/components/MetaEvent";
 
 export const metadata: Metadata = {
   title: "Richiesta ricevuta",
@@ -35,7 +36,7 @@ const SOCIAL = [
 export default async function GraziePage({
   searchParams,
 }: {
-  searchParams: Promise<{ c?: string }>;
+  searchParams: Promise<{ c?: string; ok?: string }>;
 }) {
   const { c } = await searchParams;
   const covered = c === "1";
@@ -45,6 +46,10 @@ export default async function GraziePage({
       <div className="relative mx-auto max-w-2xl px-5 py-24 text-center md:py-32">
         <Suspense fallback={null}>
           <ConversionTracker label={process.env.NEXT_PUBLIC_GADS_LEAD_LABEL} />
+          {/* Meta: «Lead» significa registrazione salvata, non bottone
+              premuto. Il gettone `ok` lo mette il redirect e c'è solo dopo un
+              salvataggio riuscito. */}
+          <MetaEvent event="Lead" chiave="ok" />
         </Suspense>
 
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-cyan/15 text-cyan">

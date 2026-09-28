@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { ConversionTracker } from "@/components/ConversionTracker";
+import { MetaEvent } from "@/components/MetaEvent";
 import { syncFromCheckoutSession } from "@/lib/subscription-sync";
 import { fmtDate } from "@/lib/format";
 
@@ -27,7 +28,7 @@ export default async function GraziePage({
   const { session_id } = await searchParams;
   // Se manca il session_id (link aperto a mano) non possiamo verificare nulla:
   // meglio un messaggio prudente che una bugia.
-  const esito = session_id ? await syncFromCheckoutSession(session_id) : { attivo: false, prova: null };
+  const esito = session_id ? await syncFromCheckoutSession(session_id) : { attivo: false, prova: null, incassatoCents: 0 };
 
   return (
     <main
@@ -37,6 +38,11 @@ export default async function GraziePage({
       {/* Evento di conversione Google Ads (client, una volta) */}
       <Suspense fallback={null}>
         <ConversionTracker />
+        {/* Meta: l'acquisto si conta solo se il denaro si è mosso davvero. Su
+            una prova gratuita `incassatoCents` è zero e l'evento parte senza
+            valore, perché contare 160 € che nessuno ha ancora pagato
+            falserebbe il costo per acquisizione di ogni campagna. */}
+        {esito.incassatoCents > 0 && <MetaEvent event="Purchase" value={esito.incassatoCents / 100} />}
       </Suspense>
 
       <section className="w-full max-w-[440px] rounded-[26px] bg-white/[0.06] px-6 py-10 text-center text-white shadow-[0_30px_80px_-40px_rgba(0,0,0,0.6)] backdrop-blur">

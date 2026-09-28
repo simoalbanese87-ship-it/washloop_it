@@ -91,13 +91,13 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
  *  Non lancia mai: la pagina di ringraziamento deve aprirsi comunque. */
 export async function syncFromCheckoutSession(
   sessionId: string,
-): Promise<{ attivo: boolean; prova: { fineIso: string } | null }> {
+): Promise<{ attivo: boolean; prova: { fineIso: string } | null; incassatoCents: number }> {
   try {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
     // Con una prova a 0 € la sessione si completa senza `payment_status: paid`:
     // guardare solo il pagamento avrebbe fatto dire «non attivo» a ogni prova.
-    if (session.payment_status !== "paid" && session.status !== "complete") return { attivo: false, prova: null };
-    if (!session.subscription) return { attivo: false, prova: null };
+    if (session.payment_status !== "paid" && session.status !== "complete") return { attivo: false, prova: null, incassatoCents: 0 };
+    if (!session.subscription) return { attivo: false, prova: null, incassatoCents: 0 };
 
     const sub = await stripe().subscriptions.retrieve(session.subscription as string);
     // I metadata stanno sulla sessione quando la subscription è appena nata.
@@ -112,10 +112,15 @@ export async function syncFromCheckoutSession(
         sub.status === "trialing" && sub.trial_end
           ? { fineIso: new Date(sub.trial_end * 1000).toISOString() }
           : null,
+      // Quanto è stato incassato **adesso**, per la conversione pubblicitaria.
+      // Su una prova gratuita è zero, ed è giusto: non è ancora un acquisto, e
+      // dichiararlo a Meta al prezzo del piano falserebbe il costo per
+      // acquisizione di ogni campagna.
+      incassatoCents: session.amount_total ?? 0,
     };
   } catch (err) {
     console.error("[checkout] impossibile verificare la sessione:", err);
-    return { attivo: false, prova: null };
+    return { attivo: false, prova: null, incassatoCents: 0 };
   }
 }
 
