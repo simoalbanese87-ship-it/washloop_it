@@ -1,6 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
-import { incassiStripePerMese } from "@/lib/incassi-stripe";
+import { incassiStripePerMese, rimborsiPerMese } from "@/lib/incassi-stripe";
 import { waitlistLeads } from "@/lib/waitlist";
 
 /** Aggregatori per la dashboard admin. Tutti gli importi sono in cent EUR.
@@ -130,6 +130,9 @@ export async function revenueMetrics(includiProva = false): Promise<RevenueMetri
   // che non arriva, quindi da sola dava zero mentre gli abbonamenti venivano
   // pagati: resta come ripiego se Stripe non risponde.
   const stripePerMese = await incassiStripePerMese(Math.floor(new Date(yearStart).getTime() / 1000));
+  // Quello che è tornato indietro non è incassato, da qualunque fonte venga il
+  // totale: Stripe lascia la fattura «pagata» anche dopo un rimborso.
+  const rimborsi = await rimborsiPerMese(yearStart);
 
   // Solo i paganti. Chi è in prova gratuita prenota e viene servito, ma non
   // versa ancora niente: sommarlo al prezzo pieno gonfierebbe il ricorrente di
@@ -165,8 +168,9 @@ export async function revenueMetrics(includiProva = false): Promise<RevenueMetri
       .format(new Date())
       .slice(0, 7);
     for (const [k, v] of stripePerMese) {
-      incassatoAnnoCents += v.totaleCents;
-      if (k === meseCorrente) incassatoMeseCents += v.totaleCents;
+      const netto = v.totaleCents - (rimborsi.get(k) ?? 0);
+      incassatoAnnoCents += netto;
+      if (k === meseCorrente) incassatoMeseCents += netto;
     }
   } else {
     for (const i of incassi ?? []) {

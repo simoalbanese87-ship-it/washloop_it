@@ -188,6 +188,41 @@ export async function POST(request: NextRequest) {
     // (che paga in un tap, senza nemmeno accedere) e il contatore dei
     // solleciti. Da quella traccia vivono il banner in app e il cron che manda
     // il secondo e il terzo avviso.
+    // I soldi tornati indietro. Senza questo caso il registro degli incassi
+    // contava per sempre due ricevute già rimborsate: `invoices` non aveva
+    // nessun campo per dirlo, e l'import da Stripe chiede le fatture `paid`
+    // sommando `amount_paid`, che dopo un rimborso non cala di un centesimo.
+    case "charge.refunded": {
+      const ch = event.data.object as unknown as {
+        id: string;
+        invoice: string | null;
+        amount_refunded: number;
+        refunded: boolean;
+      };
+      after(async () => {
+        try {
+          // Senza fattura non c'è ricevuta da segnare: un rimborso su un
+          // pagamento fuori abbonamento non passa da questo registro.
+          if (!ch.invoice || !ch.amount_refunded) return;
+          const { error } = await db
+            .from("invoices")
+            .update({
+              rimborsato_at: new Date().toISOString(),
+              rimborsato_cents: ch.amount_refunded,
+            })
+            .eq("stripe_invoice_id", ch.invoice);
+          if (error) throw new Error(error.message);
+        } catch (err) {
+          await registraGuasto("stripe", "Rimborso non segnato sulla ricevuta", {
+            charge: ch.id,
+            invoice: ch.invoice,
+            errore: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
+      break;
+    }
+
     // Tre giorni prima dell'addebito: l'unico momento in cui possiamo dire al
     // cliente, con anticipo, la data vera. Su una prova che si muove non esiste
     // un momento equivalente.

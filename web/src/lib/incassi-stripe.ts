@@ -66,3 +66,36 @@ export async function incassiStripePerMese(dalEpochSec: number): Promise<Map<str
     return null;
   }
 }
+
+/** I rimborsi già registrati sulle ricevute, per mese.
+ *
+ *  Stripe non toglie l'importo rimborsato da `amount_paid` della fattura: per
+ *  lui quella fattura resta pagata, ed è corretto — è successo. Ma per noi
+ *  «incassato» significa «rimasto», e senza questa sottrazione la home
+ *  continuerebbe a contare soldi già tornati al cliente mentre la pagina
+ *  incassi, che ora li toglie, direbbe un'altra cifra. Due totali diversi nello
+ *  stesso pannello e nessuno che sa quale credere.
+ *
+ *  La fonte è `invoices.rimborsato_cents`, che scrive il webhook
+ *  `charge.refunded`. */
+export async function rimborsiPerMese(dallIso: string): Promise<Map<string, number>> {
+  const { createServiceClient } = await import("@/lib/supabase/server");
+  const per = new Map<string, number>();
+  try {
+    const { data } = await createServiceClient()
+      .from("invoices")
+      .select("rimborsato_cents, rimborsato_at")
+      .not("rimborsato_at", "is", null)
+      .gte("rimborsato_at", dallIso)
+      .returns<{ rimborsato_cents: number | null; rimborsato_at: string }[]>();
+    for (const r of data ?? []) {
+      // Il rimborso pesa sul mese in cui il denaro è uscito, non su quello in
+      // cui era entrato: è così che lo vede il conto corrente.
+      const k = meseRoma(Math.floor(Date.parse(r.rimborsato_at) / 1000));
+      per.set(k, (per.get(k) ?? 0) + (r.rimborsato_cents ?? 0));
+    }
+  } catch (err) {
+    console.error("[incassi] lettura dei rimborsi fallita:", err);
+  }
+  return per;
+}

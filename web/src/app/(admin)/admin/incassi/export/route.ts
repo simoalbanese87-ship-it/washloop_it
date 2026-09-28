@@ -20,6 +20,8 @@ type Riga = {
   stato: string;
   fic_number: string | null;
   created_at: string;
+  rimborsato_at: string | null;
+  rimborsato_cents: number | null;
   profiles: { full_name: string | null; client_code: string | null } | null;
 };
 
@@ -57,14 +59,18 @@ export async function GET(req: Request) {
   const dal = searchParams.get("dal");
   const al = searchParams.get("al");
   const tipo = searchParams.get("tipo");
+  const mostraRimborsate = searchParams.get("rimborsate") === "1";
   const giorno = (d: string | null) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null);
 
   const svc = createServiceClient();
   let q = svc
     .from("invoices")
-    .select("stripe_invoice_id, amount_cents, stato, fic_number, created_at, profiles(full_name, client_code)")
+    .select("stripe_invoice_id, amount_cents, stato, fic_number, created_at, rimborsato_at, rimborsato_cents, profiles(full_name, client_code)")
     .order("created_at", { ascending: true });
 
+  // Anche qui: un incasso restituito non è un incasso, e il commercialista che
+  // apre questo file non deve scoprirlo da solo.
+  if (!mostraRimborsate) q = q.is("rimborsato_at", null);
   const d = giorno(dal);
   const a = giorno(al);
   if (d) q = q.gte("created_at", `${d}T00:00:00.000Z`);
@@ -77,7 +83,7 @@ export async function GET(req: Request) {
   const { data } = await q.returns<Riga[]>();
   const righe = data ?? [];
 
-  const totale = righe.reduce((t, r) => t + r.amount_cents, 0);
+  const totale = righe.reduce((t, r) => t + r.amount_cents - (r.rimborsato_cents ?? 0), 0);
   // Scorporo: gli importi Stripe sono lordi, l'imponibile è il lordo / 1,22.
   const imponibileTot = Math.round(totale / 1.22);
 

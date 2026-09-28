@@ -1,6 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
-import { incassiStripePerMese } from "@/lib/incassi-stripe";
+import { incassiStripePerMese, rimborsiPerMese } from "@/lib/incassi-stripe";
 
 /** Gli incassi mese per mese, per il grafico a barre della Home.
  *
@@ -54,9 +54,13 @@ export async function incassiMensili(includiProva = false, quantiMesi = 12): Pro
   // venivano pagati.
   const daStripe = await incassiStripePerMese(Math.floor(new Date(dallIso).getTime() / 1000));
 
+  // Stessa sottrazione della home e della pagina incassi: una barra che conta
+  // soldi già restituiti racconta una crescita che non c'è stata.
+  const rimborsi = await rimborsiPerMese(dallIso);
+
   const per = new Map<string, { totaleCents: number; quanti: number }>();
   if (daStripe) {
-    for (const [k, v] of daStripe) per.set(k, { totaleCents: v.totaleCents, quanti: v.quanti });
+    for (const [k, v] of daStripe) per.set(k, { totaleCents: v.totaleCents - (rimborsi.get(k) ?? 0), quanti: v.quanti });
   } else {
     const { data: righe } = await svc
       .from("invoices")

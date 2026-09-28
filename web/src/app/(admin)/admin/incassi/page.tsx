@@ -20,6 +20,9 @@ export const dynamic = "force-dynamic";
 type Riga = {
   /** Progressivo della ricevuta nell'anno. Nullo solo sulle righe pre-numerazione. */
   numero_ricevuta: number | null;
+  /** Quando il denaro è tornato al cliente: allora non è un incasso. */
+  rimborsato_at: string | null;
+  rimborsato_cents: number | null;
   id: string;
   stripe_invoice_id: string | null;
   amount_cents: number;
@@ -63,19 +66,25 @@ function periodo(dal?: string, al?: string): { da: string | null; a: string | nu
 export default async function IncassiPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ok?: string; warn?: string; tipo?: string; dal?: string; al?: string }>;
+  searchParams: Promise<{ ok?: string; warn?: string; tipo?: string; dal?: string; al?: string; rimborsate?: string }>;
 }) {
-  const { ok, warn, tipo, dal, al } = await searchParams;
+  const { ok, warn, tipo, dal, al, rimborsate } = await searchParams;
+  // Le ricevute rimborsate restano fuori per scelta: il registro deve dire
+  // quanto è entrato, e quei soldi sono già tornati indietro. Si rivedono
+  // quando servono, e il loro numero resta al suo posto — una numerazione con
+  // un buco è peggio di una riga in più.
+  const mostraRimborsate = rimborsate === "1";
   const { da, a } = periodo(dal, al);
 
   const svc = createServiceClient();
   let q = svc
     .from("invoices")
-    .select("id, stripe_invoice_id, amount_cents, stato, fic_number, fic_url, ei_status, errore, created_at, numero_ricevuta, profiles(full_name, client_code)")
+    .select("id, stripe_invoice_id, amount_cents, stato, fic_number, fic_url, ei_status, errore, created_at, numero_ricevuta, rimborsato_at, rimborsato_cents, profiles(full_name, client_code)")
     .order("numero_ricevuta", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(500);
 
+  if (!mostraRimborsate) q = q.is("rimborsato_at", null);
   if (da) q = q.gte("created_at", da);
   if (a) q = q.lt("created_at", a);
   // Il tipo di documento è lo stato della riga: "saltata" = solo ricevuta.
@@ -86,7 +95,10 @@ export default async function IncassiPage({
   const { data } = await q.returns<Riga[]>();
   const righe = data ?? [];
 
-  const totale = righe.reduce((t, r) => t + r.amount_cents, 0);
+  // Il totale toglie quello che è tornato indietro anche quando le righe sono a
+  // schermo: un rimborso parziale lascia la ricevuta valida per il resto.
+  const totale = righe.reduce((t, r) => t + r.amount_cents - (r.rimborsato_cents ?? 0), 0);
+  const quanteRimborsate = righe.filter((r) => r.rimborsato_at).length;
   const ricevute = righe.filter((r) => r.stato === "saltata").length;
   const fatture = righe.filter((r) => r.stato === "emessa").length;
   const daEmettere = righe.filter((r) => r.stato === "da_emettere").length;
@@ -110,7 +122,7 @@ export default async function IncassiPage({
 
   const qs = (p: Record<string, string | undefined>) => {
     const u = new URLSearchParams();
-    for (const [k, v] of Object.entries({ tipo, dal, al, ...p })) if (v) u.set(k, v);
+    for (const [k, v] of Object.entries({ tipo, dal, al, rimborsate, ...p })) if (v) u.set(k, v);
     return u.toString() ? `?${u}` : "";
   };
 
@@ -189,6 +201,9 @@ export default async function IncassiPage({
           >
             ⬇ Scarica CSV ({righe.length})
           </a>
+          <Link href={`/admin/incassi${qs({ rimborsate: mostraRimborsate ? undefined : "1" })}`} className={attivo(mostraRimborsate)}>
+            {mostraRimborsate ? "Nascondi le rimborsate" : "Mostra anche le rimborsate"}
+          </Link>
         </form>
 
         <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4 lg:grid-cols-4">
@@ -248,6 +263,11 @@ export default async function IncassiPage({
         <h2 className="font-display text-base font-extrabold text-navy">
           {righe.length} {righe.length === 1 ? "incasso" : "incassi"}
           {dal || al ? " nel periodo" : ""}
+          {mostraRimborsate && quanteRimborsate > 0 && (
+            <span className="ml-2 font-display text-sm font-bold text-[#C0392B]">
+              · {quanteRimborsate} {quanteRimborsate === 1 ? "rimborsato" : "rimborsati"}
+            </span>
+          )}
         </h2>
         <p className="mt-1 text-sm font-medium text-muted">
           I dati fiscali li lascia il cliente dalla sua area, alla voce «Ricevuta e fattura».
@@ -269,12 +289,18 @@ export default async function IncassiPage({
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${TONO[r.stato] ?? "bg-navy/10 text-navy"}`}>
                     {ETICHETTA[r.stato] ?? r.stato}
                   </span>
+                  {r.rimborsato_at && (
+                    <span className="rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#C0392B]">
+                      rimborsata
+                    </span>
+                  )}
                   {r.ei_status && (
                     <span className="rounded-full bg-navy/8 px-2 py-0.5 text-[10px] font-bold text-navy/70">SdI: {r.ei_status}</span>
                   )}
                 </div>
                 <div className="text-xs font-medium text-muted">
-                  {eur(r.amount_cents)} · {fmtFull(r.created_at)}
+                  <span className={r.rimborsato_at ? "line-through" : ""}>{eur(r.amount_cents)}</span>
+                  {r.rimborsato_at && <> · {eur(r.rimborsato_cents ?? 0)} resi il {fmtFull(r.rimborsato_at)}</>} · {fmtFull(r.created_at)}
                   {r.fic_number && <> · fattura n. {r.fic_number}</>}
                   {r.profiles?.client_code && <> · {r.profiles.client_code}</>}
                 </div>
