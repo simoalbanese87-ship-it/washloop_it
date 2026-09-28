@@ -209,6 +209,9 @@ export type CapoSpeciale = {
   annullato_at: string | null;
   annullato_motivo: string | null;
   order_id: string;
+  /** Riferimento Stripe del rimborso: distingue i soldi usciti davvero
+   *  da un addebito solo annullato. */
+  refund_ref?: string | null;
 };
 
 /** Incassi registrati da noi (ricevute, e fatture dove esistono). */
@@ -232,7 +235,7 @@ export async function capiSpecialiCliente(userId: string): Promise<CapoSpeciale[
 
   const { data } = await svc
     .from("order_specials")
-    .select("id, item_name, qty, qty_totale, qty_inclusa, price_cli_cents, created_at, charged_at, refunded_at, incassato_at, incasso_fallito_at, incasso_errore, link_pagamento, annullato_at, annullato_motivo, order_id")
+    .select("id, item_name, qty, qty_totale, qty_inclusa, price_cli_cents, created_at, charged_at, refunded_at, refund_ref, incassato_at, incasso_fallito_at, incasso_errore, link_pagamento, annullato_at, annullato_motivo, order_id")
     .in("order_id", ids)
     .order("created_at", { ascending: false })
     .returns<CapoSpeciale[]>();

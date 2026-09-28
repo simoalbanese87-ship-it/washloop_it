@@ -15,6 +15,7 @@ import { cancelOrder } from "@/lib/actions/orders";
 import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
 import { ACCESS_MODE_LABEL, ORDER_STATUS_LABEL, ordineAperto, type AccessMode, type OrderStatus } from "@/lib/orders";
 import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
+import { saldoAddebiti } from "@/lib/addebiti-netti";
 import { ATTESA_GIORNI } from "@/lib/dunning-piano";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -36,7 +37,7 @@ type Offerta = {
   checkout_url: string; expires_at: string | null; created_at: string;
 };
 type Ord = { id: string; status: OrderStatus; created_at: string; bags: number; pickup_slot: { starts_at: string } | null };
-type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; created_at: string };
+type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; stripe_ref: string | null; created_at: string };
 type Slot = { id: string; starts_at: string; ends_at: string; kind: string };
 
 /** Gli stati degli addebiti erano mostrati grezzi ("pending", "invoiced"):
@@ -69,7 +70,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street, cap, civico, intercom, floor, notes, access_mode, access_note, concierge_hours, lat, lng").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
-    svc.from("customer_charges").select("id, description, amount_cents, kind, status, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
+    svc.from("customer_charges").select("id, description, amount_cents, kind, status, stripe_ref, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
     svc.from("recurring_pickups").select("id, weekday, hhmm, bags, active, needs_confirmation, delivery_hhmm, address_id, addresses(label), pending_weekday, pending_hhmm, pending_bags, pending_delivery_hhmm").eq("customer_id", id).order("created_at", { ascending: false }).returns<Rec[]>(),
     svc.from("slots").select("id, starts_at, ends_at, kind").is("archived_at", null).gte("starts_at", new Date().toISOString()).order("starts_at").limit(60).returns<Slot[]>(),
     // Le ultime proposte, non solo l'ultima: se la più recente è scaduta ma
@@ -123,8 +124,13 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const inAttesaCents = inAttesa.reduce((t, c) => t + c.price_cli_cents * c.qty, 0);
   const incassatiCents = incassati.reduce((t, c) => t + c.price_cli_cents * c.qty, 0);
   const nonRiuscitiCents = nonRiusciti.reduce((t, c) => t + c.price_cli_cents * c.qty, 0);
-  const addebitatoCents = charges?.filter((c) => c.kind !== "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
-  const stornatoCents = charges?.filter((c) => c.kind === "refund" && c.status !== "void").reduce((t, c) => t + c.amount_cents, 0) ?? 0;
+  // Il saldo degli extra sta in un modulo puro con i test: qui prima era
+  // `customer_charges` meno se stessa, e siccome un capo addebitato non ci
+  // scrive niente mentre il suo rimborso sì, il numero poteva solo essere zero
+  // o negativo. Su Giulia diceva −35,00 € quando il saldo vero era zero.
+  const saldo = saldoAddebiti(capi ?? [], charges ?? []);
+  const addebitatoCents = saldo.addebitatoCents;
+  const stornatoCents = saldo.stornatoCents;
 
   // Le fasce future, divise per tipo: servono al ritiro creato dall'amministrazione.
   const slotRitiro = (slots ?? []).filter((sl) => sl.kind === "pickup");
@@ -853,8 +859,18 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               <div className="mt-0.5 text-[11px] font-semibold leading-tight text-muted">Incassato</div>
             </div>
             <div className="rounded-[14px] bg-ice px-2 py-3">
-              <div className="font-display text-lg font-black text-navy">{eur(addebitatoCents - stornatoCents)}</div>
+              <div className="font-display text-lg font-black text-navy">{eur(saldo.nettoCents)}</div>
               <div className="mt-0.5 text-[11px] font-semibold leading-tight text-muted">Addebiti netti</div>
+              {/* Il numero da solo non si legge: «0,00 €» può voler dire «non ha
+                  mai avuto extra» oppure «ha pagato e gli è stato reso», e sono
+                  due situazioni diverse davanti a un cliente al telefono. */}
+              {(saldo.addebitatoCents > 0 || saldo.stornatoCents > 0 || saldo.annullatoCents > 0) && (
+                <div className="mt-1 text-[10px] font-medium leading-snug text-muted/80">
+                  {eur(saldo.addebitatoCents)} addebitati
+                  {saldo.stornatoCents > 0 && `, ${eur(saldo.stornatoCents)} resi`}
+                  {saldo.annullatoCents > 0 && `, ${eur(saldo.annullatoCents)} tolti prima dell'addebito`}
+                </div>
+              )}
             </div>
             <div className="rounded-[14px] bg-ice px-2 py-3">
               <div className="font-display text-lg font-black text-navy">{capi.length}</div>
@@ -1093,7 +1109,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           {(addebitatoCents > 0 || stornatoCents > 0) && (
             <span className="text-sm font-medium text-muted">
               {eur(addebitatoCents)} addebitati · {eur(stornatoCents)} stornati ·{" "}
-              <strong className="text-navy">{eur(addebitatoCents - stornatoCents)} netti</strong>
+              <strong className="text-navy">{eur(saldo.nettoCents)} netti</strong>
             </span>
           )}
         </div>
