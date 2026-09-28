@@ -191,7 +191,7 @@ export function VerificaCap({ onVerificato }: { onVerificato?: (cap: string) => 
           <p className="mt-2 text-sm font-medium leading-relaxed text-muted">
             {inZona
               ? "Lasciaci i tuoi dati e ti mandiamo tutte le informazioni: come funziona, quanto costa e i prossimi slot disponibili."
-              : "Lasciaci comunque i tuoi dati: decidiamo dove aprire guardando da dove ci scrivono, e ti avvisiamo appena arriviamo nella tua zona."}
+              : "Lasciaci i tuoi dati: decidiamo dove aprire guardando da dove ci scrivono. E se non vuoi aspettare, puoi attivare lo stesso: il ritiro lo concordiamo con te prima di partire."}
           </p>
 
           <form action={inviaConUtm} className="mt-6 space-y-3.5">

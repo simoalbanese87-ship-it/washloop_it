@@ -94,7 +94,7 @@ export function RichiestaZona() {
     esito === "in-zona"
       ? "Lasciaci i tuoi dati: ti chiamiamo per confermare la disponibilità e i prossimi slot."
       : esito === "fuori-zona"
-        ? "Lasciaci comunque i tuoi dati: decidiamo dove aprire guardando da dove ci scrivono, e ti avvisiamo appena arriviamo."
+        ? "Lasciaci i tuoi dati: decidiamo dove aprire guardando da dove ci scrivono. E se non vuoi aspettare, puoi attivare lo stesso: il ritiro lo concordiamo con te prima di partire."
         : "Scrivi il tuo CAP e lasciaci i tuoi dati: ti diciamo noi come siamo messi nella tua zona.";
 
   return (

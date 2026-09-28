@@ -62,7 +62,7 @@ export default async function GraziePage({
         <p className="mx-auto mt-6 max-w-lg text-lg font-medium leading-relaxed text-white/70">
           {covered
             ? "Buone notizie: il tuo CAP rientra nell'area che copriamo a Milano. Ti ricontatteremo per fornirti maggiori informazioni sul servizio."
-            : "Il tuo CAP non è ancora tra le zone che serviamo. Ti avvisiamo appena apriamo da te."}
+            : "Il tuo CAP non è ancora tra le zone in cui passiamo ogni settimana, e ti avvisiamo appena apriamo da te. Se non vuoi aspettare puoi attivare lo stesso: ti chiamiamo per concordare il ritiro prima di partire."}
         </p>
 
         {/* I social vanno su entrambe le varianti: anche chi è fuori zona può
@@ -86,17 +86,17 @@ export default async function GraziePage({
           </div>
         </div>
 
-        {/* Il pulsante verso il sito vetrina compare solo a chi è in zona: a chi
-            non copriamo non serve un invito a esplorare un servizio che non può
-            ancora attivare. */}
-        {covered && (
-          <Link
-            href="/"
-            className="mt-10 inline-flex min-h-[52px] items-center justify-center rounded-[40px] bg-white px-7 font-display text-base font-extrabold text-navy transition-transform hover:-translate-y-0.5"
-          >
-            Scopri WashLoop →
-          </Link>
-        )}
+        {/* Il bottone c'era solo per chi è in zona, perché «a chi non copriamo
+            non serve un invito a esplorare un servizio che non può ancora
+            attivare». Ma attivare può eccome — l'onboarding non guarda il CAP —
+            quindi quella frase descriveva una regola che non esiste e
+            nascondeva l'unica porta proprio a chi la stava cercando. */}
+        <Link
+          href={covered ? "/" : "/onboarding"}
+          className="mt-10 inline-flex min-h-[52px] items-center justify-center rounded-[40px] bg-white px-7 font-display text-base font-extrabold text-navy transition-transform hover:-translate-y-0.5"
+        >
+          {covered ? "Scopri WashLoop →" : "Attiva lo stesso →"}
+        </Link>
       </div>
     </section>
   );
