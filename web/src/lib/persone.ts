@@ -193,7 +193,12 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
  *  Passa dalla stessa deduplica dell'elenco e non da una query sui soli `leads`:
  *  la dashboard contava cinque persone da contattare, e due erano già clienti —
  *  uno di loro un abbonato attivo e pagante. Chiedeva di rincorrere gente che
- *  avevamo già. */
+ *  avevamo già.
+ *
+ *  «Contattato, in attesa di risposta» **non** rientra qui, ed è il motivo per
+ *  cui quello stato esiste: la chiamata è già stata fatta e il riquadro in home
+ *  deve contare chi non è stato ancora cercato, non chi non ha ancora
+ *  richiamato. */
 export async function daContattare(includiProva = false): Promise<Persona[]> {
   const tutte = await elencoPersone(includiProva);
   return tutte.filter((p) => p.stadio === "lead" && (p.statoContatto == null || p.statoContatto === "da_contattare"));
