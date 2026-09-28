@@ -6,9 +6,10 @@ import { ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtDate, fmtFull, fmtSlot, WEEKDAY_IT } from "@/lib/format";
 import { cancelRecurring, confirmRecurring, rejectRecurring } from "@/lib/actions/orders";
 import { passiMancanti, PASSO_TESTO } from "@/lib/passi-mancanti";
+import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
 
 type OrderRow = { id: string; status: OrderStatus; created_at: string; bags: number; eta_ready_at: string | null; pickup_slot: { starts_at: string; ends_at: string } | null; delivery_slot: { starts_at: string; ends_at: string } | null };
-type SubRow = { status: string; current_period_end: string | null; plans: { name: string; bags_per_week: number } | null };
+type SubRow = { status: string; current_period_end: string | null; cancel_at_period_end: boolean | null; prova_fine_at: string | null; plans: { name: string; bags_per_week: number } | null };
 type RecRow = {
   id: string; weekday: number; hhmm: string; bags: number; active: boolean; needs_confirmation: boolean;
   delivery_hhmm: string | null;
@@ -22,7 +23,7 @@ export default async function Home() {
   const [{ data: sub }, { data: orders }, { data: recs }, { count: quantiIndirizzi }] = await Promise.all([
     supabase
       .from("subscriptions")
-      .select("status, current_period_end, plans(name, bags_per_week)")
+      .select("status, current_period_end, cancel_at_period_end, prova_fine_at, plans(name, bags_per_week)")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle<SubRow>(),
@@ -53,6 +54,14 @@ export default async function Home() {
   // pagava da mesi comparive «Attiva un abbonamento».
   const sofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
   const senzaIndirizzo = (quantiIndirizzi ?? 0) === 0;
+  // Stessa etichetta della pagina abbonamento: qui diceva «Rinnovo il …» anche
+  // a chi aveva disdetto.
+  const etichetta = etichettaAbbonamento({
+    status: sub?.status,
+    cancelAtPeriodEnd: sub?.cancel_at_period_end,
+    periodEnd: sub?.current_period_end,
+    provaFineAt: sub?.prova_fine_at,
+  });
   // Cosa manca per poter prenotare, tutto insieme. Prima la home sceglieva un
   // messaggio solo e l'indirizzo veniva prima dell'abbonamento: a chi mancavano
   // entrambi diceva «manca solo l'indirizzo», che è una promessa falsa — la
@@ -267,8 +276,8 @@ export default async function Home() {
               <div className="text-[11px] font-bold text-muted">{sub.plans.bags_per_week === 1 ? "sacco/sett" : "sacchi/sett"}</div>
             </div>
           </div>
-          {sub.current_period_end && (
-            <p className="mt-3 border-t border-line pt-3 text-xs font-semibold text-muted">Rinnovo il {fmtDate(sub.current_period_end)}</p>
+          {rigaQuando(etichetta, fmtDate) && (
+            <p className="mt-3 border-t border-line pt-3 text-xs font-semibold text-muted">{rigaQuando(etichetta, fmtDate)}</p>
           )}
         </section>
       )}

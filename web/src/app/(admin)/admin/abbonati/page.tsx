@@ -4,12 +4,13 @@ import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { impersonate, createDemoCustomer } from "@/lib/actions/impersonate";
 import { createCustomer, deleteCustomer } from "@/lib/actions/admin-customer";
+import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
 import { fmtDate } from "@/lib/format";
 
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 type Plan = { id: string; name: string };
 type Prof = { id: string; full_name: string | null; phone: string | null; created_at: string };
-type Sub = { user_id: string; status: string; current_period_end: string | null; created_at: string; prova_fine_at: string | null; plans: { name: string } | null };
+type Sub = { user_id: string; status: string; current_period_end: string | null; cancel_at_period_end: boolean | null; created_at: string; prova_fine_at: string | null; plans: { name: string } | null };
 
 type Row = {
   user_id: string;
@@ -18,14 +19,11 @@ type Row = {
   planName: string | null;
   status: string;        // active | trialing | past_due | ... | pending
   current_period_end: string | null;
+  cancel_at_period_end: boolean | null;
+  prova_fine_at: string | null;
   created_at: string;
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  active: "Attivo", trialing: "In prova", past_due: "Pagamento sospeso",
-  unpaid: "Non pagato", canceled: "Disdetto", paused: "In pausa",
-  incomplete: "Da attivare", pending: "Pending (lead)",
-};
 /** Stati in cui l'eliminazione verrebbe comunque rifiutata: prima va disdetto
  *  l'abbonamento, altrimenti l'addebito su Stripe continuerebbe. */
 const ATTIVI_PER_ELIMINA = ["active", "trialing", "past_due"];
@@ -47,7 +45,7 @@ export default async function AbbonatiPage({ searchParams }: { searchParams: Pro
   const svc = createServiceClient();
   const [{ data: profiles }, { data: subsAll }, { data: plans }] = await Promise.all([
     svc.from("profiles").select("id, full_name, phone, created_at").eq("role", "customer").eq("is_test", false).order("created_at", { ascending: false }).returns<Prof[]>(),
-    svc.from("subscriptions").select("user_id, status, current_period_end, created_at, prova_fine_at, plans(name)").order("created_at", { ascending: false }).returns<Sub[]>(),
+    svc.from("subscriptions").select("user_id, status, current_period_end, cancel_at_period_end, created_at, prova_fine_at, plans(name)").order("created_at", { ascending: false }).returns<Sub[]>(),
     svc.from("plans").select("id, name").eq("active", true).order("sort").returns<Plan[]>(),
   ]);
 
@@ -73,6 +71,8 @@ export default async function AbbonatiPage({ searchParams }: { searchParams: Pro
       // In prova la data che conta è il primo addebito, non il rinnovo: sono
       // due cose diverse e finora la colonna ne mostrava una sola.
       current_period_end: (s?.status === "trialing" ? s?.prova_fine_at : null) ?? s?.current_period_end ?? null,
+      cancel_at_period_end: s?.cancel_at_period_end ?? null,
+      prova_fine_at: s?.prova_fine_at ?? null,
       created_at: p.created_at,
     };
   });
@@ -140,10 +140,20 @@ export default async function AbbonatiPage({ searchParams }: { searchParams: Pro
               </div>
               <div className="text-sm font-semibold text-navy">{r.planName ?? "—"}</div>
               <div>
-                <span className={`inline-flex rounded-full px-2.5 py-1 font-display text-xs font-bold ${tone(r.status)}`}>{STATUS_LABEL[r.status] ?? r.status}</span>
+                <span className={`inline-flex rounded-full px-2.5 py-1 font-display text-xs font-bold ${tone(r.status)}`}>{etichettaAbbonamento({ status: r.status, cancelAtPeriodEnd: r.cancel_at_period_end }).stato}</span>
               </div>
+              {/* Non basta la data: il 30/09 di chi si rinnova e il 30/09 di
+                  chi finisce sono lo stesso numero e due cose opposte. */}
               <div className="text-sm font-medium text-muted">
-                {r.current_period_end ? fmtDate(r.current_period_end) : "—"}
+                {rigaQuando(
+                  etichettaAbbonamento({
+                    status: r.status,
+                    cancelAtPeriodEnd: r.cancel_at_period_end,
+                    periodEnd: r.current_period_end,
+                    provaFineAt: r.prova_fine_at,
+                  }),
+                  fmtDate,
+                ) ?? "—"}
               </div>
               <div className="flex items-center justify-end gap-2">
                 <form action={impersonate}>

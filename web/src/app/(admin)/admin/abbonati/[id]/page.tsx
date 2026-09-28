@@ -14,6 +14,7 @@ import { impersonate } from "@/lib/actions/impersonate";
 import { cancelOrder } from "@/lib/actions/orders";
 import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
 import { ACCESS_MODE_LABEL, ORDER_STATUS_LABEL, ordineAperto, type AccessMode, type OrderStatus } from "@/lib/orders";
+import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
 import { ATTESA_GIORNI } from "@/lib/dunning-piano";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -136,6 +137,19 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   // fino al rinnovo. Non è «attivo» e non è «disdetto», ed è lo stato in cui
   // sta chi preme «Disdici» nel caso normale.
   const disdettaProgrammata = !!sub?.cancel_at_period_end && !disdetto;
+  // La parola e la data decise insieme: «Rinnovo: 30/09» stava due righe sotto
+  // il chip che dice «non si rinnova».
+  const quandoAbbonamento = sub
+    ? rigaQuando(
+        etichettaAbbonamento({
+          status: sub.status,
+          cancelAtPeriodEnd: sub.cancel_at_period_end,
+          periodEnd: sub.current_period_end,
+          provaFineAt: sub.prova_fine_at,
+        }),
+        fmtDate,
+      )
+    : null;
   // Le sessioni di Checkout scadono: un link morto mandato al cliente è peggio
   // che nessun link, quindi si dice invece di mostrarlo come se fosse buono.
   // Si mostra la proposta valida più recente; se non ce n'è nessuna valida,
@@ -602,7 +616,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                   )}
                 </div>
                 {sub.activated_at && <div>Attivato il: <span className="font-bold text-navy">{fmtDate(sub.activated_at)}</span></div>}
-                {sub.current_period_end && <div>Rinnovo: {fmtDate(sub.current_period_end)}</div>}
+                {quandoAbbonamento && <div>{quandoAbbonamento}</div>}
               </div>
 
               {/* A che punto è il recupero: senza, l'operatore non sa se il
