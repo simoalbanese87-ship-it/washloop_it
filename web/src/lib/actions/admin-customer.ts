@@ -117,11 +117,19 @@ export async function createCustomSubscriptionLink(
     await requireAdmin();
     const customerId = String(input.customer_id ?? "");
     const amount = eurToCents(String(input.amount_eur ?? ""));
-    const description = (input.description ?? "").trim() || "Abbonamento WashLoop personalizzato";
     const conProva = input.prova_settimana === true;
     // Durata a termine: un ciclo solo, lungo N settimane. `null` = mensile che
     // si rinnova, cioè il comportamento storico di questo link.
     const settimane = settimaneValide(input.settimane);
+    // Il nome del prodotto è l'unica riga che il cliente legge in grande sul
+    // checkout, e Stripe sotto ci scrive «alla settimana» perché non sa che
+    // disdiciamo a fine ciclo. Senza dirlo qui, «0,50 € alla settimana» è
+    // l'ultima cosa che vede prima di pagare.
+    const description =
+      (input.description ?? "").trim() ||
+      (settimane
+        ? `Prova WashLoop · ${settimane === 1 ? "1 settimana" : `${settimane} settimane`}, senza rinnovo`
+        : "Abbonamento WashLoop personalizzato");
     const sacchi = sacchiValidi(input.sacchi);
     if (!customerId) return { error: "Cliente mancante" };
     if (!Number.isFinite(amount) || amount <= 0) return { error: "Importo non valido" };
@@ -174,6 +182,17 @@ export async function createCustomSubscriptionLink(
       // Con la prova non si addebita nulla oggi, ma la carta si prende
       // comunque: è la garanzia, ed è il motivo per cui la prova può esistere.
       payment_method_collection: "always",
+      // Detto anche accanto al bottone che paga: è l'ultimo punto in cui si
+      // può correggere l'impressione lasciata dal «alla settimana» di Stripe.
+      ...(settimane
+        ? {
+            custom_text: {
+              submit: {
+                message: `Pagamento unico. L'abbonamento dura ${settimane === 1 ? "una settimana" : `${settimane} settimane`} e poi si chiude da solo: non ci sarà nessun rinnovo e nessun secondo addebito.`,
+              },
+            },
+          }
+        : {}),
       metadata: { supabase_user_id: customerId, custom_price_cents: String(amount) },
       subscription_data: {
         metadata: {
