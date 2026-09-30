@@ -186,6 +186,96 @@ export async function createCustomSubscriptionLink(
   }
 }
 
+/** Crea un link di pagamento **una tantum**: si incassa una volta e basta.
+ *
+ *  Perché non basta il link di abbonamento
+ *  ---------------------------------------
+ *  Quello crea una subscription mensile. Per chi vuole provare una settimana
+ *  pagando, significa un secondo addebito dopo trenta giorni che nessuno ha
+ *  chiesto — a meno che qualcuno si ricordi di disdire lo stesso giorno.
+ *  Ricordarsi non è una garanzia, ed è il tipo di dimenticanza che si scopre
+ *  da uno storno.
+ *
+ *  Qui non nasce nessun abbonamento: il cliente paga, e se decide di restare
+ *  l'abbonamento lo si attiva apposta, con il prezzo che si è concordato.
+ *
+ *  La carta resta salvata (`setup_future_usage`), così l'attivazione dopo non
+ *  chiede di ridigitarla: è il gesto che trasforma una prova in un cliente, e
+ *  metterci in mezzo un secondo inserimento di carta è il modo più efficace di
+ *  perderlo. */
+export async function createOneOffPaymentLink(
+  input: { customer_id: string; description?: string; amount_eur: string },
+): Promise<{ url: string } | { error: string }> {
+  try {
+    await requireAdmin();
+    const customerId = String(input.customer_id ?? "");
+    const amount = eurToCents(String(input.amount_eur ?? ""));
+    const description = (input.description ?? "").trim() || "WashLoop · pagamento una tantum";
+    if (!customerId) return { error: "Cliente mancante" };
+    if (!Number.isFinite(amount) || amount <= 0) return { error: "Importo non valido" };
+
+    const svc = createServiceClient();
+    const { data: au } = await svc.auth.admin.getUserById(customerId);
+    const email = au?.user?.email;
+    if (!email) return { error: "Email cliente non trovata" };
+
+    const { data: existing } = await svc
+      .from("subscriptions")
+      .select("stripe_customer_id")
+      .eq("user_id", customerId)
+      .not("stripe_customer_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ stripe_customer_id: string | null }>();
+    let stripeCustomerId = existing?.stripe_customer_id ?? undefined;
+    if (!stripeCustomerId) {
+      const c = await creaClienteStripe(svc, customerId, email);
+      stripeCustomerId = c.id;
+    }
+
+    const session = await stripe().checkout.sessions.create({
+      // La differenza con tutto il resto sta qui: `payment`, non `subscription`.
+      mode: "payment",
+      customer: stripeCustomerId,
+      payment_method_types: [...METODI_CHECKOUT],
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: "eur",
+          product_data: { name: description },
+          unit_amount: amount,
+        },
+      }],
+      // La carta resta al cliente per il dopo, senza doverla ridigitare.
+      payment_intent_data: { setup_future_usage: "off_session" },
+      success_url: `${siteUrl()}/checkout/grazie?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${siteUrl()}/app?pagamento=annullato`,
+      // `supabase_user_id` serve al webhook per registrare l'incasso sul
+      // cliente giusto: senza, quei soldi arriverebbero su Stripe e non
+      // comparirebbero in nessun registro.
+      metadata: { supabase_user_id: customerId, una_tantum: "1", descrizione: description },
+    });
+    if (!session.url) return { error: "Stripe non ha restituito un link" };
+
+    const me = await getCurrentProfile();
+    await svc.from("subscription_offers").insert({
+      user_id: customerId,
+      description,
+      amount_cents: amount,
+      checkout_url: session.url,
+      checkout_session_id: session.id,
+      expires_at: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
+      created_by: me?.id ?? null,
+      una_tantum: true,
+    });
+    revalidatePath(`/admin/abbonati/${customerId}`);
+
+    return { url: session.url };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Errore nella creazione del link" };
+  }
+}
+
 /** Reinvia le credenziali a un cliente: genera una nuova password temporanea e
  *  manda l'email di accesso. Utile se la prima email non è arrivata. */
 export async function resendCredentials(formData: FormData) {

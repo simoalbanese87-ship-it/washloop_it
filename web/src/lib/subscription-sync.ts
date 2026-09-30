@@ -91,13 +91,25 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
  *  Non lancia mai: la pagina di ringraziamento deve aprirsi comunque. */
 export async function syncFromCheckoutSession(
   sessionId: string,
-): Promise<{ attivo: boolean; prova: { fineIso: string } | null; incassatoCents: number }> {
+): Promise<{ attivo: boolean; prova: { fineIso: string } | null; incassatoCents: number; unaTantum: boolean }> {
   try {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
+    // Pagamento singolo: non c'è nessun abbonamento da allineare, e dire «stiamo
+    // completando l'attivazione» a chi ha appena pagato una settimana sarebbe
+    // una bugia — non è in corso niente, e non deve aspettare nulla.
+    if (session.mode === "payment") {
+      const pagato = session.payment_status === "paid";
+      return {
+        attivo: false,
+        prova: null,
+        incassatoCents: pagato ? session.amount_total ?? 0 : 0,
+        unaTantum: pagato,
+      };
+    }
     // Con una prova a 0 € la sessione si completa senza `payment_status: paid`:
     // guardare solo il pagamento avrebbe fatto dire «non attivo» a ogni prova.
-    if (session.payment_status !== "paid" && session.status !== "complete") return { attivo: false, prova: null, incassatoCents: 0 };
-    if (!session.subscription) return { attivo: false, prova: null, incassatoCents: 0 };
+    if (session.payment_status !== "paid" && session.status !== "complete") return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false };
+    if (!session.subscription) return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false };
 
     const sub = await stripe().subscriptions.retrieve(session.subscription as string);
     // I metadata stanno sulla sessione quando la subscription è appena nata.
@@ -117,10 +129,11 @@ export async function syncFromCheckoutSession(
       // dichiararlo a Meta al prezzo del piano falserebbe il costo per
       // acquisizione di ogni campagna.
       incassatoCents: session.amount_total ?? 0,
+      unaTantum: false,
     };
   } catch (err) {
     console.error("[checkout] impossibile verificare la sessione:", err);
-    return { attivo: false, prova: null, incassatoCents: 0 };
+    return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false };
   }
 }
 

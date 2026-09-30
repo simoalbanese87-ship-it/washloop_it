@@ -56,6 +56,31 @@ export async function POST(request: NextRequest) {
           sub.metadata = { ...sub.metadata, ...session.metadata };
         }
         await upsertFromSubscription(sub);
+        break;
+      }
+
+      // Pagamento una tantum: non c'è nessuna subscription da allineare, ma i
+      // soldi sono entrati e devono comparire nel registro come tutti gli
+      // altri. Senza questo ramo resterebbero visibili solo su Stripe, e
+      // «incassato questo mese» direbbe una cifra più bassa del vero.
+      if (session.mode === "payment" && (session.amount_total ?? 0) > 0) {
+        const userId = session.metadata?.supabase_user_id ?? null;
+        const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+        // L'identificativo del movimento è il payment_intent: per un pagamento
+        // singolo Stripe non emette nessuna fattura, quindi non esiste un
+        // `in_...` da usare. Serve comunque unico, o un retry del webhook
+        // scriverebbe la stessa ricevuta due volte.
+        const rif = typeof session.payment_intent === "string" ? session.payment_intent : session.id;
+        if (customerId) {
+          await registraIncasso({
+            stripeInvoiceId: rif,
+            stripeCustomerId: customerId,
+            amountCents: session.amount_total ?? 0,
+            userId,
+            descrizione: session.metadata?.descrizione ?? "Pagamento una tantum",
+            dataIso: new Date().toISOString(),
+          });
+        }
       }
       break;
     }

@@ -28,7 +28,7 @@ export default async function GraziePage({
   const { session_id } = await searchParams;
   // Se manca il session_id (link aperto a mano) non possiamo verificare nulla:
   // meglio un messaggio prudente che una bugia.
-  const esito = session_id ? await syncFromCheckoutSession(session_id) : { attivo: false, prova: null, incassatoCents: 0 };
+  const esito = session_id ? await syncFromCheckoutSession(session_id) : { attivo: false, prova: null, incassatoCents: 0, unaTantum: false };
 
   return (
     <main
@@ -52,10 +52,12 @@ export default async function GraziePage({
           </svg>
         </div>
         <h1 className="mt-6 font-display text-[28px] font-black leading-tight">
-          {esito.prova ? "Prova attiva! 🎉" : esito.attivo ? "Tutto confermato! 🎉" : "Pagamento ricevuto"}
+          {esito.unaTantum ? "Pagamento ricevuto! 🎉" : esito.prova ? "Prova attiva! 🎉" : esito.attivo ? "Tutto confermato! 🎉" : "Pagamento ricevuto"}
         </h1>
         <p className="mt-3 text-sm font-medium text-white/70">
-          {esito.prova
+          {esito.unaTantum
+            ? "È tutto pagato e non ci sarà nessun rinnovo automatico. Ti contattiamo noi per concordare il giorno del ritiro."
+            : esito.prova
             ? "Non ti abbiamo addebitato nulla. Prenota il primo ritiro: paghi il giorno dopo che ti riportiamo il bucato."
             : esito.attivo
               ? "Il tuo abbonamento WashLoop è attivo. Ti abbiamo inviato un'email di conferma: ora puoi prenotare il primo ritiro dall'app."

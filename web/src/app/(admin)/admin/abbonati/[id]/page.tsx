@@ -16,6 +16,7 @@ import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
 import { ACCESS_MODE_LABEL, ORDER_STATUS_LABEL, ordineAperto, type AccessMode, type OrderStatus } from "@/lib/orders";
 import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
 import { saldoAddebiti } from "@/lib/addebiti-netti";
+import { OneOffPaymentForm } from "@/components/admin/OneOffPaymentForm";
 import { ATTESA_GIORNI } from "@/lib/dunning-piano";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -819,6 +820,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                 addebiti al mese.
               </p>
               <CustomSubscriptionForm customerId={id} />
+                    <OneOffPaymentForm customerId={id} />
             </details>
           ) : (
             <CustomSubscriptionForm customerId={id} />
