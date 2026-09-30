@@ -820,11 +820,17 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                 addebiti al mese.
               </p>
               <CustomSubscriptionForm customerId={id} />
-                    <OneOffPaymentForm customerId={id} />
             </details>
           ) : (
             <CustomSubscriptionForm customerId={id} />
           )}
+
+          {/* Fuori dai due rami di proposito: un pagamento singolo si fa a
+              chiunque, che abbia già un abbonamento o no. Dentro il ramo
+              `active` sarebbe finito sotto «Proponi un piano diverso», cioè
+              nascosto proprio a chi non ha ancora niente — che è il caso per
+              cui serve. */}
+          <OneOffPaymentForm customerId={id} />
         </Card>
 
         {/* Fatturazione: chi la vuole va saputo QUI, sulla scheda di chi paga.
