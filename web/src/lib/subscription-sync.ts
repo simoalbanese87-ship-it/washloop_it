@@ -13,6 +13,16 @@ import { createServiceClient } from "@/lib/supabase/server";
  *  Prima esisteva solo il primo. Se il webhook si perdeva, il cliente aveva
  *  pagato, la pagina gli diceva "abbonamento attivo" e poi l'app lo rimandava a
  *  comprare un piano. È idempotente: rieseguirla non produce effetti diversi. */
+/** Stripe: `current_period_end` è top-level nelle vecchie API, sugli items
+ *  nelle nuove. Serve in due punti, e due copie divergerebbero al primo
+ *  aggiornamento della libreria. */
+function periodEndDi(sub: Stripe.Subscription): number | undefined {
+  return (
+    (sub as unknown as { current_period_end?: number }).current_period_end ??
+    (sub.items?.data?.[0] as unknown as { current_period_end?: number } | undefined)?.current_period_end
+  );
+}
+
 export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: boolean; error?: string }> {
   const db = createServiceClient();
 
@@ -20,10 +30,7 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
   if (!userId) return { ok: false, error: "subscription senza supabase_user_id nei metadata" };
 
   const planId = sub.metadata?.plan_id ?? null;
-  // Stripe: current_period_end è top-level nelle vecchie API, sugli items nelle nuove.
-  const periodEnd =
-    (sub as unknown as { current_period_end?: number }).current_period_end ??
-    (sub.items?.data?.[0] as unknown as { current_period_end?: number } | undefined)?.current_period_end;
+  const periodEnd = periodEndDi(sub);
 
   const row: Record<string, unknown> = {
     user_id: userId,
@@ -49,6 +56,11 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
   if (tettoDaiMetadata) row.prova_tetto_at = tettoDaiMetadata;
   const customCents = sub.metadata?.custom_price_cents ? parseInt(sub.metadata.custom_price_cents, 10) : NaN;
   if (Number.isFinite(customCents)) row.custom_price_cents = customCents;
+  // Prova a pagamento: la durata arriva dai metadata e non cambia mai più.
+  const settimane = sub.metadata?.termina_dopo_settimane
+    ? parseInt(sub.metadata.termina_dopo_settimane, 10)
+    : NaN;
+  if (Number.isFinite(settimane) && settimane > 0) row.termina_dopo_settimane = settimane;
 
   // L'errore va guardato: prima veniva ignorato e la route rispondeva comunque
   // 200, quindi Stripe considerava l'evento consegnato e il dato spariva.
@@ -60,6 +72,42 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
       .update({ activated_at: new Date().toISOString() })
       .eq("stripe_subscription_id", sub.id)
       .is("activated_at", null);
+    // I sacchi concordati al momento del link, scritti **solo se la colonna è
+    // ancora vuota**: erano un campo che qualcuno doveva compilare a mano dopo
+    // il pagamento, cioè il passaggio che salta quando le prove sono cento.
+    // Scriverli a ogni sincronizzazione cancellerebbe le correzioni fatte in
+    // pannello al primo evento Stripe che passa.
+    const sacchi = sub.metadata?.bags_per_week ? parseInt(sub.metadata.bags_per_week, 10) : NaN;
+    if (Number.isFinite(sacchi) && sacchi > 0) {
+      await db.from("subscriptions")
+        .update({ bags_per_week: sacchi })
+        .eq("stripe_subscription_id", sub.id)
+        .is("bags_per_week", null);
+    }
+    // L'abbonamento a termine si chiude da solo: un ciclo, e via. Stripe
+    // Checkout non accetta `cancel_at` fra i dati della subscription, quindi
+    // la disdetta si mette qui, subito dopo la nascita.
+    //
+    // Sta in questa funzione e non nel webhook perché è l'imbuto di TUTTI i
+    // percorsi — webhook, pagina di ritorno, eventi successivi: se il primo si
+    // perde, ci pensa il successivo. E `termine_applicato` è il freno: senza,
+    // l'aggiornamento qui sotto rientrerebbe da `customer.subscription.updated`
+    // e ogni «Riprendi» premuto in pannello verrebbe annullato dal sync dopo.
+    if (row.termina_dopo_settimane && !sub.cancel_at_period_end && !sub.metadata?.termine_applicato) {
+      try {
+        const aggiornato = await stripe().subscriptions.update(sub.id, {
+          cancel_at_period_end: true,
+          metadata: { ...sub.metadata, termine_applicato: "1" },
+        });
+        await db.from("subscriptions")
+          .update({ cancel_at_period_end: aggiornato.cancel_at_period_end === true })
+          .eq("stripe_subscription_id", sub.id);
+      } catch (err) {
+        // Non si ingoia: senza disdetta il cliente riceve un secondo addebito
+        // che non ha chiesto, ed è esattamente ciò che questo disegno evita.
+        return { ok: false, error: err instanceof Error ? err.message : "disdetta a fine ciclo non impostata" };
+      }
+    }
     // La prova si consuma qui, la prima volta che se ne vede una. Senza questa
     // riga, disdire durante la prova e riscriversi darebbe un'altra settimana
     // gratis ogni volta: è l'unico modo di entrare gratis per sempre che questo
@@ -91,7 +139,7 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
  *  Non lancia mai: la pagina di ringraziamento deve aprirsi comunque. */
 export async function syncFromCheckoutSession(
   sessionId: string,
-): Promise<{ attivo: boolean; prova: { fineIso: string } | null; incassatoCents: number; unaTantum: boolean }> {
+): Promise<{ attivo: boolean; prova: { fineIso: string } | null; incassatoCents: number; unaTantum: boolean; finisceIso: string | null }> {
   try {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
     // Pagamento singolo: non c'è nessun abbonamento da allineare, e dire «stiamo
@@ -104,12 +152,13 @@ export async function syncFromCheckoutSession(
         prova: null,
         incassatoCents: pagato ? session.amount_total ?? 0 : 0,
         unaTantum: pagato,
+        finisceIso: null,
       };
     }
     // Con una prova a 0 € la sessione si completa senza `payment_status: paid`:
     // guardare solo il pagamento avrebbe fatto dire «non attivo» a ogni prova.
-    if (session.payment_status !== "paid" && session.status !== "complete") return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false };
-    if (!session.subscription) return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false };
+    if (session.payment_status !== "paid" && session.status !== "complete") return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null };
+    if (!session.subscription) return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null };
 
     const sub = await stripe().subscriptions.retrieve(session.subscription as string);
     // I metadata stanno sulla sessione quando la subscription è appena nata.
@@ -130,10 +179,15 @@ export async function syncFromCheckoutSession(
       // acquisizione di ogni campagna.
       incassatoCents: session.amount_total ?? 0,
       unaTantum: false,
+      // Abbonamento a termine: la data in cui si chiude da solo. Dirla subito
+      // è l'unico modo perché «attivo» non suoni come «ti addebiteremo ancora».
+      finisceIso: sub.metadata?.termina_dopo_settimane && periodEndDi(sub)
+        ? new Date(periodEndDi(sub)! * 1000).toISOString()
+        : null,
     };
   } catch (err) {
     console.error("[checkout] impossibile verificare la sessione:", err);
-    return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false };
+    return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null };
   }
 }
 

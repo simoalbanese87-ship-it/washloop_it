@@ -28,7 +28,7 @@ export default async function GraziePage({
   const { session_id } = await searchParams;
   // Se manca il session_id (link aperto a mano) non possiamo verificare nulla:
   // meglio un messaggio prudente che una bugia.
-  const esito = session_id ? await syncFromCheckoutSession(session_id) : { attivo: false, prova: null, incassatoCents: 0, unaTantum: false };
+  const esito = session_id ? await syncFromCheckoutSession(session_id) : { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null };
 
   return (
     <main
@@ -59,6 +59,8 @@ export default async function GraziePage({
             ? "È tutto pagato e non ci sarà nessun rinnovo automatico. Ti contattiamo noi per concordare il giorno del ritiro."
             : esito.prova
             ? "Non ti abbiamo addebitato nulla. Prenota il primo ritiro: paghi il giorno dopo che ti riportiamo il bucato."
+            : esito.finisceIso
+              ? "Il tuo abbonamento WashLoop è attivo: puoi prenotare i ritiri dall'app come qualsiasi abbonato. Si chiude da solo alla fine del periodo pagato, senza nessun rinnovo."
             : esito.attivo
               ? "Il tuo abbonamento WashLoop è attivo. Ti abbiamo inviato un'email di conferma: ora puoi prenotare il primo ritiro dall'app."
               : "Stiamo completando l'attivazione: di solito è questione di secondi. Se prenotando non ti risulta ancora attivo, ricarica tra un minuto o scrivici a info@washloop.it — ci pensiamo noi."}
@@ -66,6 +68,13 @@ export default async function GraziePage({
         {esito.prova && (
           <p className="mt-2 text-xs font-medium text-white/50">
             Se non prenoti, l&apos;abbonamento parte comunque il {fmtDate(esito.prova.fineIso)}.
+          </p>
+        )}
+        {/* La data della fine si dice subito: «attivo» da solo, su un
+            abbonamento a termine, suona come «continuerà a addebitarti». */}
+        {esito.finisceIso && (
+          <p className="mt-2 text-xs font-medium text-white/50">
+            Attivo fino al {fmtDate(esito.finisceIso)}. Ti scriviamo due giorni prima della fine.
           </p>
         )}
 

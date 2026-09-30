@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createCustomSubscriptionLink } from "@/lib/actions/admin-customer";
 import { paracadute, GIORNI_PER_PRENOTARE } from "@/lib/prova";
+import { DURATE, cadenzaTesto } from "@/lib/durata-abbonamento";
 import { fmtDate } from "@/lib/format";
 
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
@@ -12,11 +13,20 @@ const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm
 export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [settimane, setSettimane] = useState("");
+  const [sacchi, setSacchi] = useState("");
   const [prova, setProva] = useState(false);
   const [loading, setLoading] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Durata a termine: l'abbonamento nasce gia' con la sua fine. Con lei la
+  // settimana regalata non ha senso — su un ciclo di una settimana la
+  // regalerebbe tutta — quindi la spunta sparisce invece di restare li' a
+  // sembrare disponibile.
+  const aTermine = settimane !== "";
+  const settimaneNum = aTermine ? Number(settimane) : null;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,7 +34,14 @@ export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
     setError(null);
     setUrl(null);
     setCopied(false);
-    const res = await createCustomSubscriptionLink({ customer_id: customerId, description, amount_eur: amount, prova_settimana: prova });
+    const res = await createCustomSubscriptionLink({
+      customer_id: customerId,
+      description,
+      amount_eur: amount,
+      prova_settimana: prova && !aTermine,
+      settimane,
+      sacchi,
+    });
     setLoading(false);
     if ("error" in res) setError(res.error);
     else setUrl(res.url);
@@ -43,8 +60,10 @@ export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
     <div className="mt-4 rounded-[16px] border border-line bg-ice/60 p-4">
       <h3 className="font-display text-sm font-extrabold text-navy">Crea abbonamento personalizzato</h3>
       <p className="mt-1 text-xs font-medium text-muted">
-        Importo mensile a piacere. Genera un link di pagamento da inviare al cliente: paga, salva la carta e si rinnova
-        da solo ogni mese. È anche l&apos;unico posto da cui si può regalare la prima settimana.
+        Importo a piacere. Genera un link di pagamento da inviare al cliente. Con la durata <strong>mensile</strong> si
+        rinnova da solo ogni mese; con una durata <strong>a termine</strong> il cliente paga una volta, ha l&apos;abbonamento
+        completo per quelle settimane e poi si chiude da solo, senza nessun secondo addebito. È anche l&apos;unico posto da
+        cui si può regalare la prima settimana.
       </p>
       {/* Campi uno sotto l'altro: questo riquadro vive nella colonna stretta
           della scheda cliente, e su tre colonne l'importo diventava un campo
@@ -54,12 +73,38 @@ export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
         <label className="text-xs font-bold text-muted">Descrizione (facoltativa)
           <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="es. Abbonamento su misura" className={input} />
         </label>
-        <label className="text-xs font-bold text-muted">Importo €/mese
-          <input value={amount} onChange={(e) => setAmount(e.target.value)} type="number" step="0.01" min="0" required placeholder="es. 45,00" className={input} />
+        {/* La durata e' un menu chiuso e non un campo libero: finisce dentro
+            un prezzo Stripe, e un refuso li' il cliente lo scopre
+            dall'estratto conto. */}
+        <label className="text-xs font-bold text-muted">Durata
+          <select value={settimane} onChange={(e) => setSettimane(e.target.value)} className={input}>
+            <option value="">Mensile, si rinnova da solo</option>
+            {DURATE.map((n) => (
+              <option key={n} value={String(n)}>
+                {n === 1 ? "1 settimana" : `${n} settimane`}, poi finisce
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs font-bold text-muted">
+          {aTermine ? `Importo €${cadenzaTesto(settimaneNum)}` : "Importo €/mese"}
+          <input value={amount} onChange={(e) => setAmount(e.target.value)} type="number" step="0.01" min="0" required placeholder={aTermine ? "es. 40,00" : "es. 45,00"} className={input} />
+        </label>
+        {/* I sacchi qui dentro e non dopo: scriverli a mano a pagamento
+            avvenuto e' il passaggio che salta quando le prove sono cento. */}
+        <label className="text-xs font-bold text-muted">Sacchi a settimana (facoltativo)
+          <input value={sacchi} onChange={(e) => setSacchi(e.target.value)} type="number" step="1" min="1" placeholder="es. 1" className={input} />
         </label>
         {/* La prima settimana gratuita si concede qui e solo qui: una persona
             alla volta, mentre si concorda il prezzo. Sul checkout del sito non
             c'è, di proposito. */}
+        {aTermine ? (
+          <p className="mt-1 rounded-[10px] bg-blue/8 px-2.5 py-1.5 text-[11px] font-semibold text-blue">
+            Paga una volta sola. L&apos;abbonamento parte subito con tutte le funzionalità — può prenotare i ritiri da
+            sola — e finisce da solo dopo {settimaneNum === 1 ? "una settimana" : `${settimaneNum} settimane`}. Due
+            giorni prima le arriva una mail con come continuare.
+          </p>
+        ) : (
         <label className="mt-1 flex items-start gap-2 text-xs font-bold text-navy">
           <input
             type="checkbox"
@@ -76,12 +121,19 @@ export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
             </span>
           </span>
         </label>
+        )}
         <button
           type="submit"
           disabled={loading}
           className="mt-1 rounded-full bg-gradient-to-br from-blue to-cyan px-5 py-2 font-display text-sm font-extrabold text-white disabled:opacity-60"
         >
-          {loading ? "Genero…" : prova ? "Genera link con settimana gratis →" : "Genera link →"}
+          {loading
+            ? "Genero…"
+            : aTermine
+              ? `Genera link a termine (${settimaneNum === 1 ? "1 settimana" : `${settimaneNum} settimane`}) →`
+              : prova
+                ? "Genera link con settimana gratis →"
+                : "Genera link →"}
         </button>
       </form>
 
@@ -90,7 +142,11 @@ export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
       {url && (
         <div className="mt-3 rounded-[12px] border border-line bg-white p-3">
           <div className="text-xs font-bold text-muted">
-            {prova ? "Link con prima settimana gratuita — invialo al cliente" : "Link di pagamento — invialo al cliente"}
+            {aTermine
+              ? "Link a termine — invialo al cliente"
+              : prova
+                ? "Link con prima settimana gratuita — invialo al cliente"
+                : "Link di pagamento — invialo al cliente"}
           </div>
           <div className="mt-1 break-all rounded-[8px] bg-ice px-2 py-1.5 text-xs font-medium text-navy">{url}</div>
           <div className="mt-2 flex gap-2">

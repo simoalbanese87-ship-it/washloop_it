@@ -15,6 +15,7 @@ import { cancelOrder } from "@/lib/actions/orders";
 import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
 import { ACCESS_MODE_LABEL, ORDER_STATUS_LABEL, ordineAperto, type AccessMode, type OrderStatus } from "@/lib/orders";
 import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
+import { cadenzaTesto } from "@/lib/durata-abbonamento";
 import { saldoAddebiti } from "@/lib/addebiti-netti";
 import { OneOffPaymentForm } from "@/components/admin/OneOffPaymentForm";
 import { ATTESA_GIORNI } from "@/lib/dunning-piano";
@@ -26,7 +27,7 @@ const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
-type Sub = { id: string; status: string; bags_per_week: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null } | null };
+type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null } | null };
 type Addr = {
   id: string; label: string | null; street: string; cap: string | null; civico: string | null;
   intercom: string | null; floor: string | null; notes: string | null;
@@ -36,6 +37,7 @@ type Addr = {
 type Offerta = {
   id: string; description: string; amount_cents: number;
   checkout_url: string; expires_at: string | null; created_at: string;
+  settimane: number | null; sacchi: number | null;
 };
 type Ord = { id: string; status: OrderStatus; created_at: string; bags: number; pickup_slot: { starts_at: string } | null };
 type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; stripe_ref: string | null; created_at: string };
@@ -68,7 +70,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: proposte }] = await Promise.all([
     svc.auth.admin.getUserById(id),
-    svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, termina_dopo_settimane, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street, cap, civico, intercom, floor, notes, access_mode, access_note, concierge_hours, lat, lng").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, stripe_ref, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
@@ -77,7 +79,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     // Le ultime proposte, non solo l'ultima: se la più recente è scaduta ma
     // una di prima è ancora valida, il link buono esiste e va mostrato. Con
     // `limit(1)` si leggeva «scaduto» avendo in casa un link funzionante.
-    svc.from("subscription_offers").select("id, description, amount_cents, checkout_url, expires_at, created_at").eq("user_id", id).order("created_at", { ascending: false }).limit(5).returns<Offerta[]>(),
+    svc.from("subscription_offers").select("id, description, amount_cents, checkout_url, expires_at, created_at, settimane, sacchi").eq("user_id", id).order("created_at", { ascending: false }).limit(5).returns<Offerta[]>(),
   ]);
   const email = userRes?.user?.email ?? "—";
 
@@ -766,6 +768,20 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                     <Button type="submit" size="md" variant="ghost-navy">Annulla la disdetta</Button>
                   </form>
                 )}
+                {/* Su una prova a pagamento la disdetta non è un ripensamento:
+                    è il modo in cui l'abbonamento finisce. Annullarla rimette
+                    in moto una ricorrenza ogni N settimane al prezzo della
+                    prova — è l'unico percorso, in questo disegno, che possa
+                    produrre un secondo addebito non voluto. */}
+                {disdettaProgrammata && sub.termina_dopo_settimane && (
+                  <p className="basis-full rounded-[10px] bg-[#C0392B]/8 px-3 py-2 text-xs font-semibold text-[#C0392B]">
+                    Questa è una prova a pagamento di{" "}
+                    {sub.termina_dopo_settimane === 1 ? "1 settimana" : `${sub.termina_dopo_settimane} settimane`}: la
+                    disdetta è il suo modo di finire. Annullandola riparte un addebito ogni{" "}
+                    {sub.termina_dopo_settimane === 1 ? "settimana" : `${sub.termina_dopo_settimane} settimane`} allo
+                    stesso importo. Per farla restare, genera un link mensile qui sotto.
+                  </p>
+                )}
               </div>
             </>
           ) : (
@@ -785,10 +801,13 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                 <h3 className="font-display text-sm font-extrabold text-[#C9881F]">
                   {active ? "Proposta aperta" : "In attesa di pagamento"}
                 </h3>
-                <span className="font-display text-sm font-black text-[#C9881F]">{eur(offerta.amount_cents)}/mese</span>
+                <span className="font-display text-sm font-black text-[#C9881F]">{eur(offerta.amount_cents)}{cadenzaTesto(offerta.settimane)}</span>
               </div>
               <p className="mt-1 text-xs font-semibold text-[#C9881F]">
-                {offerta.description} · link creato il {fmtDate(offerta.created_at)}
+                {offerta.description}
+                {offerta.sacchi ? ` · ${offerta.sacchi === 1 ? "1 sacco" : `${offerta.sacchi} sacchi`} a settimana` : ""}
+                {offerta.settimane ? " · si chiude da solo, nessun rinnovo" : ""} · link creato il{" "}
+                {fmtDate(offerta.created_at)}
                 {linkScaduto
                   ? " · il link è scaduto, generane uno nuovo qui sotto"
                   : offerta.expires_at

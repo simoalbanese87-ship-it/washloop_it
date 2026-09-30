@@ -18,6 +18,7 @@ import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
 import { METODI_CHECKOUT } from "@/lib/metodi-accettati";
 import { salvaNotaCliente } from "@/lib/note-interne";
 import { paracadute, tetto } from "@/lib/prova";
+import { ricorrenza, settimaneValide } from "@/lib/durata-abbonamento";
 import { TURNAROUND_ORE } from "@/lib/planning-rider";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -29,6 +30,14 @@ async function requireAdmin() {
 }
 
 const eurToCents = (v: string) => Math.round(parseFloat(String(v).replace(",", ".")) * 100);
+
+/** Sacchi a settimana scritti in un form: intero positivo, o niente. Zero non
+ *  è un numero di sacchi, è un'assenza — e `null` significa «lo decide il
+ *  piano, o la ricorrenza», che è tutt'altro. */
+const sacchiValidi = (v: unknown): number | null => {
+  const n = typeof v === "string" ? Number(v.trim()) : typeof v === "number" ? v : NaN;
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
 
 /** Crea un cliente reale con abbonamento "manuale" a prezzo concordato (anche
  *  sotto lo Small). Nessun addebito Stripe: fatturazione gestita offline. */
@@ -95,7 +104,14 @@ export async function createCustomer(formData: FormData) {
  *  la finestra di prenotazione. `prova_tetto_at` viaggia nei metadata perché al
  *  momento del link la riga in `subscriptions` non esiste ancora. */
 export async function createCustomSubscriptionLink(
-  input: { customer_id: string; description?: string; amount_eur: string; prova_settimana?: boolean },
+  input: {
+    customer_id: string;
+    description?: string;
+    amount_eur: string;
+    prova_settimana?: boolean;
+    settimane?: number | string;
+    sacchi?: number | string;
+  },
 ): Promise<{ url: string } | { error: string }> {
   try {
     await requireAdmin();
@@ -103,8 +119,18 @@ export async function createCustomSubscriptionLink(
     const amount = eurToCents(String(input.amount_eur ?? ""));
     const description = (input.description ?? "").trim() || "Abbonamento WashLoop personalizzato";
     const conProva = input.prova_settimana === true;
+    // Durata a termine: un ciclo solo, lungo N settimane. `null` = mensile che
+    // si rinnova, cioè il comportamento storico di questo link.
+    const settimane = settimaneValide(input.settimane);
+    const sacchi = sacchiValidi(input.sacchi);
     if (!customerId) return { error: "Cliente mancante" };
     if (!Number.isFinite(amount) || amount <= 0) return { error: "Importo non valido" };
+    // Le due cose non stanno insieme: su un ciclo di una settimana `trial_end`
+    // la regalerebbe tutta, e il cliente pagherebbe zero per la prova che ha
+    // appena comprato.
+    if (conProva && settimane) {
+      return { error: "La prima settimana gratuita non si può dare su un abbonamento a termine: o è gratis, o è una prova a pagamento." };
+    }
 
     const svc = createServiceClient();
     const { data: au } = await svc.auth.admin.getUserById(customerId);
@@ -137,7 +163,10 @@ export async function createCustomSubscriptionLink(
           currency: "eur",
           product_data: { name: description },
           unit_amount: amount,
-          recurring: { interval: "month" },
+          // La durata sta qui e non in un contatore nostro: un solo ciclo di
+          // fatturazione lungo N settimane. Dentro il periodo Stripe non
+          // addebita niente, e la disdetta a fine ciclo chiude tutto.
+          recurring: ricorrenza(settimane),
         },
       }],
       success_url: `${siteUrl()}/checkout/grazie?session_id={CHECKOUT_SESSION_ID}`,
@@ -151,6 +180,12 @@ export async function createCustomSubscriptionLink(
           supabase_user_id: customerId,
           custom_price_cents: String(amount),
           ...(conProva ? { prova_tetto_at: tetto(new Date().toISOString()) } : {}),
+          // Durata e sacchi viaggiano nei metadata perché al momento del link
+          // la riga in `subscriptions` non esiste ancora: è la stessa strada di
+          // `custom_price_cents`. Li rilegge `syncSubscription`, che sulla
+          // durata mette anche la disdetta a fine ciclo.
+          ...(settimane ? { termina_dopo_settimane: String(settimane) } : {}),
+          ...(sacchi ? { bags_per_week: String(sacchi) } : {}),
         },
         ...(conProva
           ? {
@@ -177,6 +212,10 @@ export async function createCustomSubscriptionLink(
       checkout_session_id: session.id,
       expires_at: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
       created_by: me?.id ?? null,
+      // Senza questi due, il riquadro della proposta direbbe «/mese» anche su
+      // una prova di una settimana: la frase sarebbe falsa proprio dove conta.
+      settimane,
+      sacchi,
     });
     revalidatePath(`/admin/abbonati/${customerId}`);
 
