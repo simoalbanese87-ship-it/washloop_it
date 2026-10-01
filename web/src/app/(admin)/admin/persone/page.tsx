@@ -196,8 +196,8 @@ export default async function PersonePage({
             <thead>
               <tr className="border-b border-line text-xs font-bold uppercase tracking-wide text-muted">
                 <th className="py-2">Persona</th>
-                <th className="py-2">Codice</th>
-                <th className="py-2">Zona</th>
+                <th className="py-2 pr-4">Codice</th>
+                <th className="py-2 pr-4">Zona</th>
                 <th className="py-2">Stadio</th>
                 <th className="py-2">Contatto</th>
                 <th className="py-2">Valore</th>
@@ -224,21 +224,26 @@ export default async function PersonePage({
                       {p.provenienza && ` · da ${p.provenienza}`}
                     </div>
                   </td>
-                  <td className="py-2.5 font-mono text-xs font-bold text-navy">{p.clientCode ?? "—"}</td>
+                  <td className="py-2.5 pr-4 font-mono text-xs font-bold text-navy">{p.clientCode ?? "—"}</td>
                   {/* Il CAP, e se lo serviamo. Senza, un fuori zona si
                       distingueva da un lead buono solo aprendo la scheda. Niente
                       CAP = trattino e non badge: non sapere non e' «fuori». */}
-                  <td className="py-2.5 whitespace-nowrap">
+                  <td className="py-2.5 pr-4 whitespace-nowrap">
                     {p.cap ? (
                       <>
-                        <span className="font-mono text-xs font-bold text-navy">{p.cap}</span>
-                        {p.inZona === false ? (
-                          <span className="ml-1.5 rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#C0392B]">
-                            fuori zona
-                          </span>
-                        ) : (
-                          p.zona && <div className="text-[11px] font-semibold text-muted">{p.zona}</div>
-                        )}
+                        {/* Il CAP in rosso fa il lavoro che faceva il badge
+                            «fuori zona», con un quarto dello spazio: in una
+                            tabella larga quello che si nota e' il colore, non
+                            una parola in piu' accanto a cinque cifre. */}
+                        <span
+                          className={`font-mono text-xs font-bold ${p.inZona === false ? "text-[#C0392B]" : "text-navy"}`}
+                          title={p.inZona === false ? "Fuori zona" : p.zona ?? undefined}
+                        >
+                          {p.cap}
+                        </span>
+                        <div className={`text-[11px] font-semibold ${p.inZona === false ? "text-[#C0392B]/70" : "text-muted"}`}>
+                          {p.inZona === false ? "fuori zona" : p.zona ?? ""}
+                        </div>
                       </>
                     ) : (
                       <span className="text-xs font-medium text-muted">—</span>
