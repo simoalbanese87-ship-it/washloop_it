@@ -1,6 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { incassiStripePerMese, rimborsiPerMese } from "@/lib/incassi-stripe";
+import { rinnoviDelMese, type SubPerRinnovo } from "@/lib/rinnovi-mese";
 
 /** Gli incassi mese per mese, per il grafico a barre della Home.
  *
@@ -23,6 +24,12 @@ export type MeseIncassi = {
   quanti: number;
   /** Il mese in cui siamo: si evidenzia. */
   corrente: boolean;
+  /** Solo sul mese in corso: quanto entrerebbe ancora da qui a fine mese se
+   *  tutti gli abbonamenti attivi si rinnovassero come previsto. Zero sui mesi
+   *  chiusi, dove non c'è più niente da attendere. */
+  attesoCents: number;
+  /** Quanti rinnovi compongono quella cifra. */
+  rinnoviAttesi: number;
 };
 
 /** Da dove escono i numeri. Serve a dirlo in pagina: un totale non verificabile
@@ -78,6 +85,10 @@ export async function incassiMensili(includiProva = false, quantiMesi = 12): Pro
     }
   }
 
+  // I rinnovi ancora da incassare in questo mese. Si chiedono una volta sola,
+  // fuori dal giro dei dodici mesi: riguardano solo quello in corso.
+  const atteso = await rinnoviAncoraAttesi(svc, chiaveDi(oggi.anno, oggi.mese), includiProva);
+
   const fmtCorto = new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", month: "short" });
   const fmtLungo = new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", month: "long", year: "numeric" });
 
@@ -87,14 +98,55 @@ export async function incassiMensili(includiProva = false, quantiMesi = 12): Pro
     const { anno, mese } = annoMeseRoma(d);
     const k = chiaveDi(anno, mese);
     const acc = per.get(k) ?? { totaleCents: 0, quanti: 0 };
+    const corrente = anno === oggi.anno && mese === oggi.mese;
     out.push({
       chiave: k,
       etichetta: fmtCorto.format(d).replace(".", ""),
       nome: fmtLungo.format(d),
       totaleCents: acc.totaleCents,
       quanti: acc.quanti,
-      corrente: anno === oggi.anno && mese === oggi.mese,
+      corrente,
+      attesoCents: corrente ? atteso.totaleCents : 0,
+      rinnoviAttesi: corrente ? atteso.quanti : 0,
     });
   }
   return out;
+}
+
+/** Gli abbonamenti che si rinnoveranno entro la fine del mese in corso.
+ *
+ *  La regola sta in `rinnovi-mese.ts`, che è collaudata; qui c'è solo la
+ *  lettura. Una riga per cliente, la più recente: chi ha cambiato piano ha due
+ *  righe in `subscriptions` e sommarle conterebbe due volte lo stesso cliente.
+ */
+async function rinnoviAncoraAttesi(
+  svc: ReturnType<typeof createServiceClient>,
+  meseChiave: string,
+  includiProva: boolean,
+) {
+  const { data } = await svc
+    .from("subscriptions")
+    .select("user_id, status, cancel_at_period_end, custom_price_cents, current_period_end, created_at, plans(price_month_cents), profiles(is_test)")
+    .in("status", ["active", "trialing"])
+    .order("created_at", { ascending: false })
+    .returns<{
+      user_id: string; status: string; cancel_at_period_end: boolean | null;
+      custom_price_cents: number | null; current_period_end: string | null; created_at: string;
+      plans: { price_month_cents: number } | null;
+      profiles: { is_test: boolean } | null;
+    }[]>();
+
+  const vista = new Set<string>();
+  const subs: SubPerRinnovo[] = [];
+  for (const r of data ?? []) {
+    if (vista.has(r.user_id)) continue;
+    vista.add(r.user_id);
+    if (!includiProva && r.profiles?.is_test) continue;
+    subs.push({
+      prezzoCents: r.custom_price_cents ?? r.plans?.price_month_cents ?? 0,
+      periodEndIso: r.current_period_end,
+      disdetto: r.cancel_at_period_end === true,
+    });
+  }
+  return rinnoviDelMese(subs, meseChiave, Date.now());
 }
