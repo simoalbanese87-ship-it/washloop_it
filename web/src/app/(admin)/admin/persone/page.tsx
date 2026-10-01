@@ -27,7 +27,7 @@ const uno = (v: string | string[] | undefined): string | undefined =>
 export default async function PersonePage({
   searchParams,
 }: {
-  searchParams: Promise<{ stadio?: string | string[]; contatto?: string | string[]; q?: string | string[]; prova?: string | string[]; ok?: string | string[]; warn?: string | string[] }>;
+  searchParams: Promise<{ stadio?: string | string[]; contatto?: string | string[]; zona?: string | string[]; q?: string | string[]; prova?: string | string[]; ok?: string | string[]; warn?: string | string[] }>;
 }) {
   const sp = await searchParams;
   const q = uno(sp.q);
@@ -43,6 +43,11 @@ export default async function PersonePage({
   // questo filtro quel numero aprirebbe una lista che non lo rispetta.
   const contattoGrezzo = uno(sp.contatto);
   const contatto = isContactStatus(contattoGrezzo ?? "") ? (contattoGrezzo as ContactStatus) : undefined;
+  // Zona: la domanda vera non è «questo è coperto?» ma «fammi vedere i fuori
+  // zona», e con qualche decina di righe un badge in mezzo alla tabella si
+  // perde. Un valore che non esiste si ignora, come per lo stadio.
+  const zonaGrezza = uno(sp.zona);
+  const zona = zonaGrezza === "in" || zonaGrezza === "fuori" ? zonaGrezza : undefined;
   const includiProva = prova === "1";
   const needle = (q ?? "").toLowerCase();
 
@@ -56,20 +61,23 @@ export default async function PersonePage({
   // chip si portavano dietro la ricerca — così il chip diceva "(2)" e sotto non
   // compariva nessuno. Ora i conteggi sono sempre quelli di ciò che si vede.
   const cerca = (p: (typeof tutte)[number]) =>
-    !needle || `${p.nome} ${p.email ?? ""} ${p.telefono ?? ""} ${p.clientCode ?? ""}`.toLowerCase().includes(needle);
+    !needle || `${p.nome} ${p.email ?? ""} ${p.telefono ?? ""} ${p.clientCode ?? ""} ${p.cap ?? ""}`.toLowerCase().includes(needle);
   // Lo stato non impostato vale "da contattare": è così che lo mostra la riga,
   // e un filtro che lo escludesse direbbe zero su una lista piena.
   const statoDi = (p: (typeof tutte)[number]) => (isContactStatus(p.statoContatto ?? "") ? p.statoContatto : "da_contattare");
-  const base = tutte.filter((p) => cerca(p) && (!contatto || statoDi(p) === contatto));
+  // Chi non ha CAP non è «fuori zona», è sconosciuto: non entra in nessuno dei
+  // due filtri, altrimenti «fuori zona» diventerebbe un cestino.
+  const inZonaDi = (p: (typeof tutte)[number]) => (zona === "in" ? p.inZona === true : p.inZona === false);
+  const base = tutte.filter((p) => cerca(p) && (!contatto || statoDi(p) === contatto) && (!zona || inZonaDi(p)));
   const lista = stadio ? base.filter((p) => p.stadio === stadio) : base;
 
   const conta = (s: Stadio) => base.filter((p) => p.stadio === s).length;
   const ricorrente = base.reduce((t, p) => t + p.valoreMensileCents, 0);
-  const qui = `/admin/persone${stadio || contatto || q || prova ? `?${new URLSearchParams(Object.entries({ stadio, contatto, q, prova }).filter(([, v]) => v) as [string, string][])}` : ""}`;
+  const qui = `/admin/persone${stadio || contatto || zona || q || prova ? `?${new URLSearchParams(Object.entries({ stadio, contatto, zona, q, prova }).filter(([, v]) => v) as [string, string][])}` : ""}`;
 
   const qs = (patch: Record<string, string | undefined>) => {
     const u = new URLSearchParams();
-    for (const [k, v] of Object.entries({ stadio, contatto, q, prova, ...patch })) if (v) u.set(k, v);
+    for (const [k, v] of Object.entries({ stadio, contatto, zona, q, prova, ...patch })) if (v) u.set(k, v);
     return u.toString() ? `?${u}` : "";
   };
 
@@ -96,9 +104,28 @@ export default async function PersonePage({
           <p className="text-sm font-medium text-muted">
             Lead e clienti nella stessa lista. Lo stadio dice a che punto è ciascuno.
           </p>
-          <Link href="/admin/abbonati" className="font-display text-xs font-bold text-blue hover:underline">
-            Crea cliente o accedi come cliente →
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* L'export esisteva gia', con dentro CAP, Zona e Copertura, e non
+                era raggiungibile da nessuna pagina. I filtri che si vedono a
+                schermo viaggiano con lui: scaricare qualcosa di diverso da
+                quello che si sta guardando e' il modo piu' rapido di non
+                fidarsi piu' del file. */}
+            <a
+              href={`/admin/contatti/export${
+                new URLSearchParams(
+                  Object.entries({ q, zona, stato: contatto }).filter(([, v]) => v) as [string, string][],
+                ).toString()
+                  ? `?${new URLSearchParams(Object.entries({ q, zona, stato: contatto }).filter(([, v]) => v) as [string, string][])}`
+                  : ""
+              }`}
+              className="font-display text-xs font-bold text-navy/55 hover:text-navy"
+            >
+              Scarica CSV ↓
+            </a>
+            <Link href="/admin/abbonati" className="font-display text-xs font-bold text-blue hover:underline">
+              Crea cliente o accedi come cliente →
+            </Link>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link href={`/admin/persone${qs({ stadio: undefined })}`} className={pill(!stadio)}>
@@ -111,13 +138,30 @@ export default async function PersonePage({
           ))}
         </div>
 
+        {/* Il filtro della copertura, staccato dai chip dello stadio: sono due
+            domande diverse e si incrociano — «lead fuori zona» è la ricerca che
+            serve davvero quando le richieste arrivano da tutta la citta'. */}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="font-display text-xs font-bold uppercase tracking-wider text-navy/40">Zona</span>
+          <Link href={`/admin/persone${qs({ zona: undefined })}`} className={pill(!zona)}>
+            Tutte
+          </Link>
+          <Link href={`/admin/persone${qs({ zona: "in" })}`} className={pill(zona === "in")}>
+            In zona ({tutte.filter((p) => p.inZona === true).length})
+          </Link>
+          <Link href={`/admin/persone${qs({ zona: "fuori" })}`} className={pill(zona === "fuori")}>
+            Fuori zona ({tutte.filter((p) => p.inZona === false).length})
+          </Link>
+        </div>
+
         <form className="mt-3 flex flex-wrap items-center gap-2">
           {stadio && <input type="hidden" name="stadio" value={stadio} />}
+          {zona && <input type="hidden" name="zona" value={zona} />}
           {prova && <input type="hidden" name="prova" value={prova} />}
           <input
             name="q"
             defaultValue={q ?? ""}
-            placeholder="Cerca per nome, email, telefono o codice cliente…"
+            placeholder="Cerca per nome, email, telefono, CAP o codice cliente…"
             className="h-10 min-w-[260px] flex-1 rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue"
           />
           <button type="submit" className="rounded-full bg-gradient-to-br from-blue to-cyan px-5 py-2 font-display text-sm font-extrabold text-white">
@@ -148,11 +192,12 @@ export default async function PersonePage({
 
       <Card>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1240px] text-left text-sm">
+          <table className="w-full min-w-[1340px] text-left text-sm">
             <thead>
               <tr className="border-b border-line text-xs font-bold uppercase tracking-wide text-muted">
                 <th className="py-2">Persona</th>
                 <th className="py-2">Codice</th>
+                <th className="py-2">Zona</th>
                 <th className="py-2">Stadio</th>
                 <th className="py-2">Contatto</th>
                 <th className="py-2">Valore</th>
@@ -180,6 +225,25 @@ export default async function PersonePage({
                     </div>
                   </td>
                   <td className="py-2.5 font-mono text-xs font-bold text-navy">{p.clientCode ?? "—"}</td>
+                  {/* Il CAP, e se lo serviamo. Senza, un fuori zona si
+                      distingueva da un lead buono solo aprendo la scheda. Niente
+                      CAP = trattino e non badge: non sapere non e' «fuori». */}
+                  <td className="py-2.5 whitespace-nowrap">
+                    {p.cap ? (
+                      <>
+                        <span className="font-mono text-xs font-bold text-navy">{p.cap}</span>
+                        {p.inZona === false ? (
+                          <span className="ml-1.5 rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#C0392B]">
+                            fuori zona
+                          </span>
+                        ) : (
+                          p.zona && <div className="text-[11px] font-semibold text-muted">{p.zona}</div>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-xs font-medium text-muted">—</span>
+                    )}
+                  </td>
                   <td className="py-2.5">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${STADIO_TONO[p.stadio]}`}>
                       {STADIO_LABEL[p.stadio]}

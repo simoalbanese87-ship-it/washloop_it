@@ -1,20 +1,20 @@
 import { LEGAL } from "@/lib/legal";
+import { CAP_MILANO, CAP_COMUNI } from "@/lib/copertura";
 
 /** Dove passiamo davvero, scritto una volta sola.
  *
- *  I CAP non sono inventati per fare volume: sono quelli caricati in
- *  `zone_caps` sulla zona attiva, cioè gli stessi che il sito usa per dire a un
- *  cliente «sì, copriamo casa tua». Se domani ne aggiungiamo uno in pannello,
- *  questa lista va aggiornata qui — e il commento esiste perché quel giorno
- *  arriverà e la promessa pubblica non deve restare indietro.
+ *  I CAP non si elencano qui: si prendono da `copertura.ts`, che è la stessa
+ *  regola con cui il sito risponde a chi scrive il suo CAP. Prima erano dieci
+ *  numeri copiati a mano — quelli della sola zona Sud-Ovest — con un commento
+ *  che chiedeva di aggiornarli il giorno in cui la copertura fosse cambiata.
+ *  Quel giorno è arrivato il 1° ottobre 2026, e nessuno sarebbe andato a
+ *  cercarli: una promessa pubblica che va ricopiata a mano è una promessa che
+ *  prima o poi dice il falso.
  *
  *  Perché contano: «Milano» in una pagina la scrivono tutti. I CAP e i nomi dei
  *  quartieri sono le parole che una persona cerca davvero («lavanderia a
  *  domicilio Navigli»), e sono anche le uniche verificabili. */
-export const CAP_SERVITI = [
-  "20089", "20090", "20100", "20123", "20136",
-  "20141", "20142", "20143", "20144", "20146",
-] as const;
+export const CAP_SERVITI: readonly string[] = [...CAP_MILANO, ...CAP_COMUNI];
 
 /** I nomi con cui la gente chiama quelle zone. Solo quelli di cui siamo certi:
  *  un quartiere elencato per sbaglio è una promessa di copertura che poi

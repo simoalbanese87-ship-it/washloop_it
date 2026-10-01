@@ -2,6 +2,7 @@ import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { waitlistLeads } from "@/lib/waitlist";
 import { zoneIdForCap } from "@/lib/zones";
+import { capCoperto } from "@/lib/copertura";
 
 /** Porta i lead del funnel dentro la tabella `leads`.
  *
@@ -98,7 +99,11 @@ export async function importaLeadFunnel(): Promise<EsitoImport> {
       phone: l.phone || null,
       cap,
       zone_id: zoneId,
-      covered: zoneId !== null,
+      // `capCoperto` e non `zoneId !== null`: sono due domande diverse, e
+      // tenerle insieme qui faceva risultare «fuori zona» un CAP che il sito
+      // aveva appena dichiarato coperto — lo stesso contatto cambiava esito a
+      // seconda di quale modulo aveva compilato.
+      covered: cap ? capCoperto(cap) : false,
       source: "funnel",
       notes: notaDa(l.extra ?? []),
       // La data del foglio, non quella dell'import: altrimenti i lead vecchi

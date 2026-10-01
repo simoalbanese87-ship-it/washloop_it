@@ -1,6 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { stadioDaSubscription, type Stadio } from "./persone-stadio";
+import { capCoperto } from "@/lib/copertura";
 
 /** Tutte le persone in una lista sola, ognuna con il suo stadio.
  *
@@ -46,6 +47,15 @@ export type Persona = {
   ultimoOrdine: string | null;
   creatoIl: string;
   isTest: boolean;
+  /** Il CAP: dei lead sta su `leads.cap`, degli iscritti su `addresses.cap` —
+   *  `profiles` non ce l'ha. `null` significa che non ce l'ha detto nessuno. */
+  cap: string | null;
+  /** Lo serviamo? `null` quando non c'è un CAP: non sapere non è «fuori». La
+   *  risposta si ricalcola con `capCoperto` e non si legge da `leads.covered`,
+   *  che e' la fotografia del giorno in cui il modulo e' stato compilato. */
+  inZona: boolean | null;
+  /** Il quadrante, quando il CAP ne risolve uno. */
+  zona: string | null;
   /** Cosa ci siamo detti al telefono. Per chi ha un profilo viene da
    *  `customer_notes` — la stessa casella della scheda cliente — per chi è
    *  ancora un lead da `leads.nota_interna`. Mai da `leads.notes`, che è del
@@ -63,17 +73,18 @@ const normTel = (p: string | null | undefined) => {
 export async function elencoPersone(includiProva = false): Promise<Persona[]> {
   const svc = createServiceClient();
 
-  const [{ data: profili }, { data: subs }, { data: leads }, { data: ordini }, { data: note }] = await Promise.all([
+  const [{ data: profili }, { data: subs }, { data: leads }, { data: ordini }, { data: note }, { data: indirizzi }, { data: mappaCap }] =
+    await Promise.all([
     svc.from("profiles").select("id, full_name, phone, client_code, created_at, is_test, contact_status").eq("role", "customer")
       .returns<{ id: string; full_name: string | null; phone: string | null; client_code: string | null; created_at: string; is_test: boolean; contact_status: string | null }[]>(),
     svc.from("subscriptions").select("user_id, status, custom_price_cents, current_period_end, created_at, plans(name, price_month_cents)")
       .order("created_at", { ascending: false })
       .returns<{ user_id: string; status: string; custom_price_cents: number | null; current_period_end: string | null; created_at: string; plans: { name: string; price_month_cents: number } | null }[]>(),
-    svc.from("leads").select("id, full_name, email, phone, created_at, source, contact_status, covered, nota_interna")
+    svc.from("leads").select("id, full_name, email, phone, created_at, source, contact_status, covered, nota_interna, cap")
       // `full_name` è nullable: tipizzarlo `string` non lo rende tale, rende
       // solo cieco chi legge. Senza il ripiego qui sotto, un lead senza nome
       // finiva in tabella come riga vuota e nella ricerca come «null».
-      .returns<{ id: string; full_name: string | null; email: string; phone: string | null; created_at: string; source: string | null; contact_status: string; covered: boolean; nota_interna: string | null }[]>(),
+      .returns<{ id: string; full_name: string | null; email: string; phone: string | null; created_at: string; source: string | null; contact_status: string; covered: boolean; nota_interna: string | null; cap: string | null }[]>(),
     svc.from("orders").select("customer_id, created_at").neq("status", "cancelled")
       .returns<{ customer_id: string | null; created_at: string }[]>(),
     // Dentro la stessa Promise.all e non dopo: in fila sarebbe un viaggio in
@@ -81,9 +92,36 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
     // niente join.
     svc.from("customer_notes").select("customer_id, note")
       .returns<{ customer_id: string; note: string }[]>(),
+    // Il CAP di chi si è registrato: `profiles` non ce l'ha, sta sull'indirizzo.
+    // Il più recente vince — chi trasloca resta una persona sola.
+    svc.from("addresses").select("user_id, cap, created_at").not("cap", "is", null)
+      .order("created_at", { ascending: false })
+      .returns<{ user_id: string; cap: string | null; created_at: string }[]>(),
+    // Il nome del quadrante, per scriverlo accanto al CAP. Solo zone accese:
+    // una zona spenta non è una copertura, ed è esattamente la distinzione che
+    // la tabella deve far vedere.
+    svc.from("zone_caps").select("cap, zones!inner(name, active)").eq("zones.active", true)
+      .returns<{ cap: string; zones: { name: string } | { name: string }[] | null }[]>(),
   ]);
 
   const notaDi = new Map((note ?? []).map((n) => [n.customer_id, n.note]));
+
+  // Un CAP per utente: la lista arriva già dal più recente al più vecchio.
+  const capDi = new Map<string, string>();
+  for (const a of indirizzi ?? []) if (a.cap && !capDi.has(a.user_id)) capDi.set(a.user_id, a.cap);
+
+  const zonaDelCap = new Map<string, string>();
+  for (const r of mappaCap ?? []) {
+    const z = Array.isArray(r.zones) ? r.zones[0] : r.zones;
+    if (z?.name) zonaDelCap.set(r.cap, z.name);
+  }
+
+  /** Le tre cose che la colonna «Zona» deve dire, decise in un punto solo. */
+  const copertura = (cap: string | null) => ({
+    cap,
+    inZona: cap ? capCoperto(cap) : null,
+    zona: cap ? zonaDelCap.get(cap.trim()) ?? null : null,
+  });
 
   // Email dei profili: stanno in auth, non in `profiles`. Una sola chiamata
   // paginata invece di una per persona — con otto clienti erano otto richieste
@@ -143,6 +181,7 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       creatoIl: p.created_at,
       isTest: p.is_test,
       nota: notaDi.get(p.id) ?? null,
+      ...copertura(capDi.get(p.id) ?? null),
     });
   }
 
@@ -179,6 +218,7 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       creatoIl: l.created_at,
       isTest: false,
       nota: l.nota_interna,
+      ...copertura(l.cap),
     });
   }
 
