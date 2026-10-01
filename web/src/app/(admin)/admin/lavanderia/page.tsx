@@ -199,8 +199,12 @@ export default async function LavanderiaPage({
           </p>
         )}
         <p className="mt-1 text-sm font-medium text-muted">
-          I capi speciali ancora da addebitare, con il controllo del prezzo, stanno in Extra. Il compenso per i sacchi matura alla consegna; quello dei capi speciali quando la lavanderia li aggiunge.
-          Il compenso a sacco si imposta in Catalogo, sulla scheda della lavanderia.
+          Il mese e&apos; quello della <strong>presa in carico</strong>, cioe&apos; del ritiro: un ordine ritirato il 29 settembre
+          sta in settembre anche se torna al cliente a ottobre. La colonna &laquo;Presa in carico&raquo; qui sotto e&apos; la data su
+          cui si decide. Le righe invece si scrivono dopo — i sacchi alla consegna, i capi speciali quando la lavanderia
+          li aggiunge — quindi un mese gia&apos; segnato pagato puo&apos; tornare a mostrare un residuo: sono consegne di fine
+          mese che maturano dopo. I capi speciali ancora da addebitare, con il controllo del prezzo, stanno in Extra; il
+          compenso a sacco si imposta in Catalogo, sulla scheda della lavanderia.
         </p>
       </Card>
 
@@ -227,7 +231,7 @@ export default async function LavanderiaPage({
                           mese da solo non dice se dentro c'è tutto il mese o
                           tre giorni, e chi firma un bonifico lo deve sapere. */}
                       {g.dal && g.al && (
-                        <> · {g.dal === g.al ? `consegne del ${fmtGiorno(g.dal)}` : `consegne dal ${fmtGiorno(g.dal)} al ${fmtGiorno(g.al)}`}</>
+                        <> · {g.dal === g.al ? `ritiri del ${fmtGiorno(g.dal)}` : `ritiri dal ${fmtGiorno(g.dal)} al ${fmtGiorno(g.al)}`}</>
                       )}
                     </div>
                   </div>
@@ -254,11 +258,15 @@ export default async function LavanderiaPage({
                     un numero mensile non si può controllare, e chi sta per fare
                     un bonifico deve poter risalire a ogni euro. */}
                 <div className="mt-4 overflow-x-auto border-t border-line pt-3">
-                  <table className="w-full min-w-[560px] text-left text-sm">
+                  <table className="w-full min-w-[640px] text-left text-sm">
                     <thead>
                       <tr className="font-display text-[11px] font-extrabold uppercase tracking-wider text-navy/50">
                         <th className="pb-2 pr-3 font-inherit">Cliente</th>
                         <th className="pb-2 pr-3">Ordine</th>
+                        {/* La data su cui si decide il mese. Senza, il
+                            raggruppamento e' una cifra che bisogna credere:
+                            con, si controlla riga per riga in due secondi. */}
+                        <th className="pb-2 pr-3">Presa in carico</th>
                         <th className="pb-2 pr-3">Sacchi</th>
                         <th className="pb-2 pr-3">Capi speciali</th>
                         <th className="pb-2 text-right">Totale</th>
@@ -278,6 +286,9 @@ export default async function LavanderiaPage({
                               </td>
                               <td className="py-2 pr-3 font-mono text-xs text-muted">
                                 {v.orderId ? v.orderId.slice(0, 8) : "—"}
+                              </td>
+                              <td className="py-2 pr-3 whitespace-nowrap text-xs font-semibold text-navy">
+                                {fmtGiorno(v.quando)}
                               </td>
                               <td className="py-2 pr-3 text-muted">
                                 {v.sacchi > 0 ? (
@@ -311,7 +322,7 @@ export default async function LavanderiaPage({
                         imposta si ricavano scorporando. */}
                     <tfoot>
                       <tr className="border-t-2 border-line font-display text-navy">
-                        <td className="pt-3" colSpan={3}>
+                        <td className="pt-3" colSpan={4}>
                           <span className="text-xs font-bold uppercase tracking-wider text-navy/50">Per il proforma</span>
                         </td>
                         <td className="pt-3 text-right text-sm font-semibold text-muted">
