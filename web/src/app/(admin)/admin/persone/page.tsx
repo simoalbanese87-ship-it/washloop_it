@@ -6,9 +6,11 @@ import { fmtDate, eurCents } from "@/lib/format";
 import { LeadStatusSelect } from "@/components/admin/LeadStatusSelect";
 import { NotaPersona } from "@/components/admin/NotaPersona";
 import { LeadActions } from "@/components/admin/LeadActions";
+import { DeleteUserButton } from "@/components/admin/DeleteUserButton";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { impersonate } from "@/lib/actions/impersonate";
-import { CONTACT_STATUS_LABEL, isContactStatus, type ContactStatus } from "@/lib/lead-status";
+import { CONTACT_STATUS, CONTACT_STATUS_LABEL, isContactStatus, type ContactStatus } from "@/lib/lead-status";
+import { cadenzaTesto } from "@/lib/durata-abbonamento";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +74,14 @@ export default async function PersonePage({
   const lista = stadio ? base.filter((p) => p.stadio === stadio) : base;
 
   const conta = (s: Stadio) => base.filter((p) => p.stadio === s).length;
-  const ricorrente = base.reduce((t, p) => t + p.valoreMensileCents, 0);
+  // I conteggi dei chip «Contatto» non devono risentire del chip «Contatto»
+  // gia' scelto, altrimenti tutti gli altri direbbero zero.
+  const senzaZona = tutte.filter((p) => cerca(p) && (!contatto || statoDi(p) === contatto) && (!stadio || p.stadio === stadio));
+  const senzaContatto = tutte.filter((p) => cerca(p) && (!zona || inZonaDi(p)) && (!stadio || p.stadio === stadio));
+  const contaContatto = (c: string) => senzaContatto.filter((p) => statoDi(p) === c).length;
+  // «Ricorrente» vuol dire che torna ogni mese: un pacchetto a termine, o un
+  // abbonamento gia' disdetto, il mese prossimo non c'e' piu'.
+  const ricorrente = base.reduce((t, p) => t + (p.settimane || p.disdetto ? 0 : p.valoreMensileCents), 0);
   const qui = `/admin/persone${stadio || contatto || zona || q || prova ? `?${new URLSearchParams(Object.entries({ stadio, contatto, zona, q, prova }).filter(([, v]) => v) as [string, string][])}` : ""}`;
 
   const qs = (patch: Record<string, string | undefined>) => {
@@ -138,6 +147,22 @@ export default async function PersonePage({
           ))}
         </div>
 
+        {/* Lo stato del contatto: il filtro c'era gia' e ci si arrivava solo
+            dalla Home, con un link. Da qui dentro non si poteva chiedere «chi
+            devo ancora chiamare», che e' la domanda per cui questa pagina
+            esiste. I conteggi sono quelli di cio' che si vede, come gli altri. */}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="font-display text-xs font-bold uppercase tracking-wider text-navy/40">Contatto</span>
+          <Link href={`/admin/persone${qs({ contatto: undefined })}`} className={pill(!contatto)}>
+            Tutti
+          </Link>
+          {CONTACT_STATUS.map((c) => (
+            <Link key={c} href={`/admin/persone${qs({ contatto: c })}`} className={pill(contatto === c)}>
+              {CONTACT_STATUS_LABEL[c]} ({contaContatto(c)})
+            </Link>
+          ))}
+        </div>
+
         {/* Il filtro della copertura, staccato dai chip dello stadio: sono due
             domande diverse e si incrociano — «lead fuori zona» è la ricerca che
             serve davvero quando le richieste arrivano da tutta la citta'. */}
@@ -147,16 +172,17 @@ export default async function PersonePage({
             Tutte
           </Link>
           <Link href={`/admin/persone${qs({ zona: "in" })}`} className={pill(zona === "in")}>
-            In zona ({tutte.filter((p) => p.inZona === true).length})
+            In zona ({senzaZona.filter((p) => p.inZona === true).length})
           </Link>
           <Link href={`/admin/persone${qs({ zona: "fuori" })}`} className={pill(zona === "fuori")}>
-            Fuori zona ({tutte.filter((p) => p.inZona === false).length})
+            Fuori zona ({senzaZona.filter((p) => p.inZona === false).length})
           </Link>
         </div>
 
         <form className="mt-3 flex flex-wrap items-center gap-2">
           {stadio && <input type="hidden" name="stadio" value={stadio} />}
           {zona && <input type="hidden" name="zona" value={zona} />}
+          {contatto && <input type="hidden" name="contatto" value={contatto} />}
           {prova && <input type="hidden" name="prova" value={prova} />}
           <input
             name="q"
@@ -271,10 +297,16 @@ export default async function PersonePage({
                       <div className="mt-0.5 text-[10px] font-medium text-muted">mai impostato</div>
                     )}
                   </td>
+                  {/* La cadenza accanto all'importo, e la parola giusta sotto.
+                      Una prova a pagamento da 40 EUR per una settimana si
+                      leggeva «40,00 EUR/mese · rinnovo 08/10»: sbagliato due
+                      volte, perche' non e' mensile e perche' non si rinnova. */}
                   <td className="py-2.5 font-display font-extrabold text-navy">
-                    {p.valoreMensileCents > 0 ? `${eurCents(p.valoreMensileCents)}/mese` : "—"}
+                    {p.valoreMensileCents > 0 ? `${eurCents(p.valoreMensileCents)}${cadenzaTesto(p.settimane)}` : "—"}
                     {p.rinnovo && p.stadio === "attivo" && (
-                      <div className="text-[11px] font-medium text-muted">rinnovo {fmtDate(p.rinnovo)}</div>
+                      <div className={`text-[11px] font-medium ${p.disdetto ? "text-[#C9881F]" : "text-muted"}`}>
+                        {p.disdetto ? "finisce" : "rinnovo"} {fmtDate(p.rinnovo)}
+                      </div>
                     )}
                   </td>
                   <td className="py-2.5 text-muted">
@@ -306,6 +338,12 @@ export default async function PersonePage({
                               Accedi come →
                             </BottoneInvio>
                           </form>
+                          {/* Cancellare si poteva gia', ma solo dalla scheda:
+                              per togliere un doppione bisognava aprirlo,
+                              scorrere e tornare indietro. Le guardie vere —
+                              abbonamento in corso, ordini aperti — restano
+                              lato server e dicono perche' non si puo'. */}
+                          <DeleteUserButton id={p.profileId} name={p.nome} back={qui} />
                         </>
                       ) : (
                         <LeadActions leadId={p.leadId!} name={p.nome} back={qui} />

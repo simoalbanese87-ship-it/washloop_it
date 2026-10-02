@@ -31,6 +31,17 @@ export function soloPaganti(a: AbbonamentoAttivo[]): AbbonamentoAttivo[] {
   return a.filter((x) => !x.inProva);
 }
 
+/** Solo quello che tornerà anche il mese prossimo.
+ *
+ *  Un pacchetto a termine — la prova a pagamento di una settimana — è un
+ *  abbonamento vivo e un incasso vero, ma non è ricorrente: nasce con la data
+ *  in cui si chiude. Contarlo nel ricorrente faceva dire «550 €/mese» a un
+ *  parco clienti che ne ripete 510, e la differenza erano 40 € che a ottobre
+ *  non si sarebbero ripetuti mai piu'. */
+export function soloRicorrenti(a: AbbonamentoAttivo[]): AbbonamentoAttivo[] {
+  return a.filter((x) => !x.aTermine);
+}
+
 /** Un abbonamento conta come attivo solo se lo stato lo dice E il periodo non è
  *  finito. Guardare solo lo stato faceva contare nel ricorrente 440 € di due
  *  account di prova il cui periodo era scaduto da settimane: lo stato resta
@@ -46,6 +57,9 @@ export type AbbonamentoAttivo = {
   userId: string;
   /** In prova gratuita: non è ricavo, è una promessa. */
   inProva: boolean;
+  /** Pacchetto a termine (prova a pagamento di N settimane): incassa una volta
+   *  e si chiude. Vivo sì, ricorrente no. */
+  aTermine: boolean;
   nome: string;
   prezzoCents: number;
   piano: string | null;
@@ -65,11 +79,12 @@ export async function abbonamentiAttivi(includiProva = false): Promise<Abbonamen
   const svc = createServiceClient();
   const { data } = await svc
     .from("subscriptions")
-    .select("user_id, status, manual, custom_price_cents, current_period_end, created_at, prova_fine_at, plans(name, price_month_cents), profiles(full_name, is_test)")
+    .select("user_id, status, manual, custom_price_cents, current_period_end, created_at, prova_fine_at, termina_dopo_settimane, plans(name, price_month_cents), profiles(full_name, is_test)")
     .order("created_at", { ascending: false })
     .returns<{
       user_id: string; status: string; manual: boolean | null; custom_price_cents: number | null;
       current_period_end: string | null; created_at: string; prova_fine_at: string | null;
+      termina_dopo_settimane: number | null;
       plans: { name: string; price_month_cents: number } | null;
       profiles: { full_name: string | null; is_test: boolean } | null;
     }[]>();
@@ -84,6 +99,7 @@ export async function abbonamentiAttivi(includiProva = false): Promise<Abbonamen
     out.push({
       userId: r.user_id,
       inProva: r.status === "trialing",
+      aTermine: (r.termina_dopo_settimane ?? 0) > 0,
       nome: r.profiles?.full_name ?? "—",
       prezzoCents: r.custom_price_cents ?? r.plans?.price_month_cents ?? 0,
       piano: r.plans?.name ?? null,
@@ -138,7 +154,7 @@ export async function revenueMetrics(includiProva = false): Promise<RevenueMetri
   // versa ancora niente: sommarlo al prezzo pieno gonfierebbe il ricorrente di
   // tutte le prove in corso, cioè proprio del numero che si guarda per capire
   // se l'offerta funziona.
-  const coreMrrCents = soloPaganti(attivi).reduce((t, a) => t + a.prezzoCents, 0);
+  const coreMrrCents = soloRicorrenti(soloPaganti(attivi)).reduce((t, a) => t + a.prezzoCents, 0);
 
   let extraMonthCents = 0, extraYearCents = 0;
   for (const x of specials ?? []) {

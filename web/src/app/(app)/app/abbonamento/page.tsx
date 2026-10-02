@@ -4,12 +4,13 @@ import { startCheckout, openPortal } from "@/lib/actions/billing";
 import { fmtDate } from "@/lib/format";
 import { planRecap } from "@/lib/plan-copy";
 import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
+import { cadenzaTesto } from "@/lib/durata-abbonamento";
 import { linkPagamento } from "@/lib/dunning-piano";
 import { CostsExplainer } from "@/components/app/CostsExplainer";
 import { DatiFatturaForm } from "@/components/app/DatiFatturaForm";
 
 type Plan = { id: string; code: string; name: string; price_month_cents: number; pickups_per_week: number; turnaround_hours: number };
-type Sub = { status: string; current_period_end: string | null; cancel_at_period_end: boolean | null; plan_id: string | null; last_failed_invoice_url: string | null; prova_fine_at: string | null; prova_ordine_id: string | null; plans: { name: string } | null };
+type Sub = { status: string; current_period_end: string | null; cancel_at_period_end: boolean | null; plan_id: string | null; last_failed_invoice_url: string | null; prova_fine_at: string | null; prova_ordine_id: string | null; termina_dopo_settimane: number | null; custom_price_cents: number | null; plans: { name: string } | null };
 
 const euro = (cents: number) => (cents / 100).toLocaleString("it-IT");
 
@@ -20,7 +21,7 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
   const [{ need }, { data: plans }, { data: sub }, { data: monthOrders }, { data: monthSpecials }] = await Promise.all([
     searchParams,
     supabase.from("plans").select("id, code, name, price_month_cents, pickups_per_week, turnaround_hours").eq("active", true).order("sort").returns<Plan[]>(),
-    supabase.from("subscriptions").select("status, current_period_end, cancel_at_period_end, plan_id, last_failed_invoice_url, prova_fine_at, prova_ordine_id, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    supabase.from("subscriptions").select("status, current_period_end, cancel_at_period_end, plan_id, last_failed_invoice_url, prova_fine_at, prova_ordine_id, termina_dopo_settimane, custom_price_cents, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     supabase.from("orders").select("bags, status, created_at").gte("created_at", monthStartIso).neq("status", "cancelled").returns<{ bags: number; status: string; created_at: string }[]>(),
     supabase.from("order_specials").select("price_cli_cents, created_at").gte("created_at", monthStartIso).returns<{ price_cli_cents: number; created_at: string }[]>(),
   ]);
@@ -41,6 +42,12 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
     provaFineAt: sub?.prova_fine_at,
   });
   const primoAddebito = sub?.prova_fine_at ?? sub?.current_period_end ?? null;
+  // Pacchetto a termine: senza un piano a listino il riquadro diceva solo
+  // «Attivo», cioe' niente. Chi ha pagato quaranta euro per una settimana deve
+  // leggere che ha comprato una settimana.
+  const settimane = sub?.termina_dopo_settimane ?? null;
+  const titoloPiano = sub?.plans?.name
+    ?? (settimane ? `Prova di ${settimane === 1 ? "1 settimana" : `${settimane} settimane`}` : "Attivo");
   // Fattura rimasta aperta. Finora tutto quello che serve a chi si trova qui —
   // lo stato del piano, il portale Stripe, il link per pagare — stava dentro
   // rami `active &&`, cioè irraggiungibile proprio a lui: vedeva il listino
@@ -119,7 +126,13 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
         <section className="relative overflow-hidden rounded-[24px] bg-gradient-to-br from-[#26417a] to-[#16264f] p-6 text-white shadow-[0_18px_44px_-26px_rgba(27,45,94,0.7)]">
           <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-cyan/20 blur-2xl" />
           <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.14em] text-cyan">Piano attivo</div>
-          <div className="mt-1 font-display text-[24px] font-black leading-tight">{sub?.plans?.name ?? "Attivo"}</div>
+          <div className="mt-1 font-display text-[24px] font-black leading-tight">{titoloPiano}</div>
+          {settimane && sub?.custom_price_cents ? (
+            <div className="mt-1 text-sm font-semibold text-white/70">
+              €{(sub.custom_price_cents / 100).toLocaleString("it-IT", { minimumFractionDigits: 2 })}
+              {cadenzaTesto(settimane)} · pagamento unico, nessun rinnovo
+            </div>
+          ) : null}
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-medium text-white/65">
             <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-display text-xs font-bold text-cyan">{etichetta.stato}</span>
             {rigaQuando(etichetta, fmtDate) && <span>{rigaQuando(etichetta, fmtDate)}</span>}

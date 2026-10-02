@@ -37,8 +37,15 @@ export type Persona = {
   telefono: string | null;
   clientCode: string | null;
   stadio: Stadio;
-  /** Quanto vale al mese, se abbonato. */
+  /** Quanto vale, se abbonato. **Non è sempre un importo mensile**: su una
+   *  prova a pagamento è il prezzo dell'intero pacchetto, e quante settimane
+   *  copre lo dice `settimane`. */
   valoreMensileCents: number;
+  /** Durata del pacchetto in settimane: `null` = abbonamento mensile normale.
+   *  Senza questo, 40 € per una settimana si leggevano come 40 €/mese. */
+  settimane: number | null;
+  /** Non si rinnova: o è stato disdetto, o è un pacchetto a termine. */
+  disdetto: boolean;
   piano: string | null;
   rinnovo: string | null;
   provenienza: string | null;
@@ -77,9 +84,9 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
     await Promise.all([
     svc.from("profiles").select("id, full_name, phone, client_code, created_at, is_test, contact_status").eq("role", "customer")
       .returns<{ id: string; full_name: string | null; phone: string | null; client_code: string | null; created_at: string; is_test: boolean; contact_status: string | null }[]>(),
-    svc.from("subscriptions").select("user_id, status, custom_price_cents, current_period_end, created_at, plans(name, price_month_cents)")
+    svc.from("subscriptions").select("user_id, status, custom_price_cents, current_period_end, created_at, cancel_at_period_end, termina_dopo_settimane, plans(name, price_month_cents)")
       .order("created_at", { ascending: false })
-      .returns<{ user_id: string; status: string; custom_price_cents: number | null; current_period_end: string | null; created_at: string; plans: { name: string; price_month_cents: number } | null }[]>(),
+      .returns<{ user_id: string; status: string; custom_price_cents: number | null; current_period_end: string | null; created_at: string; cancel_at_period_end: boolean | null; termina_dopo_settimane: number | null; plans: { name: string; price_month_cents: number } | null }[]>(),
     svc.from("leads").select("id, full_name, email, phone, created_at, source, contact_status, covered, nota_interna, cap")
       // `full_name` è nullable: tipizzarlo `string` non lo rende tale, rende
       // solo cieco chi legge. Senza il ripiego qui sotto, un lead senza nome
@@ -172,6 +179,8 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       clientCode: p.client_code,
       stadio,
       valoreMensileCents: stadio === "attivo" ? s?.custom_price_cents ?? s?.plans?.price_month_cents ?? 0 : 0,
+      settimane: s?.termina_dopo_settimane ?? null,
+      disdetto: s?.cancel_at_period_end === true || (s?.termina_dopo_settimane ?? 0) > 0,
       piano: s?.plans?.name ?? null,
       rinnovo: s?.current_period_end ?? null,
       provenienza: null,
@@ -209,6 +218,8 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       clientCode: null,
       stadio: "lead",
       valoreMensileCents: 0,
+      settimane: null,
+      disdetto: false,
       piano: null,
       rinnovo: null,
       provenienza: l.source ?? "landing",

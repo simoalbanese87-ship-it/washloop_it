@@ -182,6 +182,9 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           : `Ci sono ${ordiniAperti.length} ordini ancora aperti. Annullali qui sotto e poi si può eliminare.`
         : null;
   const solleciti = sub?.dunning_step ?? 0;
+  // «/mese» stampato a mano era falso sulle prove a pagamento: 40 EUR per una
+  // settimana non sono 40 EUR al mese.
+  const cadenza = cadenzaTesto(sub?.termina_dopo_settimane ?? null);
   const priceLabel =
     sub?.custom_price_cents === 0
       ? "€0,00 (omaggio)"
@@ -207,7 +210,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             Pagamento non riuscito{sub?.last_failed_at ? ` dal ${fmtDate(sub.last_failed_at)}` : ""}
           </div>
           <p className="mt-1 text-sm font-semibold text-navy">
-            {priceLabel}/mese · {solleciti === 0 ? "nessun sollecito ancora partito" : `${solleciti} ${solleciti === 1 ? "sollecito inviato" : "solleciti inviati"} su 3`}.
+            {priceLabel}{cadenza} · {solleciti === 0 ? "nessun sollecito ancora partito" : `${solleciti} ${solleciti === 1 ? "sollecito inviato" : "solleciti inviati"} su 3`}.
             {" "}I ritiri ricorrenti sono fermi: finché l&apos;abbonamento non torna attivo il sistema non ne genera.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -557,7 +560,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           {sub ? (
             <>
               <div className="mt-3 space-y-1 text-sm font-medium text-muted">
-                <div>Piano: <span className="font-bold text-navy">{sub.plans?.name ?? "—"}</span> · {priceLabel}/mese {sub.manual && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">manuale</span>}</div>
+                <div>Piano: <span className="font-bold text-navy">{sub.plans?.name ?? (sub.termina_dopo_settimane ? `Prova a pagamento di ${sub.termina_dopo_settimane === 1 ? "1 settimana" : `${sub.termina_dopo_settimane} settimane`}` : "—")}</span> · {priceLabel}{cadenza} {sub.manual && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">manuale</span>}</div>
                 {/* I sacchi compresi: è il tetto con cui paghiamo la lavanderia
                     e contiamo la franchigia, ed è quello che fa entrare questo
                     cliente nel «costo previsto» di Competenza. Prima non si
