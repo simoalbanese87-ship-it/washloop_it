@@ -9,9 +9,8 @@ import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders"
 import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione } from "@/lib/segnalazioni";
 import { conteggiaConFranchigia, sacchiPerFranchigia, ridistribuisciFranchigia, sacchiDaContare } from "@/lib/franchigia";
 import { sacchiInclusi } from "@/lib/abbonamento-sacchi";
-import { incassaExtraDelRitiro } from "@/lib/incasso-extra";
-import { notificaExtraIncassati } from "@/lib/notify";
 import { dataServizio } from "@/lib/periodo-servizio";
+import { portaAPronto } from "@/lib/pronto";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
 const PARTNER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
@@ -19,49 +18,6 @@ const PARTNER_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus>> = {
   at_laundry: "washing", // avvia lavaggio
   washing: "ready", // pronto per la riconsegna
 };
-
-/** Se il cliente ha già scelto la fascia di riconsegna in prenotazione, «pronto»
- *  non è un punto d'attesa: l'appuntamento c'è già, e l'ordine va direttamente
- *  in «riconsegna programmata» perché entri nel giro del rider.
- *
- *  Scrive con il service role di proposito: è una transizione di sistema, non
- *  un gesto della lavanderia — che infatti non ha il permesso di portare un
- *  ordine oltre `ready`.
- *
- *  Ritorna lo stato da notificare al cliente. Una notifica sola: «è pronto» e
- *  subito dopo «te lo riportiamo giovedì» sono due messaggi per una notizia,
- *  e il secondo contiene già il primo. */
-async function programmaRiconsegnaSeScelta(orderId: string): Promise<OrderStatus> {
-  const svc = createServiceClient();
-  const { data } = await svc
-    .from("orders")
-    .select("delivery_slot_id")
-    .eq("id", orderId)
-    .maybeSingle<{ delivery_slot_id: string | null }>();
-  if (!data?.delivery_slot_id) return "ready";
-
-  // Nota per chi passerà di qui: NON aggiungere un controllo «la fascia è già
-  // passata, allora non promuovere». L'ho fatto il 3 settembre pensando di
-  // evitare una data morta, e il 4 mattina è costato un sacco invisibile.
-  //
-  // La lavanderia ha segnato pronti tre ordini alle 10:05; quello di Saverio
-  // aveva la fascia alle 09:00, passata da un'ora, ed è rimasto su «pronto» —
-  // cioè fuori dal giro del rider, che intanto era in strada a consegnare gli
-  // altri due, con la sua borsa a due metri. Nessuno riprogramma niente in
-  // quel momento: il rider è là, il sacco è là, la consegna è oggi.
-  //
-  // Una fascia scaduta di un'ora non è una data morta, è una consegna in
-  // ritardo — e le fermate arretrate il giro del rider le mostra già apposta.
-
-  const { error } = await svc.from("orders").update({ status: "delivery_scheduled" }).eq("id", orderId);
-  if (error) {
-    // Meglio un ordine fermo su `ready` — che l'ops vede e programma a mano —
-    // che un errore in faccia alla lavanderia per un passaggio non suo.
-    console.error(`[partner] riconsegna automatica non riuscita per ${orderId}:`, error.message);
-    return "ready";
-  }
-  return "delivery_scheduled";
-}
 
 async function requirePartner() {
   const profile = await getCurrentProfile();
@@ -110,29 +66,17 @@ export async function advanceStatus(formData: FormData) {
   const next = PARTNER_TRANSITIONS[order.status];
   if (!next) throw new Error(`Transizione non consentita da "${order.status}"`);
 
-  const { error } = await scriviStato(orderId, next);
-  if (error) throw new Error(error);
-
-  // Il sacco è finito: è il momento in cui il totale dei capi extra è completo
-  // e non può più arrivarne un altro. Da qui parte l'incasso, in un colpo solo.
-  //
-  // Prima l'addebito era una voce agganciata all'abbonamento, che diventava
-  // soldi solo alla fattura di rinnovo: su un cliente che disdice prima, mai.
-  //
-  // Non fa fallire il «pronto» in nessun caso — `incassaExtraDelRitiro` cattura
-  // tutto e registra: il lavoro fisico è già stato fatto, e un sacco pronto che
-  // resta «in lavorazione» sul tabellone è un danno peggiore di un incasso
-  // mancato, che almeno si vede e si rimedia.
+  // «Pronto» non è solo un'etichetta: incassa i capi extra e, se la fascia di
+  // riconsegna c'è già, manda l'ordine nel giro del rider. Tutto in
+  // `portaAPronto`, che da oggi preme anche il rider quando carica i sacchi.
+  let daNotificare: OrderStatus;
   if (next === "ready") {
-    const esito = await incassaExtraDelRitiro(createServiceClient(), orderId);
-    if (esito.esito === "incassato") {
-      await notificaExtraIncassati(orderId, esito.totaleCents);
-    }
-    revalidatePath("/admin/extra");
-    revalidatePath("/admin");
+    daNotificare = await portaAPronto(orderId);
+  } else {
+    const { error } = await scriviStato(orderId, next);
+    if (error) throw new Error(error);
+    daNotificare = next;
   }
-
-  const daNotificare = next === "ready" ? await programmaRiconsegnaSeScelta(orderId) : next;
   await notifyOrderStatus(orderId, daNotificare);
   revalidatePath("/laundry");
   revalidatePath(`/laundry/${orderId}`);
@@ -150,12 +94,18 @@ export async function setPartnerStatus(orderId: string, status: string) {
   const order = await assertOrderInLaundry(orderId, profile.laundry_id!);
   if (order.status === status) return;
 
-  const { error } = await scriviStato(orderId, status as OrderStatus);
-  if (error) throw new Error(error);
+  const avanti = statusIndex(status as OrderStatus) > statusIndex(order.status);
 
-  if (statusIndex(status as OrderStatus) > statusIndex(order.status)) {
-    const daNotificare = status === "ready" ? await programmaRiconsegnaSeScelta(orderId) : (status as OrderStatus);
+  // Trascinare una scheda nella colonna «Pronti» deve valere quanto premere
+  // «Segna pronto»: prima no — da qui passava solo lo stato, e i capi extra di
+  // quel ritiro non venivano incassati. Stesso gesto, stesso effetto.
+  if (status === "ready" && avanti) {
+    const daNotificare = await portaAPronto(orderId);
     await notifyOrderStatus(orderId, daNotificare);
+  } else {
+    const { error } = await scriviStato(orderId, status as OrderStatus);
+    if (error) throw new Error(error);
+    if (avanti) await notifyOrderStatus(orderId, status as OrderStatus);
   }
   revalidatePath("/laundry");
   revalidatePath(`/laundry/${orderId}`);

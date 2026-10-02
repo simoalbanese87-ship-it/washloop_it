@@ -22,6 +22,8 @@ import { allineaProva } from "@/lib/prova-stripe";
 // prevista un giorno prima del vero. Un solo numero, e sta dove sta il
 // calendario del rider.
 import { TURNAROUND_ORE } from "@/lib/planning-rider";
+import { portaAPronto } from "@/lib/pronto";
+import { IN_LAVORAZIONE } from "@/lib/consegne-da-caricare";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
  *  Calcola l'ETA "pronto" = inizio ritiro + turnaround del piano attivo. */
@@ -466,6 +468,75 @@ export async function courierAdvance(formData: FormData): Promise<{ error: strin
   }
   if (status === "delivered") await registraSacchiLavanderia(id);
   await notifyOrderStatus(id, status);
+  revalidatePath("/courier");
+}
+
+/** Rider: «ho caricato i sacchi».
+ *
+ *  Il giro parte dalla lavanderia — quaranta chilometri fuori Milano — e il
+ *  rider e' fisicamente davanti ai sacchi. Finora, se di la' nessuno aveva
+ *  premuto «pronto», lui non poteva fare niente: il 2 ottobre quattro consegne
+ *  erano ferme su «in lavaggio» dal 29 settembre e il suo giro diceva «Nessuna
+ *  fermata assegnata». Aspettare un bottone altrui con la merce in mano non e'
+ *  un controllo, e' un giro perso.
+ *
+ *  Non e' una scorciatoia: passa da `portaAPronto`, cioe' fa **gli stessi
+ *  passaggi** della lavanderia, incasso dei capi extra compreso. Saltarlo
+ *  significherebbe far sparire i capi extra di quel ritiro, in silenzio e per
+ *  sempre.
+ *
+ *  `TRANSIZIONI` non si tocca e il rider continua a non poter fare
+ *  `washing → ready` da `courierAdvance`: li' dichiarerebbe che il lavaggio e'
+ *  finito, che non e' mestiere suo. Qui dichiara un'altra cosa — che i sacchi
+ *  sono nel suo furgone — ed e' per questo che e' un'azione separata, con un
+ *  nome suo e una guardia sua.
+ *
+ *  Una notifica sola, «In consegna oggi»: i passaggi intermedi non avvisano
+ *  nessuno, perche' «Riconsegna programmata» e «In consegna» a dieci minuti di
+ *  distanza sono due messaggi per una notizia. */
+export async function riderCaricaConsegna(formData: FormData): Promise<{ error: string } | void> {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "courier") return { error: "Solo i rider possono aggiornare il giro." };
+
+  const id = String(formData.get("order_id") ?? "");
+  if (!id) return { error: "Parametri mancanti." };
+
+  const svc = createServiceClient();
+  const { data: order } = await svc
+    .from("orders")
+    .select("id, status, courier_id, delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at)")
+    .eq("id", id)
+    .maybeSingle<{
+      id: string;
+      status: OrderStatus;
+      courier_id: string | null;
+      delivery_slot: { starts_at: string } | { starts_at: string }[] | null;
+    }>();
+  if (!order) return { error: "Ordine non trovato: potrebbe essere stato annullato." };
+  if (order.courier_id !== me.id) return { error: "Questo ordine non è assegnato a te." };
+  if (!IN_LAVORAZIONE.includes(order.status)) {
+    return { error: "Questa consegna non è più in lavanderia: ricarica la pagina." };
+  }
+
+  const slot = Array.isArray(order.delivery_slot) ? order.delivery_slot[0] : order.delivery_slot;
+  if (!slot?.starts_at) return { error: "Questa consegna non ha ancora una fascia: la fissa l'ufficio." };
+  // Solo il giro di oggi, arretrati compresi. Caricare quella di settimana
+  // prossima vorrebbe dire portarsi in furgone un sacco senza un'ora a cui
+  // consegnarlo, e toglierlo alla lavanderia che lo deve ancora lavare.
+  if (!entroOggiRoma(slot.starts_at)) {
+    return { error: "Questa consegna non è di oggi: comparirà qui la mattina stessa." };
+  }
+
+  try {
+    await portaAPronto(id);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Non siamo riusciti a salvare. Riprova." };
+  }
+
+  const { error } = await svc.from("orders").update({ status: "out_for_delivery" }).eq("id", id);
+  if (error) return { error: "Non siamo riusciti a salvare. Controlla la rete e riprova." };
+
+  await notifyOrderStatus(id, "out_for_delivery");
   revalidatePath("/courier");
 }
 

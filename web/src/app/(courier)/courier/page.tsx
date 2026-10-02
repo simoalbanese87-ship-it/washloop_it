@@ -6,7 +6,10 @@ import { RiderMapLoader } from "@/components/app/RiderMapLoader";
 import type { Stop, Depot } from "@/components/app/RiderMap";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
-import { fmtSlot, entroOggiRoma } from "@/lib/format";
+import { fmtSlot, entroOggiRoma, fineGiornataRomaMs } from "@/lib/format";
+import { AZIONABILI, IN_LAVORAZIONE, daCaricareOggi } from "@/lib/consegne-da-caricare";
+import { ConsegnaDaCaricare } from "@/components/app/ConsegnaDaCaricare";
+import { ORDER_STATUS_LABEL } from "@/lib/orders";
 import { optimizeOrder, partenzaDelGiro } from "@/lib/route";
 import type { OrderStatus, AccessMode } from "@/lib/orders";
 
@@ -19,20 +22,6 @@ type Row = {
   pickup_slot: { starts_at: string; ends_at: string } | null;
   delivery_slot: { starts_at: string; ends_at: string } | null;
 };
-
-/** Le fermate su cui il rider può premere qualcosa. */
-const AZIONABILI: OrderStatus[] = ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"];
-
-/** Gli ordini che oggi sono suoi ma non ancora suoi: il sacco è in lavanderia e
- *  finché non viene segnato pronto non c'è niente da consegnare.
- *
- *  Si leggono per **dirlo**, non per farci qualcosa. Il 2 ottobre il rider ha
- *  aperto il giro e ha letto «Nessuna fermata assegnata» mentre in pannello
- *  quattro consegne di quella mattina si vedevano benissimo: la pagina aveva
- *  ragione — non c'era niente di consegnabile — ma raccontava un guasto. La
- *  differenza fra «non c'è lavoro» e «il lavoro non è ancora pronto» è l'unica
- *  cosa che dice a chi guarda se deve aspettare o telefonare. */
-const IN_LAVORAZIONE: OrderStatus[] = ["picked_up", "at_laundry", "washing", "ready"];
 
 function fmt(s: { starts_at: string; ends_at: string } | null): string | null {
   return s ? fmtSlot(s.starts_at, s.ends_at) : null;
@@ -69,8 +58,8 @@ export default async function CourierToday() {
         "id, status, bags, customer:profiles!orders_customer_id_fkey(full_name, phone, client_code, tags_delivered_at), addresses(street, lat, lng, zones(name), access_mode, access_note), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
       )
       .eq("courier_id", profile?.id ?? "")
-      // Anche gli stati «dal rider non si tocca»: non per farci qualcosa, ma
-      // per poter dire che esistono. Vedi `IN_LAVORAZIONE` qui sotto.
+      // Anche gli stati in cui il sacco è dentro la lavanderia: da li' nasce
+      // la sezione «Da caricare», dove il rider non aspetta nessuno.
       .in("status", [...AZIONABILI, ...IN_LAVORAZIONE])
       .returns<Row[]>(),
     supabase.from("depots").select("lat, lng").eq("active", true).limit(1).maybeSingle<{ lat: number | null; lng: number | null }>(),
@@ -103,11 +92,14 @@ export default async function CourierToday() {
   // di ieri mai chiuso — restano: vanno recuperate, non nascoste. Chi non ha
   // ancora una fascia (riconsegna da programmare) resta a vista per lo stesso
   // motivo.
-  const diOggi = tutte.filter((r) => entroOggiRoma(slotOf(r)?.starts_at));
-  const rows = diOggi.filter((r) => AZIONABILI.includes(r.status));
-  // Previste oggi ma ferme in lavanderia: compaiono appena vengono segnate
-  // pronte, e intanto si dice che ci sono.
-  const inLavorazione = diOggi.filter((r) => !AZIONABILI.includes(r.status));
+  const rows = tutte.filter((r) => AZIONABILI.includes(r.status) && entroOggiRoma(slotOf(r)?.starts_at));
+  // Le consegne di oggi ancora dentro la lavanderia. Non sono fermate: sono
+  // sacchi da caricare, e il rider non deve aspettare che qualcuno di là prema
+  // un bottone per poterci lavorare.
+  const daCaricare = daCaricareOggi(
+    tutte.map((r) => ({ riga: r, status: r.status, riconsegnaIso: r.delivery_slot?.starts_at ?? null })),
+    fineGiornataRomaMs(),
+  ).map((x) => x.riga);
   const piuAvanti = tutte.filter((r) => AZIONABILI.includes(r.status)).length - rows.length;
 
   // Deposito = hub logistico interno (tabella depots). Solo lato rider, mai al cliente.
@@ -155,28 +147,36 @@ export default async function CourierToday() {
       <PageTitle
         kicker="Il tuo giro"
         title="Oggi"
-        sub={`${pickups.length} ritiri · ${deliveries.length} consegne${piuAvanti > 0 ? ` · ${piuAvanti} ${piuAvanti === 1 ? "fermata" : "fermate"} nei prossimi giorni, non ${piuAvanti === 1 ? "è" : "sono"} da fare oggi` : ""}`}
+        sub={`${pickups.length} ritiri · ${deliveries.length} consegne${daCaricare.length > 0 ? ` · ${daCaricare.length} da caricare` : ""}${piuAvanti > 0 ? ` · ${piuAvanti} ${piuAvanti === 1 ? "fermata" : "fermate"} nei prossimi giorni, non ${piuAvanti === 1 ? "è" : "sono"} da fare oggi` : ""}`}
       />
 
-      {inLavorazione.length > 0 && (
-        <div className="mb-4 rounded-[14px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3">
-          <div className="font-display text-sm font-extrabold text-[#C9881F]">
-            {inLavorazione.length === 1
-              ? "1 consegna prevista oggi, ancora in lavanderia"
-              : `${inLavorazione.length} consegne previste oggi, ancora in lavanderia`}
+      {daCaricare.length > 0 && (
+        <section className="mb-6">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-display text-base font-extrabold text-navy">
+              Da caricare in lavanderia ({daCaricare.length})
+            </h2>
+            <span className="text-xs font-medium text-muted">
+              Il giro parte da qui: carica e premi, non aspettare.
+            </span>
           </div>
-          <p className="mt-0.5 text-xs font-semibold text-[#C9881F]">
-            {inLavorazione.length === 1 ? "Compare" : "Compaiono"} qui appena la lavanderia {inLavorazione.length === 1 ? "la segna pronta" : "le segna pronte"}.
-            Non c&apos;è niente da fare adesso: i sacchi non sono ancora usciti.
-          </p>
-          <ul className="mt-2 space-y-0.5 text-xs font-medium text-[#C9881F]/90">
-            {inLavorazione.map((r) => (
-              <li key={r.id}>
-                {r.customer?.full_name ?? "Cliente"} · {fmt(r.delivery_slot) ?? "fascia da fissare"}
-              </li>
+          <div className="space-y-3">
+            {daCaricare.map((r) => (
+              <ConsegnaDaCaricare
+                key={r.id}
+                job={{
+                  id: r.id,
+                  cliente: r.customer?.full_name ?? "Cliente",
+                  indirizzo: r.addresses?.street ?? "—",
+                  zona: r.addresses?.zones?.name ?? "—",
+                  quando: fmt(r.delivery_slot),
+                  bags: r.bags,
+                  statoTesto: ORDER_STATUS_LABEL[r.status] ?? r.status,
+                }}
+              />
             ))}
-          </ul>
-        </div>
+          </div>
+        </section>
       )}
 
       <div className="mb-4"><RiderScanner /></div>
@@ -203,6 +203,12 @@ export default async function CourierToday() {
           in cima e poi doveva ritrovare la persona più in basso, in una delle
           due liste. Ora c'è una lista sola, nell'ordine in cui si guida, e
           ogni riga è già la scheda con cui si lavora. */}
+      {/* La seconda sezione prende un titolo solo quando c'e' anche la prima:
+          da sola e' tutta la pagina e non serve dirlo. */}
+      {daCaricare.length > 0 && routeRows.length > 0 && (
+        <h2 className="mb-2 font-display text-base font-extrabold text-navy">In giro adesso ({routeRows.length})</h2>
+      )}
+
       {routeRows.length > 0 ? (
         <div className="space-y-3">
           {routeRows.map((r, i) => (
@@ -212,8 +218,8 @@ export default async function CourierToday() {
       ) : (
         <Card>
           <p className="text-sm font-medium text-muted">
-            {inLavorazione.length > 0
-              ? "Per adesso non c'è niente da fare: le consegne di oggi sono ancora in lavanderia e compaiono qui appena vengono segnate pronte."
+            {daCaricare.length > 0
+              ? "Il giro vero comincia quando carichi: premi «Ho caricato i sacchi» qui sopra e la consegna compare qui."
               : piuAvanti > 0
                 ? "Niente da fare oggi. Le fermate dei prossimi giorni compaiono qui la mattina stessa."
                 : "Nessuna fermata assegnata."}
