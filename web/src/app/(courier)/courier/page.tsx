@@ -20,6 +20,20 @@ type Row = {
   delivery_slot: { starts_at: string; ends_at: string } | null;
 };
 
+/** Le fermate su cui il rider può premere qualcosa. */
+const AZIONABILI: OrderStatus[] = ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"];
+
+/** Gli ordini che oggi sono suoi ma non ancora suoi: il sacco è in lavanderia e
+ *  finché non viene segnato pronto non c'è niente da consegnare.
+ *
+ *  Si leggono per **dirlo**, non per farci qualcosa. Il 2 ottobre il rider ha
+ *  aperto il giro e ha letto «Nessuna fermata assegnata» mentre in pannello
+ *  quattro consegne di quella mattina si vedevano benissimo: la pagina aveva
+ *  ragione — non c'era niente di consegnabile — ma raccontava un guasto. La
+ *  differenza fra «non c'è lavoro» e «il lavoro non è ancora pronto» è l'unica
+ *  cosa che dice a chi guarda se deve aspettare o telefonare. */
+const IN_LAVORAZIONE: OrderStatus[] = ["picked_up", "at_laundry", "washing", "ready"];
+
 function fmt(s: { starts_at: string; ends_at: string } | null): string | null {
   return s ? fmtSlot(s.starts_at, s.ends_at) : null;
 }
@@ -55,7 +69,9 @@ export default async function CourierToday() {
         "id, status, bags, customer:profiles!orders_customer_id_fkey(full_name, phone, client_code, tags_delivered_at), addresses(street, lat, lng, zones(name), access_mode, access_note), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
       )
       .eq("courier_id", profile?.id ?? "")
-      .in("status", ["pickup_scheduled", "delivery_scheduled", "out_for_delivery"])
+      // Anche gli stati «dal rider non si tocca»: non per farci qualcosa, ma
+      // per poter dire che esistono. Vedi `IN_LAVORAZIONE` qui sotto.
+      .in("status", [...AZIONABILI, ...IN_LAVORAZIONE])
       .returns<Row[]>(),
     supabase.from("depots").select("lat, lng").eq("active", true).limit(1).maybeSingle<{ lat: number | null; lng: number | null }>(),
   ]);
@@ -87,8 +103,12 @@ export default async function CourierToday() {
   // di ieri mai chiuso — restano: vanno recuperate, non nascoste. Chi non ha
   // ancora una fascia (riconsegna da programmare) resta a vista per lo stesso
   // motivo.
-  const rows = tutte.filter((r) => entroOggiRoma(slotOf(r)?.starts_at));
-  const piuAvanti = tutte.length - rows.length;
+  const diOggi = tutte.filter((r) => entroOggiRoma(slotOf(r)?.starts_at));
+  const rows = diOggi.filter((r) => AZIONABILI.includes(r.status));
+  // Previste oggi ma ferme in lavanderia: compaiono appena vengono segnate
+  // pronte, e intanto si dice che ci sono.
+  const inLavorazione = diOggi.filter((r) => !AZIONABILI.includes(r.status));
+  const piuAvanti = tutte.filter((r) => AZIONABILI.includes(r.status)).length - rows.length;
 
   // Deposito = hub logistico interno (tabella depots). Solo lato rider, mai al cliente.
   const depot: Depot = depotRow?.lat != null && depotRow?.lng != null ? { lat: depotRow.lat, lng: depotRow.lng } : null;
@@ -138,6 +158,27 @@ export default async function CourierToday() {
         sub={`${pickups.length} ritiri · ${deliveries.length} consegne${piuAvanti > 0 ? ` · ${piuAvanti} ${piuAvanti === 1 ? "fermata" : "fermate"} nei prossimi giorni, non ${piuAvanti === 1 ? "è" : "sono"} da fare oggi` : ""}`}
       />
 
+      {inLavorazione.length > 0 && (
+        <div className="mb-4 rounded-[14px] border border-[#C9881F]/35 bg-[#C9881F]/10 px-4 py-3">
+          <div className="font-display text-sm font-extrabold text-[#C9881F]">
+            {inLavorazione.length === 1
+              ? "1 consegna prevista oggi, ancora in lavanderia"
+              : `${inLavorazione.length} consegne previste oggi, ancora in lavanderia`}
+          </div>
+          <p className="mt-0.5 text-xs font-semibold text-[#C9881F]">
+            {inLavorazione.length === 1 ? "Compare" : "Compaiono"} qui appena la lavanderia {inLavorazione.length === 1 ? "la segna pronta" : "le segna pronte"}.
+            Non c&apos;è niente da fare adesso: i sacchi non sono ancora usciti.
+          </p>
+          <ul className="mt-2 space-y-0.5 text-xs font-medium text-[#C9881F]/90">
+            {inLavorazione.map((r) => (
+              <li key={r.id}>
+                {r.customer?.full_name ?? "Cliente"} · {fmt(r.delivery_slot) ?? "fascia da fissare"}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="mb-4"><RiderScanner /></div>
       <div className="mb-6"><RiderLocationPinger /></div>
 
@@ -171,9 +212,11 @@ export default async function CourierToday() {
       ) : (
         <Card>
           <p className="text-sm font-medium text-muted">
-            {piuAvanti > 0
-              ? "Niente da fare oggi. Le fermate dei prossimi giorni compaiono qui la mattina stessa."
-              : "Nessuna fermata assegnata."}
+            {inLavorazione.length > 0
+              ? "Per adesso non c'è niente da fare: le consegne di oggi sono ancora in lavanderia e compaiono qui appena vengono segnate pronte."
+              : piuAvanti > 0
+                ? "Niente da fare oggi. Le fermate dei prossimi giorni compaiono qui la mattina stessa."
+                : "Nessuna fermata assegnata."}
           </p>
         </Card>
       )}
