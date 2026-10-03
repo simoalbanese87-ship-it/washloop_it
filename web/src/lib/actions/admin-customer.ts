@@ -15,7 +15,7 @@ import { slotFullMessage } from "@/lib/slots";
 import { lavanderiaPredefinita } from "@/lib/lavanderia";
 import { inviaSollecito } from "@/lib/dunning";
 import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
-import { METODI_CHECKOUT } from "@/lib/metodi-accettati";
+import { METODI_CHECKOUT, METODI_FATTURA } from "@/lib/metodi-accettati";
 import { salvaNotaCliente } from "@/lib/note-interne";
 import { paracadute, tetto } from "@/lib/prova";
 import { ricorrenza, settimaneValide } from "@/lib/durata-abbonamento";
@@ -243,6 +243,81 @@ export async function createCustomSubscriptionLink(
     });
     revalidatePath(`/admin/abbonati/${customerId}`);
 
+    return { url: session.url };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Errore nella creazione del link" };
+  }
+}
+
+/** Il link che registra la carta **senza addebitare niente**.
+ *
+ *  Serve al cliente a consumo: non c'è un primo lavoro da pagare, c'è una carta
+ *  da avere in mano per quando ci saranno dei capi da addebitare. Finora
+ *  l'unico modo di salvarla era fargli pagare qualcosa — e chiedere soldi per
+ *  una cosa che non abbiamo ancora fatto è il modo peggiore di cominciare.
+ *
+ *  `mode: "setup"`: Stripe apre la stessa pagina di pagamento, verifica la
+ *  carta con un'autorizzazione che non preleva nulla, e la lascia attaccata al
+ *  cliente. È quello che fa chiunque chieda «registra un metodo di pagamento»
+ *  prima di usare un servizio a consumo.
+ *
+ *  La carta diventa anche quella **predefinita** del cliente (lo fa il webhook
+ *  alla conferma): senza, l'incasso dei capi dovrebbe indovinare quale usare
+ *  fra quelle attaccate, e `metodoDiPagamento` finirebbe a pescare la prima che
+ *  trova. */
+export async function createCardSetupLink(
+  input: { customer_id: string },
+): Promise<{ url: string } | { error: string }> {
+  try {
+    await requireAdmin();
+    const customerId = String(input.customer_id ?? "");
+    if (!customerId) return { error: "Cliente mancante" };
+
+    const svc = createServiceClient();
+    const { data: au } = await svc.auth.admin.getUserById(customerId);
+    const email = au?.user?.email;
+    if (!email) return { error: "Email cliente non trovata" };
+
+    const { data: existing } = await svc
+      .from("subscriptions")
+      .select("stripe_customer_id")
+      .eq("user_id", customerId)
+      .not("stripe_customer_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ stripe_customer_id: string | null }>();
+    const { data: prof } = await svc
+      .from("profiles")
+      .select("stripe_customer_id")
+      .eq("id", customerId)
+      .maybeSingle<{ stripe_customer_id: string | null }>();
+
+    let stripeCustomerId = existing?.stripe_customer_id ?? prof?.stripe_customer_id ?? undefined;
+    if (!stripeCustomerId) {
+      const c = await creaClienteStripe(svc, customerId, email);
+      stripeCustomerId = c.id;
+      await svc.from("profiles").update({ stripe_customer_id: c.id }).eq("id", customerId);
+    }
+
+    const session = await stripe().checkout.sessions.create({
+      mode: "setup",
+      customer: stripeCustomerId,
+      currency: "eur",
+      // Solo i metodi che sanno pagare una fattura: la carta qui si registra
+      // per addebitare i capi dopo, e un metodo che su fattura non funziona
+      // sarebbe una carta registrata e inutilizzabile.
+      payment_method_types: [...METODI_FATTURA],
+      success_url: `${siteUrl()}/checkout/grazie?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${siteUrl()}/app?carta=annullata`,
+      metadata: { supabase_user_id: customerId, registra_carta: "1" },
+    });
+    if (!session.url) return { error: "Stripe non ha restituito un link" };
+
+    // Non si registra in `subscription_offers`: quella tabella vuole un importo
+    // positivo perché è il registro delle proposte di pagamento, e una riga da
+    // un centesimo comparirebbe nella scheda come una proposta aperta che
+    // nessuno ha mai fatto. Il link vive nel riquadro qui accanto; se si perde
+    // se ne genera un altro in due secondi.
     return { url: session.url };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Errore nella creazione del link" };

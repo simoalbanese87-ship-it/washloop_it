@@ -28,7 +28,7 @@ export default async function GraziePage({
   const { session_id } = await searchParams;
   // Se manca il session_id (link aperto a mano) non possiamo verificare nulla:
   // meglio un messaggio prudente che una bugia.
-  const esito = session_id ? await syncFromCheckoutSession(session_id) : { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null };
+  const esito = session_id ? await syncFromCheckoutSession(session_id) : { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null, cartaRegistrata: false };
 
   return (
     <main
@@ -52,10 +52,12 @@ export default async function GraziePage({
           </svg>
         </div>
         <h1 className="mt-6 font-display text-[28px] font-black leading-tight">
-          {esito.unaTantum ? "Pagamento ricevuto! 🎉" : esito.prova ? "Prova attiva! 🎉" : esito.attivo ? "Tutto confermato! 🎉" : "Pagamento ricevuto"}
+          {esito.cartaRegistrata ? "Carta registrata! 🎉" : esito.unaTantum ? "Pagamento ricevuto! 🎉" : esito.prova ? "Prova attiva! 🎉" : esito.attivo ? "Tutto confermato! 🎉" : "Pagamento ricevuto"}
         </h1>
         <p className="mt-3 text-sm font-medium text-white/70">
-          {esito.unaTantum
+          {esito.cartaRegistrata
+            ? "Non ti abbiamo addebitato niente: la carta serve per i capi che lascerai nel sacco, che paghi solo quando ci sono. Da adesso puoi prenotare un ritiro quando vuoi."
+            : esito.unaTantum
             ? "È tutto pagato e non ci sarà nessun rinnovo automatico. Ti contattiamo noi per concordare il giorno del ritiro."
             : esito.prova
             ? "Non ti abbiamo addebitato nulla. Prenota il primo ritiro: paghi il giorno dopo che ti riportiamo il bucato."

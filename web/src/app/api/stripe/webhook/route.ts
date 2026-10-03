@@ -59,6 +59,29 @@ export async function POST(request: NextRequest) {
         break;
       }
 
+      // Registrazione della carta, senza addebito. La carta che il cliente ha
+      // appena inserito diventa quella **predefinita**: senza, l'incasso dei
+      // capi dovrebbe indovinare quale usare fra quelle attaccate al cliente, e
+      // `metodoDiPagamento` finirebbe a pescare la prima che trova.
+      if (session.mode === "setup" && session.setup_intent) {
+        try {
+          const si = await stripe().setupIntents.retrieve(
+            typeof session.setup_intent === "string" ? session.setup_intent : session.setup_intent.id,
+          );
+          const pm = typeof si.payment_method === "string" ? si.payment_method : si.payment_method?.id;
+          const cliente = typeof session.customer === "string" ? session.customer : session.customer?.id;
+          if (pm && cliente) {
+            await stripe().customers.update(cliente, { invoice_settings: { default_payment_method: pm } });
+          }
+        } catch (err) {
+          await registraGuasto("stripe", "Carta registrata ma non impostata come predefinita", {
+            sessione: session.id,
+            errore: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      }
+
       // Pagamento una tantum: non c'è nessuna subscription da allineare, ma i
       // soldi sono entrati e devono comparire nel registro come tutti gli
       // altri. Senza questo ramo resterebbero visibili solo su Stripe, e

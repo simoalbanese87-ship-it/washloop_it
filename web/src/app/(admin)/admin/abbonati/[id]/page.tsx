@@ -18,6 +18,7 @@ import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
 import { cadenzaTesto } from "@/lib/durata-abbonamento";
 import { saldoAddebiti } from "@/lib/addebiti-netti";
 import { OneOffPaymentForm } from "@/components/admin/OneOffPaymentForm";
+import { CardSetupForm } from "@/components/admin/CardSetupForm";
 import { ATTESA_GIORNI } from "@/lib/dunning-piano";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -854,6 +855,8 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               cui serve. */}
           <OneOffPaymentForm customerId={id} />
 
+          <CardSetupForm customerId={id} />
+
           {/* Il cliente a consumo. È un permesso e non una deduzione: «non ha un
               abbonamento» vale anche per chi se n'è andato, e a quello il ritiro
               non lo si vuole lasciar prenotare. */}
@@ -870,8 +873,8 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               </p>
             ) : (
               <p className="mt-2 text-xs font-semibold text-muted">
-                Prima di attivarlo, assicurati che abbia una carta salvata: senza, i capi non si possono addebitare.
-                La carta si salva con il link di pagamento una tantum qui sopra.
+                Prima di attivarlo, mandagli il link <strong className="text-navy">«Registra la carta»</strong> qui
+                sopra: senza una carta salvata prenota ma i capi non si possono addebitare.
               </p>
             )}
             <form action={impostaAConsumo} className="mt-3">

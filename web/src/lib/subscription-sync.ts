@@ -139,12 +139,17 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
  *  Non lancia mai: la pagina di ringraziamento deve aprirsi comunque. */
 export async function syncFromCheckoutSession(
   sessionId: string,
-): Promise<{ attivo: boolean; prova: { fineIso: string } | null; incassatoCents: number; unaTantum: boolean; finisceIso: string | null }> {
+): Promise<{ attivo: boolean; prova: { fineIso: string } | null; incassatoCents: number; unaTantum: boolean; finisceIso: string | null; cartaRegistrata: boolean }> {
   try {
     const session = await stripe().checkout.sessions.retrieve(sessionId);
     // Pagamento singolo: non c'è nessun abbonamento da allineare, e dire «stiamo
     // completando l'attivazione» a chi ha appena pagato una settimana sarebbe
     // una bugia — non è in corso niente, e non deve aspettare nulla.
+    // Registrazione della carta: non è stato addebitato niente, e dire «pagato»
+    // a chi non ha pagato sarebbe la cosa più sbagliata da scrivere qui.
+    if (session.mode === "setup") {
+      return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null, cartaRegistrata: session.status === "complete" };
+    }
     if (session.mode === "payment") {
       const pagato = session.payment_status === "paid";
       return {
@@ -153,12 +158,13 @@ export async function syncFromCheckoutSession(
         incassatoCents: pagato ? session.amount_total ?? 0 : 0,
         unaTantum: pagato,
         finisceIso: null,
+        cartaRegistrata: false,
       };
     }
     // Con una prova a 0 € la sessione si completa senza `payment_status: paid`:
     // guardare solo il pagamento avrebbe fatto dire «non attivo» a ogni prova.
-    if (session.payment_status !== "paid" && session.status !== "complete") return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null };
-    if (!session.subscription) return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null };
+    if (session.payment_status !== "paid" && session.status !== "complete") return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null, cartaRegistrata: false };
+    if (!session.subscription) return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null, cartaRegistrata: false };
 
     const sub = await stripe().subscriptions.retrieve(session.subscription as string);
     // I metadata stanno sulla sessione quando la subscription è appena nata.
@@ -179,6 +185,7 @@ export async function syncFromCheckoutSession(
       // acquisizione di ogni campagna.
       incassatoCents: session.amount_total ?? 0,
       unaTantum: false,
+      cartaRegistrata: false,
       // Abbonamento a termine: la data in cui si chiude da solo. Dirla subito
       // è l'unico modo perché «attivo» non suoni come «ti addebiteremo ancora».
       finisceIso: sub.metadata?.termina_dopo_settimane && periodEndDi(sub)
@@ -187,7 +194,7 @@ export async function syncFromCheckoutSession(
     };
   } catch (err) {
     console.error("[checkout] impossibile verificare la sessione:", err);
-    return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null };
+    return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null, cartaRegistrata: false };
   }
 }
 
