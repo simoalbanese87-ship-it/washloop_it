@@ -41,3 +41,34 @@ export async function sacchiInclusi(client: SupabaseClient, customerId: string):
 
   return scegliTetto(sub?.bags_per_week, daPiano, rec?.bags);
 }
+
+/** Il cliente ha un abbonamento vivo adesso?
+ *
+ *  Serve a decidere se la franchigia dei capi si applica: le camicie comprese
+ *  le paga il canone, e chi lavora a consumo il canone non ce l'ha. Si guarda
+ *  lo stato e basta — non il tetto dei sacchi, che può essere nullo anche su un
+ *  abbonamento attivo a prezzo concordato e farebbe perdere la franchigia a chi
+ *  la sta pagando. */
+export async function haAbbonamentoAttivo(client: SupabaseClient, customerId: string): Promise<boolean> {
+  const { data } = await client
+    .from("subscriptions")
+    .select("id")
+    .eq("user_id", customerId)
+    .in("status", ["active", "trialing"])
+    .limit(1)
+    .maybeSingle<{ id: string }>();
+  return !!data;
+}
+
+/** Come sopra, partendo dall'ordine: il portale della lavanderia non conosce
+ *  il cliente — vede solo il codice — e deve comunque poter dire la verità su
+ *  cosa è compreso. */
+export async function haAbbonamentoAttivoPerOrdine(client: SupabaseClient, orderId: string): Promise<boolean> {
+  const { data } = await client
+    .from("orders")
+    .select("customer_id")
+    .eq("id", orderId)
+    .maybeSingle<{ customer_id: string | null }>();
+  if (!data?.customer_id) return false;
+  return haAbbonamentoAttivo(client, data.customer_id);
+}

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { conteggiaConFranchigia, sacchiPerFranchigia, ridistribuisciFranchigia, sacchiDaContare } from "./franchigia.ts";
+import { franchigiaPerSacco, conteggiaConFranchigia, sacchiPerFranchigia, ridistribuisciFranchigia, sacchiDaContare } from "./franchigia.ts";
 
 test("il caso Giulia: 3 camicie in 1 sacco sono tutte incluse", () => {
   const c = conteggiaConFranchigia(3, 3, 1);
@@ -104,4 +104,22 @@ test("con il tetto, la franchigia camicie segue i sacchi dovuti, non i tag", () 
   const sacchi = sacchiPerFranchigia(2, 2, 2, 1);
   assert.equal(conteggiaConFranchigia(9, 3, sacchi).incluse, 3);
   assert.equal(conteggiaConFranchigia(9, 3, sacchi).daAddebitare, 6);
+});
+
+test("senza abbonamento non si regala niente", () => {
+  // Il cliente a consumo non paga un canone: le camicie comprese sono comprese
+  // nel canone, e lui non ce l'ha. Tre camicie a sacco sarebbero 10,50 € di
+  // listino regalati a ogni ritiro.
+  assert.equal(franchigiaPerSacco(3, false), 0);
+  assert.equal(conteggiaConFranchigia(4, franchigiaPerSacco(3, false), 1).daAddebitare, 4);
+});
+
+test("con l'abbonamento la franchigia resta quella del listino", () => {
+  assert.equal(franchigiaPerSacco(3, true), 3);
+  assert.equal(conteggiaConFranchigia(4, franchigiaPerSacco(3, true), 1).daAddebitare, 1);
+});
+
+test("un capo senza franchigia resta senza, in ogni caso", () => {
+  assert.equal(franchigiaPerSacco(0, true), 0);
+  assert.equal(franchigiaPerSacco(null, true), 0);
 });

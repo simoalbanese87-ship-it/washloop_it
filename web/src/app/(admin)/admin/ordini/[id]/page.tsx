@@ -14,6 +14,7 @@ import { SegnalazioneRiga, type Segnalazione } from "@/components/app/Segnalazio
 import { pubblicaSegnalazione, chiudiSegnalazione } from "@/lib/actions/segnalazioni";
 import { signedProofUrl } from "@/lib/orders";
 import { AddSpecialForm, type ListItem } from "@/components/app/AddSpecialForm";
+import { haAbbonamentoAttivoPerOrdine } from "@/lib/abbonamento-sacchi";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtDate, fmtFull, fmtSlot, toRomeInputValue } from "@/lib/format";
 import { deliveryCounts, pickupCounts } from "@/lib/slots";
@@ -206,6 +207,10 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   // Service role: `special_items` non è più leggibile con la sessione utente,
   // perché conteneva anche il compenso lavanderia ed era esposta a chiunque.
   // La pagina sta sotto il layout (admin), che rimanda al login chi non è admin.
+  // Senza abbonamento non c'è niente di compreso: il modulo lo dice prima che
+  // qualcuno registri i capi pensando che tre camicie siano gratis.
+  const conFranchigiaOrdine = await haAbbonamentoAttivoPerOrdine(createServiceClient(), id);
+
   const { data: catItems } = await createServiceClient()
     .from("special_items")
     .select("id, name, price_cli_cents, comp_lav_cents, special_categories(id, name, emoji)")
@@ -444,7 +449,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
             </div>
             <div className="mt-3 rounded-[12px] border border-line bg-ice p-3">
               <div className="mb-2 font-display text-xs font-extrabold uppercase tracking-wide text-blue">Aggiungi capo</div>
-              <AddSpecialForm orderId={order.id} items={listItems} action={addSpecialAdmin} customerView />
+              <AddSpecialForm orderId={order.id} items={listItems} action={addSpecialAdmin} customerView conFranchigia={conFranchigiaOrdine} />
             </div>
             {specialRows.length === 0 ? (
               <p className="mt-3 text-sm font-medium text-muted">Nessun capo speciale su questo ordine.</p>

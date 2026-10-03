@@ -28,11 +28,15 @@ export function AddSpecialForm({
   items,
   action = addSpecial,
   customerView = false,
+  conFranchigia = true,
 }: {
   orderId: string;
   items: ListItem[];
   action?: (formData: FormData) => void | Promise<void>;
   customerView?: boolean;
+  /** Il cliente ha un abbonamento attivo. Senza, niente capi compresi: le
+   *  camicie comprese le paga il canone, e chi lavora a consumo non ce l'ha. */
+  conFranchigia?: boolean;
 }) {
   const [itemId, setItemId] = useState("");
   const priceOf = (it: ListItem) => (customerView ? it.price_cli_cents ?? it.comp_lav_cents : it.comp_lav_cents);
@@ -73,10 +77,16 @@ export function AddSpecialForm({
       {selected && (
         <p className="text-sm font-medium text-muted">
           Scrivi <strong className="text-navy">quanti capi hai trovato</strong>, non quanti addebitarne.
-          {(selected.incluse_per_sacco ?? 0) > 0 ? (
+          {conFranchigia && (selected.incluse_per_sacco ?? 0) > 0 ? (
             <>
               {" "}Le prime <strong className="text-navy">{selected.incluse_per_sacco} per sacco</strong> sono
               comprese nell&apos;abbonamento: le toglie il sistema.
+            </>
+          ) : null}
+          {!conFranchigia ? (
+            <>
+              {" "}Questo cliente <strong className="text-navy">non ha un abbonamento</strong>: si addebita tutto
+              quello che trovi, niente capi compresi.
             </>
           ) : null}
           <br />

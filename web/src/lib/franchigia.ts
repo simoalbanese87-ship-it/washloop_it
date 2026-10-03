@@ -28,6 +28,23 @@ export type ContoFranchigia = {
  *                         totali (non solo quelle addebitate): senza, due
  *                         registrazioni separate userebbero la franchigia due
  *                         volte e il cliente non pagherebbe mai il surplus. */
+/** La franchigia vale solo per chi ha un abbonamento.
+ *
+ *  «Ogni sacco comprende fino a 3 camicie» è una promessa che il canone paga:
+ *  le camicie comprese sono dentro il compenso del sacco, che si versa alla
+ *  lavanderia perché il cliente ha un abbonamento attivo. Chi lavora a consumo
+ *  non ha un canone, quindi non ha niente di compreso — e regalargli tre
+ *  camicie a ogni sacco sarebbe 10,50 € di listino buttati per ritiro, senza
+ *  che nessuno se ne accorga.
+ *
+ *  Deciso da Simone il 3 ottobre 2026, mentre si valutava il primo cliente a
+ *  consumo: «se non c'è il sistema di abbonamento attivo, niente camicie in
+ *  gestione o offerta o gratis». */
+export function franchigiaPerSacco(inclusePerSacco: number | null | undefined, abbonamentoAttivo: boolean): number {
+  if (!abbonamentoAttivo) return 0;
+  return Math.max(0, Math.trunc(inclusePerSacco ?? 0));
+}
+
 export function conteggiaConFranchigia(
   trovate: number,
   inclusePerSacco: number,

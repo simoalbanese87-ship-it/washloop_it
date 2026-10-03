@@ -14,6 +14,7 @@ import { SEGNALABILE } from "@/lib/segnalazioni";
 import { fmtFull } from "@/lib/format";
 import { createServiceClient } from "@/lib/supabase/server";
 import { sacchiPerFranchigia, sacchiOsservati, sacchiDaContare } from "@/lib/franchigia";
+import { haAbbonamentoAttivoPerOrdine } from "@/lib/abbonamento-sacchi";
 
 export const dynamic = "force-dynamic";
 
@@ -116,6 +117,9 @@ export default async function LaundryOrderDetail({
   // sull'ordine due righe più su, e la firma non deve dipendere dai permessi
   // di lettura dello storage.
   const svc = createServiceClient();
+  // Senza abbonamento non c'è niente di compreso: il modulo deve dirlo prima
+  // che qualcuno registri i capi pensando che tre siano gratis.
+  const conFranchigia = await haAbbonamentoAttivoPerOrdine(svc, order.order_id);
   const segnalazioni = await Promise.all(
     (issues ?? []).map(async (s) => ({ ...s, fotoUrl: await signedProofUrl(svc, s.photo_url) })),
   );
@@ -249,7 +253,7 @@ export default async function LaundryOrderDetail({
                 </span>
               </p>
               <div className="mt-4">
-                <AddSpecialForm orderId={order.order_id} items={listino ?? []} />
+                <AddSpecialForm orderId={order.order_id} items={listino ?? []} conFranchigia={conFranchigia} />
               </div>
             </>
           )}

@@ -7,8 +7,8 @@ import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus, notifySegnalazioneCliente, notifySegnalazioneOps } from "@/lib/notify";
 import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
 import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione } from "@/lib/segnalazioni";
-import { conteggiaConFranchigia, sacchiPerFranchigia, ridistribuisciFranchigia, sacchiDaContare } from "@/lib/franchigia";
-import { sacchiInclusi } from "@/lib/abbonamento-sacchi";
+import { conteggiaConFranchigia, franchigiaPerSacco, sacchiPerFranchigia, ridistribuisciFranchigia, sacchiDaContare } from "@/lib/franchigia";
+import { sacchiInclusi, haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
 import { dataServizio } from "@/lib/periodo-servizio";
 import { portaAPronto } from "@/lib/pronto";
 
@@ -165,6 +165,9 @@ export async function addSpecial(formData: FormData) {
   // Il tetto dell'abbonamento sta sopra a tutto: le camicie comprese sono tre
   // per sacco **dovuto**, non per sacco che risulta da una scansione.
   const tetto = ordine ? await sacchiInclusi(svc, ordine.customer_id) : null;
+  // Le camicie comprese le paga il canone: chi lavora a consumo non ne ha
+  // nessuna compresa, e regalargliele sarebbe listino buttato a ogni ritiro.
+  const conAbbonamento = ordine ? await haAbbonamentoAttivo(svc, ordine.customer_id) : false;
   const sacchiVeri = sacchiPerFranchigia(ordine?.bags_arrivati, scansionati, ordine?.bags, tetto);
   const { data: precedenti } = await svc
     .from("order_specials")
@@ -176,7 +179,7 @@ export async function addSpecial(formData: FormData) {
   // registrazioni separate userebbero la franchigia due volte.
   const giaConteggiate = (precedenti ?? []).reduce((t, r) => t + (r.qty_totale ?? r.qty), 0);
 
-  const conto = conteggiaConFranchigia(qty, item.incluse_per_sacco ?? 0, sacchiVeri, giaConteggiate);
+  const conto = conteggiaConFranchigia(qty, franchigiaPerSacco(item.incluse_per_sacco, conAbbonamento), sacchiVeri, giaConteggiate);
 
   // La riga si scrive **sempre**, anche quando non c'è niente da addebitare.
   //
@@ -518,9 +521,18 @@ async function rifaiFranchigia(
   const franchigiaDi = new Map((listino ?? []).map((i) => [i.id, i.incluse_per_sacco ?? 0]));
   const nomeDi = new Map((listino ?? []).map((i) => [i.id, i.name]));
 
+  // Stessa regola di `addSpecial`: senza abbonamento attivo non c'è niente di
+  // compreso, quindi non c'è niente da ridistribuire.
+  const { data: ordCliente } = await svc
+    .from("orders")
+    .select("customer_id")
+    .eq("id", orderId)
+    .maybeSingle<{ customer_id: string | null }>();
+  const conAbbonamento = ordCliente?.customer_id ? await haAbbonamentoAttivo(svc, ordCliente.customer_id) : false;
+
   const cambiati: string[] = [];
   for (const itemId of itemIds) {
-    const perSacco = franchigiaDi.get(itemId) ?? 0;
+    const perSacco = franchigiaPerSacco(franchigiaDi.get(itemId), conAbbonamento);
     if (perSacco === 0) continue; // niente franchigia, niente da ridistribuire
 
     const delCapo = righe.filter((r) => r.item_id === itemId && !r.annullato_at && !r.refunded_at);
