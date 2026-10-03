@@ -39,8 +39,9 @@ export function CardSetupForm({ customerId }: { customerId: string }) {
       <h3 className="font-display text-sm font-extrabold text-navy">Registra la carta, senza addebito</h3>
       <p className="mt-1 text-xs font-medium text-muted">
         Il cliente inserisce la carta su Stripe e <strong className="text-navy">non paga niente</strong>: è
-        un&apos;autorizzazione a zero, quella che si usa prima di un servizio a consumo. Da lì in poi i capi che lascia nel
-        sacco si addebitano da soli. È il passo da fare prima di attivare il cliente a consumo.
+        un&apos;autorizzazione a zero, quella che si usa prima di un servizio a consumo. Appena la registra,
+        <strong className="text-navy"> il suo account si attiva da solo</strong> e può prenotare: non c&apos;è altro da
+        premere. Da lì in poi i capi che lascia nel sacco si addebitano sulla carta.
       </p>
       <button
         type="button"

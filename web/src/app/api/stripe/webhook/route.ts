@@ -10,6 +10,7 @@ import { LEGAL } from "@/lib/legal";
 import { fmtDate } from "@/lib/format";
 import { inviaSollecito, chiudiRecupero } from "@/lib/dunning";
 import { registraGuasto } from "@/lib/incidenti";
+import { registraCartaDalCheckout } from "@/lib/carta-registrata";
 
 /** Webhook Stripe → aggiorna `subscriptions` con service-role (bypassa RLS).
  *  Eventi: checkout completato, subscription creata/aggiornata/cancellata,
@@ -59,26 +60,11 @@ export async function POST(request: NextRequest) {
         break;
       }
 
-      // Registrazione della carta, senza addebito. La carta che il cliente ha
-      // appena inserito diventa quella **predefinita**: senza, l'incasso dei
-      // capi dovrebbe indovinare quale usare fra quelle attaccate al cliente, e
-      // `metodoDiPagamento` finirebbe a pescare la prima che trova.
-      if (session.mode === "setup" && session.setup_intent) {
-        try {
-          const si = await stripe().setupIntents.retrieve(
-            typeof session.setup_intent === "string" ? session.setup_intent : session.setup_intent.id,
-          );
-          const pm = typeof si.payment_method === "string" ? si.payment_method : si.payment_method?.id;
-          const cliente = typeof session.customer === "string" ? session.customer : session.customer?.id;
-          if (pm && cliente) {
-            await stripe().customers.update(cliente, { invoice_settings: { default_payment_method: pm } });
-          }
-        } catch (err) {
-          await registraGuasto("stripe", "Carta registrata ma non impostata come predefinita", {
-            sessione: session.id,
-            errore: err instanceof Error ? err.message : String(err),
-          });
-        }
+      // Registrazione della carta, senza addebito: carta predefinita, id Stripe
+      // sul profilo e account attivo. Tutto in `registraCartaDalCheckout`, che
+      // chiama anche la pagina di ritorno se questo webhook non arriva.
+      if (session.mode === "setup") {
+        await registraCartaDalCheckout(session);
         break;
       }
 

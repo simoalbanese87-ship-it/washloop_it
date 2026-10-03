@@ -309,7 +309,10 @@ export async function createCardSetupLink(
       payment_method_types: [...METODI_FATTURA],
       success_url: `${siteUrl()}/checkout/grazie?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl()}/app?carta=annullata`,
-      metadata: { supabase_user_id: customerId, registra_carta: "1" },
+      // `attiva_a_consumo`: messa la carta, l'account si attiva da solo. Era
+      // un interruttore da premere in pannello, cioe' un cliente che ha fatto
+      // tutto e resta fermo finche' qualcuno non se ne accorge.
+      metadata: { supabase_user_id: customerId, registra_carta: "1", attiva_a_consumo: "1" },
     });
     if (!session.url) return { error: "Stripe non ha restituito un link" };
 

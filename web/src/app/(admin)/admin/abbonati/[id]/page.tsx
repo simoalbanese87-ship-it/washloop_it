@@ -873,8 +873,9 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               </p>
             ) : (
               <p className="mt-2 text-xs font-semibold text-muted">
-                Prima di attivarlo, mandagli il link <strong className="text-navy">«Registra la carta»</strong> qui
-                sopra: senza una carta salvata prenota ma i capi non si possono addebitare.
+                Di solito non serve premere niente: si attiva da solo quando il cliente registra la carta con il
+                link qui sopra. Questo bottone è per i casi a mano — attivarlo prima della carta vuol dire che
+                prenoterà senza che si possa addebitargli niente.
               </p>
             )}
             <form action={impostaAConsumo} className="mt-3">

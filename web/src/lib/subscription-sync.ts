@@ -2,6 +2,7 @@ import "server-only";
 import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { createServiceClient } from "@/lib/supabase/server";
+import { registraCartaDalCheckout } from "@/lib/carta-registrata";
 
 /** Scrive su `subscriptions` lo stato reale di un abbonamento Stripe.
  *
@@ -148,6 +149,10 @@ export async function syncFromCheckoutSession(
     // Registrazione della carta: non è stato addebitato niente, e dire «pagato»
     // a chi non ha pagato sarebbe la cosa più sbagliata da scrivere qui.
     if (session.mode === "setup") {
+      // Rete di sicurezza come per gli abbonamenti: se il webhook non è ancora
+      // passato, l'account si attiva da qui. Senza, il cliente leggerebbe
+      // «puoi prenotare» e poi si troverebbe la porta chiusa.
+      if (session.status === "complete") await registraCartaDalCheckout(session);
       return { attivo: false, prova: null, incassatoCents: 0, unaTantum: false, finisceIso: null, cartaRegistrata: session.status === "complete" };
     }
     if (session.mode === "payment") {
