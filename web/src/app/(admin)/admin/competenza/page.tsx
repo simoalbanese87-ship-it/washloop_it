@@ -1,316 +1,398 @@
 import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
+import { Fisarmonica } from "@/components/ui/Fisarmonica";
 import { createServiceClient } from "@/lib/supabase/server";
+import { scorpora } from "@/lib/iva";
 import {
   lunediDi,
-  settimaneDiCompetenza,
-  costoPrevistoCents,
-  margineCents,
-  type RitiroPerCompetenza,
-  type CanoneCliente,
-} from "@/lib/competenza";
+  meseDi,
+  settimaneDelMese,
+  contoDelMese,
+  totaliPerSettimana,
+  ricaviDi,
+  costiDi,
+  type CanoneStorico,
+  type Cella,
+  type RigaCliente,
+  type Settimana,
+} from "@/lib/conto-settimanale";
 
 export const dynamic = "force-dynamic";
 
-/** Quanto vale una settimana di lavoro, non quanto è arrivato in banca.
+/** Il conto economico della settimana, cliente per cliente.
  *
- *  Perché esiste, accanto alla Home
- *  --------------------------------
  *  La Home dice quanto è **incassato**: il numero che serve per sapere se si
- *  può pagare la lavanderia, e che non mente mai. Ma non dice se il servizio
- *  sta in piedi. Un canone incassato il 29 copre quattro settimane di ritiri, e
- *  un mese in cui nessuno ritira niente ha lo stesso identico incasso di uno
- *  pieno.
+ *  può pagare la lavanderia. Qui si risponde a un'altra domanda — su quel
+ *  cliente, quella settimana, ci abbiamo guadagnato? — e per rispondere
+ *  servono tre cose che prima stavano in tre posti: il canone imputato alla
+ *  settimana, i capi extra, e il costo della lavanderia **separato fra sacco e
+ *  capi**.
  *
- *  Qui il ricavo si attribuisce a quando il servizio è stato **reso**: il
- *  canone si divide per i ritiri fatti davvero, quindi due soli ritiri in un
- *  mese valgono ciascuno il doppio, e una settimana senza ritiri vale zero.
- *  Serve a vedere due cose che dalla cassa non si vedono: se il prezzo copre il
- *  costo, e le settimane in cui prendiamo soldi senza lavorare — che sono
- *  quelle in cui un cliente sta per accorgersi di pagare per niente.
+ *  Il canone si divide per le settimane di servizio del mese e non per i ritiri
+ *  del cliente: se il mese ha cinque martedì ogni settimana vale meno, ed è il
+ *  punto che la versione precedente sbagliava. La regola, con i suoi test, sta
+ *  in `conto-settimanale.ts`.
  *
  *  I numeri qui **non** coincidono con quelli della Home, e non devono: sono
- *  due letture diverse degli stessi fatti. È anche il motivo per cui questa
- *  pagina sta per conto suo. */
+ *  due letture diverse degli stessi fatti. */
 
 const eur = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 const uno = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);
 
-const giornoRoma = (iso: string) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+const meseOggi = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit" })
+    .format(new Date())
+    .slice(0, 7);
 
-const etichettaSettimana = (lunedi: string) => {
-  const d = new Date(`${lunedi}T12:00:00Z`);
-  const fine = new Date(d);
-  fine.setUTCDate(fine.getUTCDate() + 6);
-  const f = (x: Date) => `${String(x.getUTCDate()).padStart(2, "0")}/${String(x.getUTCMonth() + 1).padStart(2, "0")}`;
-  return `${f(d)} – ${f(fine)}`;
+const etichettaMese = (mese: string) => {
+  const [a, m] = mese.split("-").map(Number);
+  return new Date(Date.UTC(a, m - 1, 1)).toLocaleDateString("it-IT", { month: "long", year: "numeric", timeZone: "UTC" });
 };
 
-export default async function Competenza() {
+/** «lun 1 set»: la colonna deve stare in poche lettere. */
+const etichettaSettimana = (lunedi: Settimana) =>
+  new Date(`${lunedi}T12:00:00Z`).toLocaleDateString("it-IT", { day: "numeric", month: "short", timeZone: "UTC" });
+
+const meseVicino = (mese: string, passo: number) => {
+  const [a, m] = mese.split("-").map(Number);
+  const d = new Date(Date.UTC(a, m - 1 + passo, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+};
+
+type Sub = {
+  user_id: string;
+  status: string;
+  custom_price_cents: number | null;
+  created_at: string;
+  plans: { price_month_cents: number } | { price_month_cents: number }[] | null;
+  profiles: { full_name: string | null; is_test: boolean } | { full_name: string | null; is_test: boolean }[] | null;
+};
+type Ordine = {
+  id: string;
+  customer_id: string | null;
+  bags: number | null;
+  bags_arrivati: number | null;
+  created_at: string;
+  pickup: { starts_at: string } | { starts_at: string }[] | null;
+  profiles: { is_test: boolean } | { is_test: boolean }[] | null;
+};
+type Payout = { amount_cents: number; kind: string; servizio_il: string; orders: { customer_id: string | null } | { customer_id: string | null }[] | null };
+type Extra = {
+  qty: number;
+  price_cli_cents: number;
+  item_name: string;
+  orders: { customer_id: string | null; created_at: string; pickup: { starts_at: string } | { starts_at: string }[] | null } | null;
+};
+
+export default async function Competenza({
+  searchParams,
+}: {
+  searchParams: Promise<{ mese?: string | string[]; prova?: string | string[] }>;
+}) {
+  const sp = await searchParams;
+  const grezzo = Array.isArray(sp.mese) ? sp.mese[0] : sp.mese;
+  const mese = /^\d{4}-\d{2}$/.test(grezzo ?? "") ? grezzo! : meseOggi();
+  const includiProva = (Array.isArray(sp.prova) ? sp.prova[0] : sp.prova) === "1";
+
   const svc = createServiceClient();
+  const [a, m] = mese.split("-").map(Number);
+  const dal = new Date(Date.UTC(a, m - 1, 1)).toISOString();
+  const al = new Date(Date.UTC(a, m, 1)).toISOString();
 
-  const [{ data: ordini }, { data: abbonamenti }, { data: capi }, { data: compensi }, { data: lavanderia }] =
-    await Promise.all([
-      svc
-        .from("orders")
-        .select(
-          "id, customer_id, status, created_at, bags, bags_arrivati, " +
-            "pickup:slots!orders_pickup_slot_id_fkey(starts_at), " +
-            "profiles!orders_customer_id_fkey(is_test)",
-        )
-        .neq("status", "cancelled")
-        .returns<{
-          id: string;
-          customer_id: string | null;
-          status: string;
-          created_at: string;
-          bags: number | null;
-          bags_arrivati: number | null;
-          pickup: { starts_at: string } | null;
-          profiles: { is_test: boolean } | null;
-        }[]>(),
-      svc
-        .from("subscriptions")
-        .select("user_id, status, custom_price_cents, bags_per_week, created_at, plans(price_month_cents, bags_per_week), profiles(full_name, is_test)")
-        .order("created_at", { ascending: false })
-        .returns<{
-          user_id: string;
-          status: string;
-          custom_price_cents: number | null;
-          bags_per_week: number | null;
-          created_at: string;
-          plans: { price_month_cents: number; bags_per_week: number } | null;
-          profiles: { full_name: string | null; is_test: boolean } | null;
-        }[]>(),
-      // I capi che il cliente ha davvero pagato: niente storni, niente annulli,
-      // e niente capi offerti — quelli sono un costo, non un ricavo.
-      svc
-        .from("order_specials")
-        .select("qty, price_cli_cents, created_at, charged_at, refunded_at, annullato_at, orders(profiles!orders_customer_id_fkey(is_test))")
-        .not("charged_at", "is", null)
-        .is("refunded_at", null)
-        .is("annullato_at", null)
-        .returns<{
-          qty: number;
-          price_cli_cents: number;
-          created_at: string;
-          charged_at: string | null;
-          refunded_at: string | null;
-          annullato_at: string | null;
-          orders: { profiles: { is_test: boolean } | null } | null;
-        }[]>(),
-      // Il costo vero: quello che dobbiamo alla lavanderia, capi offerti
-      // compresi — su quelli il lavoro è stato fatto e lo paghiamo noi.
-      svc
-        .from("laundry_payouts")
-        .select("amount_cents, kind, created_at, status, orders(created_at, pickup:slots!orders_pickup_slot_id_fkey(starts_at))")
-        .neq("status", "void")
-        .returns<{
-          amount_cents: number;
-          kind: string;
-          created_at: string;
-          status: string;
-          orders: { created_at: string; pickup: { starts_at: string } | null } | null;
-        }[]>(),
-      svc.from("laundries").select("bag_comp_cents").eq("active", true).limit(1).maybeSingle<{ bag_comp_cents: number | null }>(),
-    ]);
+  const [{ data: fasce }, { data: subs }, { data: ordini }, { data: payouts }, { data: extra }] = await Promise.all([
+    // Le settimane del mese: quelle in cui c'è una fascia di ritiro aperta. Una
+    // fascia archiviata non è una settimana di servizio e non deve dividere il
+    // canone — è il motivo per cui il venerdì tolto a ottobre non crea colonne.
+    svc.from("slots").select("starts_at").eq("kind", "pickup").is("archived_at", null).gte("starts_at", dal).lt("starts_at", al)
+      .returns<{ starts_at: string }[]>(),
+    svc.from("subscriptions").select("user_id, status, custom_price_cents, created_at, plans(price_month_cents), profiles(full_name, is_test)")
+      .order("created_at", { ascending: true }).returns<Sub[]>(),
+    svc.from("orders").select("id, customer_id, bags, bags_arrivati, created_at, pickup:slots!orders_pickup_slot_id_fkey(starts_at), profiles!orders_customer_id_fkey(is_test)")
+      .neq("status", "cancelled").returns<Ordine[]>(),
+    // `servizio_il` è già la presa in carico, riallineata dalla migration 0083:
+    // non si ricalcola la data una seconda volta con regole proprie.
+    svc.from("laundry_payouts").select("amount_cents, kind, servizio_il, orders(customer_id)").neq("status", "void")
+      .returns<Payout[]>(),
+    svc.from("order_specials").select("qty, price_cli_cents, item_name, orders(customer_id, created_at, pickup:slots!orders_pickup_slot_id_fkey(starts_at))")
+      .not("charged_at", "is", null).is("refunded_at", null).is("annullato_at", null).returns<Extra[]>(),
+  ]);
 
-  const compensoSacco = lavanderia?.bag_comp_cents ?? 1230;
+  const settimane = settimaneDelMese((fasce ?? []).map((f) => f.starts_at), mese);
 
-  // Un ritiro matura nella settimana in cui il sacco è stato preso: è quando il
-  // servizio comincia. Senza fascia vale la data di creazione — meglio una
-  // settimana approssimata che una riga che sparisce dal conto.
-  const ritiri: RitiroPerCompetenza[] = (ordini ?? [])
-    .filter((o) => !uno(o.profiles)?.is_test && o.customer_id)
-    .map((o) => {
-      const quando = uno(o.pickup)?.starts_at ?? o.created_at;
-      return {
-        clienteId: o.customer_id!,
-        settimana: lunediDi(quando),
-        mese: giornoRoma(quando).slice(0, 7),
-        sacchi: o.bags_arrivati ?? o.bags ?? 1,
-      };
-    });
-
-  // Un canone per cliente, il più recente. I sacchi previsti vengono
-  // dall'accordo sull'abbonamento o, in mancanza, dal piano — e da nient'altro:
-  // il ripiego sulla ricorrenza che il tetto operativo usa (scegliTetto) qui
-  // non c'è di proposito, perché il «previsto» non deve poter essere un numero
-  // che nessuno ha deciso. Chi non ce l'ha resta fuori invece di entrarci con
-  // una cifra inventata.
-  const visti = new Set<string>();
-  const canoni: CanoneCliente[] = [];
-  for (const s of abbonamenti ?? []) {
-    if (visti.has(s.user_id)) continue;
-    visti.add(s.user_id);
-    if (uno(s.profiles)?.is_test) continue;
-    if (!["active", "trialing"].includes(s.status)) continue;
+  // Lo storico dei canoni: più righe per cliente quando ha cambiato piano, così
+  // una settimana prima del cambio vale il prezzo di allora.
+  const canoni: CanoneStorico[] = [];
+  const nomi = new Map<string, string>();
+  for (const s of subs ?? []) {
+    const prof = uno(s.profiles);
+    if (!includiProva && prof?.is_test) continue;
     const piano = uno(s.plans);
-    const canoneCents = s.custom_price_cents ?? piano?.price_month_cents ?? 0;
-    const sacchiPrevisti =
-      s.bags_per_week ?? (s.custom_price_cents != null ? null : piano?.bags_per_week ?? null);
-    canoni.push({ clienteId: s.user_id, nome: uno(s.profiles)?.full_name ?? null, canoneCents, sacchiPrevisti });
+    canoni.push({
+      clienteId: s.user_id,
+      canoneCents: s.custom_price_cents ?? piano?.price_month_cents ?? 0,
+      daIso: s.created_at,
+    });
+    nomi.set(s.user_id, prof?.full_name ?? "Cliente");
   }
 
-  const extraPerSettimana = new Map<string, number>();
-  for (const c of capi ?? []) {
-    if (uno(uno(c.orders)?.profiles)?.is_test) continue;
-    const k = lunediDi(c.charged_at ?? c.created_at);
-    extraPerSettimana.set(k, (extraPerSettimana.get(k) ?? 0) + c.price_cli_cents * c.qty);
-  }
+  const giornoOrdine = (o: Ordine) => uno(o.pickup)?.starts_at ?? o.created_at;
+  const ordiniConto = (ordini ?? [])
+    .filter((o) => o.customer_id && (includiProva || !uno(o.profiles)?.is_test))
+    .filter((o) => meseDi(giornoOrdine(o)) === mese)
+    .map((o) => ({ clienteId: o.customer_id!, settimana: lunediDi(giornoOrdine(o)), sacchi: o.bags_arrivati ?? o.bags ?? 1 }));
 
-  const costoPerSettimana = new Map<string, number>();
-  for (const p of compensi ?? []) {
-    const o = uno(p.orders);
-    // Il costo matura con il ritiro a cui si riferisce, non con la data in cui
-    // la riga è stata scritta: il compenso a sacco si registra alla riconsegna,
-    // giorni dopo, e finirebbe nella settimana sbagliata.
-    const quando = uno(o?.pickup)?.starts_at ?? o?.created_at ?? p.created_at;
-    const k = lunediDi(quando);
-    costoPerSettimana.set(k, (costoPerSettimana.get(k) ?? 0) + p.amount_cents);
-  }
+  const payoutConto = (payouts ?? [])
+    .map((p) => ({ p, clienteId: uno(p.orders)?.customer_id ?? null }))
+    .filter((x) => x.clienteId && nomi.has(x.clienteId))
+    .map((x) => ({
+      clienteId: x.clienteId!,
+      settimana: lunediDi(`${x.p.servizio_il}T12:00:00Z`),
+      kind: x.p.kind,
+      amountCents: x.p.amount_cents,
+    }));
 
-  const settimane = settimaneDiCompetenza(ritiri, canoni, extraPerSettimana, costoPerSettimana).slice(0, 12);
-  const previsto = costoPrevistoCents(canoni, compensoSacco);
+  const extraConto = (extra ?? [])
+    .map((e) => {
+      const ord = e.orders;
+      const quando = uno(ord?.pickup)?.starts_at ?? ord?.created_at ?? null;
+      return { clienteId: ord?.customer_id ?? null, quando, cents: e.price_cli_cents * e.qty, nome: e.item_name, qty: e.qty };
+    })
+    .filter((x) => x.clienteId && x.quando);
 
-  const totRicavo = settimane.reduce((t, s) => t + s.ricavoCanoneCents + s.ricavoExtraCents, 0);
-  const totCosto = settimane.reduce((t, s) => t + s.costoCents, 0);
-  const totMargine = settimane.reduce((t, s) => t + margineCents(s), 0);
+  const righe = contoDelMese({
+    clienti: [...nomi.entries()].map(([clienteId, nome]) => ({ clienteId, nome })),
+    settimane,
+    canoni,
+    ordini: ordiniConto,
+    payouts: payoutConto,
+    extra: extraConto.map((x) => ({ clienteId: x.clienteId!, settimana: lunediDi(x.quando!), prezzoCents: x.cents })),
+  });
+
+  const colonne = totaliPerSettimana(righe, settimane);
+  const totaleMese = righe.reduce(
+    (t, r) => ({
+      ricavi: t.ricavi + ricaviDi(r.totale),
+      costi: t.costi + costiDi(r.totale),
+      canone: t.canone + r.totale.ricavoCanoneCents,
+      extra: t.extra + r.totale.ricavoExtraCents,
+      sacco: t.sacco + r.totale.costoSaccoCents,
+      capi: t.capi + r.totale.costoExtraCents,
+    }),
+    { ricavi: 0, costi: 0, canone: 0, extra: 0, sacco: 0, capi: 0 },
+  );
+  const nettoMese = scorpora(totaleMese.ricavi).imponibile;
+  const guadagnoMese = nettoMese - totaleMese.costi;
+
+  const qs = (patch: Record<string, string | undefined>) => {
+    const u = new URLSearchParams();
+    for (const [k, v] of Object.entries({ mese, prova: includiProva ? "1" : undefined, ...patch })) if (v) u.set(k, v);
+    return u.toString() ? `?${u}` : "";
+  };
 
   return (
     <>
       <PageTitle
-        kicker="Finanza"
-        title="Competenza settimanale"
-        sub={`${settimane.length} settimane · quanto vale il lavoro fatto, non quanto è arrivato in banca`}
+        kicker="Competenza"
+        title="Guadagno per settimana"
+        sub={`${etichettaMese(mese)} · ${settimane.length} ${settimane.length === 1 ? "settimana di servizio" : "settimane di servizio"} · ${righe.length} ${righe.length === 1 ? "cliente" : "clienti"}`}
       />
 
       <Card className="mb-4">
-        <p className="text-sm font-medium text-muted">
-          Qui il ricavo si conta <strong className="text-navy">quando il servizio è stato reso</strong>: il
-          canone si divide per i ritiri fatti davvero, quindi due soli ritiri in un mese valgono ciascuno il
-          doppio, e una settimana senza ritiri vale zero. I numeri{" "}
-          <strong className="text-navy">non coincidono</strong> con{" "}
-          <Link href="/admin" className="text-blue hover:underline">Soldi del mese</Link>, che dice quanto è
-          arrivato su Stripe: sono due letture diverse degli stessi fatti, e servono a rispondere a due
-          domande diverse.
-        </p>
-        <p className="mt-2 text-xs font-medium text-muted">
-          Ricavi IVA inclusa, costo lavanderia imponibile. Il margine sottrae il costo dall&apos;imponibile
-          del ricavo, non dal lordo.
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Link href={`/admin/competenza${qs({ mese: meseVicino(mese, -1) })}`} className="rounded-full border border-line px-3 py-1.5 font-display text-sm font-bold text-navy hover:bg-ice">
+              ← {etichettaMese(meseVicino(mese, -1))}
+            </Link>
+            <Link href={`/admin/competenza${qs({ mese: meseVicino(mese, 1) })}`} className="rounded-full border border-line px-3 py-1.5 font-display text-sm font-bold text-navy hover:bg-ice">
+              {etichettaMese(meseVicino(mese, 1))} →
+            </Link>
+          </div>
+          <Link href={`/admin/competenza${qs({ prova: includiProva ? undefined : "1" })}`} className="font-display text-xs font-bold text-navy/55 hover:text-navy">
+            {includiProva ? "Nascondi dati di prova" : "Mostra dati di prova"}
+          </Link>
+        </div>
+        <p className="mt-3 text-sm font-medium text-muted">
+          Il canone si divide per le <strong className="text-navy">settimane di servizio del mese</strong> — un mese con
+          cinque ritiri vale cinque settimane, e ciascuna vale meno — e matura solo nelle settimane in cui il cliente è
+          stato servito davvero. I ricavi sono IVA inclusa, il costo della lavanderia è imponibile: il guadagno si
+          calcola sul <strong className="text-navy">netto</strong>.
         </p>
       </Card>
 
       <div className="mb-4 grid gap-3 sm:grid-cols-4">
-        <Riquadro valore={eur(totRicavo)} etichetta="ricavo maturato" />
-        <Riquadro valore={eur(totCosto)} etichetta="costo lavanderia" />
-        <Riquadro valore={eur(totMargine)} etichetta="margine" tono={totMargine < 0 ? "male" : "bene"} />
-        <Riquadro
-          valore={previsto.conSacchi > 0 ? eur(previsto.cents) : "—"}
-          etichetta="costo previsto a settimana"
-          nota={
-            previsto.senzaSacchi > 0
-              ? `su ${previsto.conSacchi} ${previsto.conSacchi === 1 ? "cliente" : "clienti"} su ${previsto.conSacchi + previsto.senzaSacchi}`
-              : undefined
-          }
-        />
+        <Riquadro label="Ricavi (IVA incl.)" valore={eur(totaleMese.ricavi)} sub={`${eur(totaleMese.canone)} canoni · ${eur(totaleMese.extra)} extra`} />
+        <Riquadro label="Ricavi netti" valore={eur(nettoMese)} sub="scorporata l'IVA al 22%" />
+        <Riquadro label="Costo lavanderia" valore={eur(totaleMese.costi)} sub={`${eur(totaleMese.sacco)} sacchi · ${eur(totaleMese.capi)} capi`} />
+        <Riquadro label="Guadagno" valore={eur(guadagnoMese)} sub="netto meno costo" tono={guadagnoMese >= 0 ? "bene" : "male"} />
       </div>
-
-      {previsto.senzaSacchi > 0 && (
-        <Card className="mb-4 !border-[#C9881F]/35 !bg-[#C9881F]/[0.07]">
-          <p className="text-sm font-semibold text-[#C9881F]">
-            {previsto.senzaSacchi} {previsto.senzaSacchi === 1 ? "abbonamento non ha" : "abbonamenti non hanno"} un
-            numero di sacchi a settimana.
-          </p>
-          <p className="mt-1 text-sm font-medium text-navy/75">
-            Il «costo previsto» {previsto.senzaSacchi === 1 ? "lo lascia" : "li lascia"} fuori invece di inventare
-            una cifra: se {previsto.senzaSacchi === 1 ? "lo contasse" : "li contasse"} con un numero a caso, il
-            confronto con l&apos;effettivo direbbe quello che vogliamo sentirci dire. Il numero si scrive nella
-            scheda del cliente, sotto «Abbonamento».
-          </p>
-          <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-            {previsto.mancanti.map((m) => (
-              <Link
-                key={m.clienteId}
-                href={`/admin/abbonati/${m.clienteId}`}
-                className="font-display text-sm font-extrabold text-[#C9881F] underline"
-              >
-                {m.nome ?? "Senza nome"} →
-              </Link>
-            ))}
-          </p>
-        </Card>
-      )}
 
       {settimane.length === 0 ? (
         <Card>
-          <p className="text-sm font-medium text-muted">Nessun ritiro registrato: non c&apos;è ancora niente da attribuire.</p>
+          <p className="text-sm font-medium text-muted">
+            In {etichettaMese(mese)} non c&apos;è nessuna fascia di ritiro aperta: senza settimane di servizio non c&apos;è
+            niente da dividere. Le fasce si creano in Catalogo.
+          </p>
         </Card>
       ) : (
-        <Card className="!p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-line font-display text-[11px] font-extrabold uppercase tracking-wider text-navy/50">
-                  <th className="px-4 py-3">Settimana</th>
-                  <th className="px-4 py-3 text-center">Ritiri</th>
-                  <th className="px-4 py-3 text-center">Sacchi</th>
-                  <th className="px-4 py-3 text-right">Abbonamento</th>
-                  <th className="px-4 py-3 text-right">Extra</th>
-                  <th className="px-4 py-3 text-right">Costo lavanderia</th>
-                  <th className="px-4 py-3 text-right">Margine</th>
-                </tr>
-              </thead>
-              <tbody>
-                {settimane.map((s) => {
-                  const m = margineCents(s);
-                  const scostamento = previsto.conSacchi > 0 ? s.costoCents - previsto.cents : null;
-                  return (
-                    <tr key={s.settimana} className="border-b border-line/60 last:border-0">
-                      <td className="px-4 py-3 font-display font-bold text-navy">{etichettaSettimana(s.settimana)}</td>
-                      <td className="px-4 py-3 text-center font-medium text-muted">{s.ritiri}</td>
-                      <td className="px-4 py-3 text-center font-medium text-muted">{s.sacchi}</td>
-                      <td className="px-4 py-3 text-right font-medium text-navy">{eur(s.ricavoCanoneCents)}</td>
-                      <td className="px-4 py-3 text-right font-medium text-navy">
-                        {s.ricavoExtraCents > 0 ? eur(s.ricavoExtraCents) : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="font-medium text-navy">{eur(s.costoCents)}</span>
-                        {scostamento != null && s.ritiri > 0 && (
-                          <span className={`block text-[11px] font-semibold ${scostamento > 0 ? "text-[#C9881F]" : "text-muted"}`}>
-                            {scostamento > 0 ? `${eur(scostamento)} sopra il previsto` : `${eur(-scostamento)} sotto`}
-                          </span>
-                        )}
-                      </td>
-                      <td className={`px-4 py-3 text-right font-display font-extrabold ${m < 0 ? "text-[#C0392B]" : "text-[#1F8A5B]"}`}>
-                        {eur(m)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
+        <>
+          <Blocco
+            titolo="Ricavi"
+            settimane={settimane}
+            righe={righe}
+            valore={(c) => ricaviDi(c)}
+            totali={colonne.map(ricaviDi)}
+          />
+          <Blocco
+            titolo="Costi lavanderia"
+            settimane={settimane}
+            righe={righe}
+            valore={(c) => costiDi(c)}
+            totali={colonne.map(costiDi)}
+          />
 
-      <p className="mt-4 text-xs font-medium text-muted">
-        Una settimana con ricavo e senza ritiri vuol dire che abbiamo preso soldi senza lavorare: succede
-        quando un cliente salta il ritiro, e prima o poi se ne accorge. Una con margine negativo vuol dire
-        che quel servizio ci è costato più di quanto lo abbiamo venduto.
-      </p>
+          <Card className="mt-4 !p-4">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-left text-sm">
+                <tbody>
+                  <tr className="font-display font-extrabold text-navy">
+                    <td className="py-2 pr-3">Guadagno (netto − costi)</td>
+                    {colonne.map((c, i) => {
+                      const g = scorpora(ricaviDi(c)).imponibile - costiDi(c);
+                      return (
+                        <td key={settimane[i]} className={`py-2 pr-3 text-right ${g >= 0 ? "text-[#1F8A5B]" : "text-[#C0392B]"}`}>
+                          {eur(g)}
+                        </td>
+                      );
+                    })}
+                    <td className={`py-2 text-right ${guadagnoMese >= 0 ? "text-[#1F8A5B]" : "text-[#C0392B]"}`}>{eur(guadagnoMese)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          <h2 className="mt-6 font-display text-base font-extrabold text-navy">Dettaglio per cliente</h2>
+          {righe.map((r) => {
+            const netto = scorpora(ricaviDi(r.totale)).imponibile;
+            const g = netto - costiDi(r.totale);
+            return (
+              <Fisarmonica
+                key={r.clienteId}
+                titolo={r.nome}
+                conteggio={eur(g)}
+                nota={`${r.totale.ritiri} ${r.totale.ritiri === 1 ? "ritiro" : "ritiri"} · ${eur(ricaviDi(r.totale))} incassabili · ${eur(costiDi(r.totale))} di costo`}
+              >
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-line text-xs font-bold uppercase tracking-wide text-muted">
+                        <th className="py-2 pr-3">Settimana</th>
+                        <th className="py-2 pr-3 text-right">Ritiri</th>
+                        <th className="py-2 pr-3 text-right">Sacchi</th>
+                        <th className="py-2 pr-3 text-right">Canone</th>
+                        <th className="py-2 pr-3 text-right">Extra</th>
+                        <th className="py-2 pr-3 text-right">Costo sacchi</th>
+                        <th className="py-2 pr-3 text-right">Costo capi</th>
+                        <th className="py-2 text-right">Guadagno</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {settimane.map((s) => {
+                        const c = r.celle[s];
+                        if (!c) return null;
+                        const gs = scorpora(ricaviDi(c)).imponibile - costiDi(c);
+                        return (
+                          <tr key={s} className="border-b border-line/60">
+                            <td className="py-2 pr-3 font-semibold text-navy">{etichettaSettimana(s)}</td>
+                            <td className="py-2 pr-3 text-right text-muted">{c.ritiri}</td>
+                            <td className="py-2 pr-3 text-right text-muted">{c.sacchi}</td>
+                            <td className="py-2 pr-3 text-right text-navy">{eur(c.ricavoCanoneCents)}</td>
+                            <td className="py-2 pr-3 text-right text-navy">{c.ricavoExtraCents ? eur(c.ricavoExtraCents) : "—"}</td>
+                            <td className="py-2 pr-3 text-right text-muted">{c.costoSaccoCents ? eur(c.costoSaccoCents) : "—"}</td>
+                            <td className="py-2 pr-3 text-right text-muted">{c.costoExtraCents ? eur(c.costoExtraCents) : "—"}</td>
+                            <td className={`py-2 text-right font-display font-extrabold ${gs >= 0 ? "text-[#1F8A5B]" : "text-[#C0392B]"}`}>{eur(gs)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <Link href={`/admin/abbonati/${r.clienteId}`} className="mt-3 inline-flex font-display text-xs font-bold text-blue hover:underline">
+                  Apri la scheda →
+                </Link>
+              </Fisarmonica>
+            );
+          })}
+        </>
+      )}
     </>
   );
 }
 
-function Riquadro({ valore, etichetta, nota, tono }: { valore: string; etichetta: string; nota?: string; tono?: "bene" | "male" }) {
-  const colore = tono === "male" ? "text-[#C0392B]" : tono === "bene" ? "text-[#1F8A5B]" : "text-navy";
+function Riquadro({ label, valore, sub, tono }: { label: string; valore: string; sub: string; tono?: "bene" | "male" }) {
+  const colore = tono === "bene" ? "text-[#1F8A5B]" : tono === "male" ? "text-[#C0392B]" : "text-navy";
   return (
-    <div className="rounded-[16px] border border-line bg-white p-4">
-      <div className={`font-display text-2xl font-black ${colore}`}>{valore}</div>
-      <div className="mt-0.5 text-xs font-semibold text-muted">{etichetta}</div>
-      {nota && <div className="text-[11px] font-medium text-muted">{nota}</div>}
-    </div>
+    <Card className="!p-4">
+      <div className={`font-display text-xl font-black ${colore}`}>{valore}</div>
+      <div className="mt-0.5 font-display text-sm font-extrabold text-navy">{label}</div>
+      <div className="text-xs font-medium text-muted">{sub}</div>
+    </Card>
+  );
+}
+
+/** Un blocco del foglio: una riga per cliente, una colonna per settimana.
+ *  Le caselle vuote restano vuote — una settimana senza servizio non è uno zero. */
+function Blocco({
+  titolo,
+  settimane,
+  righe,
+  valore,
+  totali,
+}: {
+  titolo: string;
+  settimane: Settimana[];
+  righe: RigaCliente[];
+  valore: (c: Cella) => number;
+  totali: number[];
+}) {
+  const eurOpt = (n: number) => (n ? eur(n) : "—");
+  const totale = totali.reduce((t, n) => t + n, 0);
+  return (
+    <Card className="mt-4 !p-4">
+      <h2 className="font-display text-sm font-extrabold text-navy">{titolo}</h2>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-line text-xs font-bold uppercase tracking-wide text-muted">
+              <th className="py-2 pr-3">Cliente</th>
+              {settimane.map((s) => (
+                <th key={s} className="py-2 pr-3 text-right">{etichettaSettimana(s)}</th>
+              ))}
+              <th className="py-2 text-right">Totale</th>
+            </tr>
+          </thead>
+          <tbody>
+            {righe.map((r) => (
+              <tr key={r.clienteId} className="border-b border-line/60">
+                <td className="py-2 pr-3 font-semibold text-navy">{r.nome}</td>
+                {settimane.map((s) => (
+                  <td key={s} className="py-2 pr-3 text-right text-navy">
+                    {r.celle[s] ? eurOpt(valore(r.celle[s])) : ""}
+                  </td>
+                ))}
+                <td className="py-2 text-right font-display font-extrabold text-navy">{eurOpt(valore(r.totale))}</td>
+              </tr>
+            ))}
+            <tr className="font-display font-extrabold text-navy">
+              <td className="py-2 pr-3">Totale</td>
+              {totali.map((n, i) => (
+                <td key={settimane[i]} className="py-2 pr-3 text-right">{eurOpt(n)}</td>
+              ))}
+              <td className="py-2 text-right">{eurOpt(totale)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
