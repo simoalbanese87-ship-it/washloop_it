@@ -1,7 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { sacchiOsservati, sacchiDaContare } from "@/lib/franchigia";
-import { sacchiInclusi } from "@/lib/abbonamento-sacchi";
+import { sacchiInclusi, haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
 import { dataServizio } from "@/lib/periodo-servizio";
 
 /** Registra quanto dobbiamo alla lavanderia per i sacchi di un ordine.
@@ -68,6 +68,19 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
     // settembre l'ordine di Giulia — piano Small, un sacco — è stato pagato
     // 24,60 €, cioè due, perché il rider aveva letto due tag e nessuno ha
     // guardato il piano.
+    // 5. **E se non c'è nessun abbonamento, non c'è nessun sacco da pagare.**
+    //
+    // Il compenso a sacco è la contropartita del canone: la lavanderia ce lo
+    // fattura perché il cliente ha un abbonamento, e dentro quel compenso ci
+    // stanno anche i capi compresi. Su un lavoro a consumo la lavanderia
+    // fattura i capi, uno per uno, e quelli hanno già la loro riga `special`.
+    // Scrivere anche il sacco sarebbe un costo che nessuno ci ha chiesto, e
+    // falserebbe il conto del cliente in Competenza.
+    //
+    // Stessa regola della franchigia, e non è un caso: niente abbonamento,
+    // niente capi compresi e niente compenso a sacco.
+    if (!(await haAbbonamentoAttivo(svc, ordine.customer_id))) return;
+
     const tetto = await sacchiInclusi(svc, ordine.customer_id);
     const conto = sacchiDaContare(sacchiOsservati(ordine.bags_arrivati, scansionati, ordine.bags), tetto);
     const sacchi = conto.sacchi;
