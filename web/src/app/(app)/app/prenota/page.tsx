@@ -12,11 +12,13 @@ type RawSlot = { id: string; starts_at: string; ends_at: string; laundry_id: str
 export default async function PrenotaPage() {
   const supabase = await createClient();
   const nowIso = new Date().toISOString();
-  const [active, { data: sub }, { data: addresses }, { data: rawSlots }, { data: rawDelivery }, { data: cats }, { data: items }] = await Promise.all([
+  const [abbonato, { data: sub }, { data: io }, { data: addresses }, { data: rawSlots }, { data: rawDelivery }, { data: cats }, { data: items }] = await Promise.all([
     hasActiveSubscription(),
     // `turnaround_hours` serve a sapere da quando in poi il bucato può tornare:
     // le fasce di riconsegna prima di quel momento non hanno senso mostrarle.
     supabase.from("subscriptions").select("status, plans(turnaround_hours)").order("created_at", { ascending: false }).limit(1).maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>(),
+    // Il cliente a consumo prenota come gli altri: niente canone, paga i capi.
+    supabase.from("profiles").select("a_consumo").eq("id", (await supabase.auth.getUser()).data.user?.id ?? "").maybeSingle<{ a_consumo: boolean | null }>(),
     supabase.from("addresses").select("id, label, street, zone_id, access_mode, access_note").order("created_at", { ascending: false }).returns<Address[]>(),
     supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity").eq("kind", "pickup").is("archived_at", null).gte("starts_at", nowIso).order("starts_at").limit(80).returns<RawSlot[]>(),
     supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity").eq("kind", "delivery").is("archived_at", null).gte("starts_at", nowIso).order("starts_at").limit(120).returns<RawSlot[]>(),
@@ -48,8 +50,10 @@ export default async function PrenotaPage() {
     items: (items ?? []).filter((i) => i.category_id === c.id).map((i) => ({ name: i.name, price_cli_cents: i.price_cli_cents })),
   })).filter((c) => c.items.length > 0);
 
+  const aConsumo = io?.a_consumo === true;
+  const active = abbonato || aConsumo;
   const noAddress = !addresses || addresses.length === 0;
-  const sofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
+  const sofferenza = !aConsumo && (sub?.status === "past_due" || sub?.status === "unpaid");
 
   return (
     <div className="space-y-4">

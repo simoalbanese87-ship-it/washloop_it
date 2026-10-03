@@ -20,7 +20,7 @@ const ACTIVE_ORDER: OrderStatus[] = ["pickup_scheduled", "picked_up", "at_laundr
 
 export default async function Home() {
   const supabase = await createClient();
-  const [{ data: sub }, { data: orders }, { data: recs }, { count: quantiIndirizzi }] = await Promise.all([
+  const [{ data: sub }, { data: orders }, { data: recs }, { count: quantiIndirizzi }, { data: io }] = await Promise.all([
     supabase
       .from("subscriptions")
       .select("status, current_period_end, cancel_at_period_end, prova_fine_at, plans(name, bags_per_week)")
@@ -44,15 +44,19 @@ export default async function Home() {
     // nasce senza indirizzo, e finora se ne accorgeva solo sbattendo contro il
     // muro di testo dentro «Prenota».
     supabase.from("addresses").select("id", { count: "exact", head: true }),
+    // Il cliente a consumo non ha un abbonamento e non deve leggersi «attiva un
+    // piano»: paga i capi, e per lui quel passo non esiste.
+    supabase.from("profiles").select("a_consumo").eq("id", (await supabase.auth.getUser()).data.user?.id ?? "").maybeSingle<{ a_consumo: boolean | null }>(),
   ]);
 
   const recurring = recs ?? [];
 
-  const active = sub?.status === "active" || sub?.status === "trialing";
+  const aConsumo = io?.a_consumo === true;
+  const active = sub?.status === "active" || sub?.status === "trialing" || aConsumo;
   // Fattura rimasta aperta: è diverso da «non si è mai abbonato», e va detto
   // con parole diverse. Prima entrambi finivano nello stesso ramo e a chi
   // pagava da mesi comparive «Attiva un abbonamento».
-  const sofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
+  const sofferenza = !aConsumo && (sub?.status === "past_due" || sub?.status === "unpaid");
   const senzaIndirizzo = (quantiIndirizzi ?? 0) === 0;
   // Stessa etichetta della pagina abbonamento: qui diceva «Rinnovo il …» anche
   // a chi aveva disdetto.

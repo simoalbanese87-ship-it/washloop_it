@@ -87,7 +87,20 @@ export async function incassaExtraDelRitiro(svc: SupabaseClient, orderId: string
       .limit(1)
       .maybeSingle<{ stripe_customer_id: string | null; stripe_subscription_id: string | null }>();
 
-    if (!sub?.stripe_customer_id) {
+    // Chi non ha mai avuto un abbonamento — il cliente a consumo — una riga in
+    // `subscriptions` non ce l'ha: il suo cliente Stripe sta sul profilo, scritto
+    // quando gli è stato generato il primo link di pagamento.
+    let stripeCustomerId = sub?.stripe_customer_id ?? null;
+    if (!stripeCustomerId) {
+      const { data: prof } = await svc
+        .from("profiles")
+        .select("stripe_customer_id")
+        .eq("id", ordine.customer_id)
+        .maybeSingle<{ stripe_customer_id: string | null }>();
+      stripeCustomerId = prof?.stripe_customer_id ?? null;
+    }
+
+    if (!stripeCustomerId) {
       // Non è un guasto tecnico, è un fatto da mostrare: senza un profilo di
       // pagamento non c'è una carta da cui prelevare, e quei capi vanno
       // incassati in un altro modo. Meglio saperlo oggi che al rinnovo.
@@ -102,7 +115,7 @@ export async function incassaExtraDelRitiro(svc: SupabaseClient, orderId: string
     // carte predefinite non ce n'è: il metodo va indicato a mano, altrimenti
     // Stripe rifiuta con «There is no default_payment_method set on this
     // Customer or Invoice» — che è quello che ha bloccato il primo incasso.
-    const carta = await metodoDiPagamento(sub.stripe_customer_id, sub.stripe_subscription_id);
+    const carta = await metodoDiPagamento(stripeCustomerId, sub?.stripe_subscription_id ?? null);
     if (!carta) {
       const motivo = "Il cliente non ha nessuna carta salvata su Stripe: non c'è da dove prelevare.";
       await segnaFallito(motivo, null, null);
@@ -110,7 +123,7 @@ export async function incassaExtraDelRitiro(svc: SupabaseClient, orderId: string
     }
 
     const inv = await sk.invoices.create({
-      customer: sub.stripe_customer_id,
+      customer: stripeCustomerId,
       collection_method: "charge_automatically",
       default_payment_method: carta,
       auto_advance: false,
@@ -124,7 +137,7 @@ export async function incassaExtraDelRitiro(svc: SupabaseClient, orderId: string
 
     for (const c of capi) {
       await sk.invoiceItems.create({
-        customer: sub.stripe_customer_id,
+        customer: stripeCustomerId,
         invoice: inv.id,
         amount: c.price_cli_cents * c.qty,
         currency: "eur",

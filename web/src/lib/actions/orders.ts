@@ -23,6 +23,7 @@ import { allineaProva } from "@/lib/prova-stripe";
 // calendario del rider.
 import { TURNAROUND_ORE } from "@/lib/planning-rider";
 import { portaAPronto } from "@/lib/pronto";
+import { puoPrenotare, perchePuoNonPrenotare } from "@/lib/puo-prenotare";
 import { IN_LAVORAZIONE } from "@/lib/consegne-da-caricare";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
@@ -51,7 +52,7 @@ export async function createPickup(formData: FormData) {
   if (!address_id || !pickup_slot_id) throw new Error("Indirizzo e slot obbligatori");
 
   // ETA = inizio slot ritiro + turnaround del piano attivo (default 48h)
-  const [{ data: slot }, { data: sub }] = await Promise.all([
+  const [{ data: slot }, { data: sub }, { data: io }] = await Promise.all([
     supabase.from("slots").select("starts_at").eq("id", pickup_slot_id).maybeSingle<{ starts_at: string }>(),
     supabase
       .from("subscriptions")
@@ -59,10 +60,12 @@ export async function createPickup(formData: FormData) {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>(),
+    supabase.from("profiles").select("a_consumo").eq("id", user.id).maybeSingle<{ a_consumo: boolean | null }>(),
   ]);
 
-  // Gate: la prenotazione richiede un abbonamento attivo (difesa lato server).
-  if (!sub || !["active", "trialing"].includes(sub.status)) {
+  // Gate: serve un abbonamento attivo, oppure l'accordo a consumo (difesa lato
+  // server). La regola sta in `puo-prenotare.ts` con i suoi test.
+  if (!puoPrenotare({ statoAbbonamento: sub?.status, aConsumo: io?.a_consumo })) {
     redirect("/app/abbonamento?need=1");
   }
   const turnaround = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
@@ -122,7 +125,7 @@ export async function bookPickup(input: {
   const bags = Number.isFinite(input.bags) && input.bags > 0 ? input.bags : 1;
   if (!address_id || !pickup_slot_id) return { ok: false, error: "Indirizzo e slot obbligatori" };
 
-  const [{ data: slot }, { data: sub }] = await Promise.all([
+  const [{ data: slot }, { data: sub }, { data: io }] = await Promise.all([
     supabase.from("slots").select("starts_at").eq("id", pickup_slot_id).maybeSingle<{ starts_at: string }>(),
     supabase
       .from("subscriptions")
@@ -130,10 +133,11 @@ export async function bookPickup(input: {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>(),
+    supabase.from("profiles").select("a_consumo").eq("id", user.id).maybeSingle<{ a_consumo: boolean | null }>(),
   ]);
 
-  if (!sub || !["active", "trialing"].includes(sub.status)) {
-    return { ok: false, error: "Serve un abbonamento attivo." };
+  if (!puoPrenotare({ statoAbbonamento: sub?.status, aConsumo: io?.a_consumo })) {
+    return { ok: false, error: perchePuoNonPrenotare({ statoAbbonamento: sub?.status, aConsumo: io?.a_consumo }) ?? "Serve un abbonamento attivo." };
   }
   const turnaround = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
   const eta = slot?.starts_at ? new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString() : null;

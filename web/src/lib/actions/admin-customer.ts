@@ -158,6 +158,11 @@ export async function createCustomSubscriptionLink(
     if (!stripeCustomerId) {
       const c = await creaClienteStripe(svc, customerId, email);
       stripeCustomerId = c.id;
+      // Si scrive sul profilo, non solo su Stripe: un cliente a consumo una
+      // riga in `subscriptions` non ce l'ha, e senza questo l'identificativo si
+      // perdeva. Al primo capo da addebitare l'incasso sarebbe fallito con
+      // «non ha un profilo di pagamento», su una persona che la carta ce l'ha.
+      await svc.from("profiles").update({ stripe_customer_id: c.id }).eq("id", customerId);
     }
 
     const session = await stripe().checkout.sessions.create({
@@ -244,6 +249,27 @@ export async function createCustomSubscriptionLink(
   }
 }
 
+/** Il cliente a consumo: prenota come gli altri, paga solo i capi.
+ *
+ *  Un permesso, non una deduzione. «Non ha un abbonamento» vale anche per chi se
+ *  n'è andato, e a quello il ritiro non lo si vuole lasciar prenotare: la
+ *  differenza fra un cliente a consumo e un ex cliente sta in un accordo, e gli
+ *  accordi si scrivono.
+ *
+ *  Da qui in poi, per lui: niente canone, **niente capi compresi** e niente
+ *  compenso a sacco verso la lavanderia — si paga e si fattura quello che c'è
+ *  nel sacco, capo per capo. */
+export async function impostaAConsumo(formData: FormData) {
+  await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  const attivo = String(formData.get("a_consumo") ?? "") === "1";
+  if (!customerId) return;
+
+  const svc = createServiceClient();
+  await svc.from("profiles").update({ a_consumo: attivo }).eq("id", customerId);
+  revalidatePath(`/admin/abbonati/${customerId}`);
+}
+
 /** Crea un link di pagamento **una tantum**: si incassa una volta e basta.
  *
  *  Perché non basta il link di abbonamento
@@ -289,6 +315,11 @@ export async function createOneOffPaymentLink(
     if (!stripeCustomerId) {
       const c = await creaClienteStripe(svc, customerId, email);
       stripeCustomerId = c.id;
+      // Si scrive sul profilo, non solo su Stripe: un cliente a consumo una
+      // riga in `subscriptions` non ce l'ha, e senza questo l'identificativo si
+      // perdeva. Al primo capo da addebitare l'incasso sarebbe fallito con
+      // «non ha un profilo di pagamento», su una persona che la carta ce l'ha.
+      await svc.from("profiles").update({ stripe_customer_id: c.id }).eq("id", customerId);
     }
 
     const session = await stripe().checkout.sessions.create({

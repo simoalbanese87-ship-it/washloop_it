@@ -4,7 +4,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo } from "@/lib/actions/admin-customer";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { addebitaCapoSpeciale, addebitaSubitoCapo } from "@/lib/actions/charge";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
@@ -24,7 +24,7 @@ const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFr
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
 
-type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string;
+type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
 type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null } | null };
@@ -65,7 +65,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const { ok, warn } = await searchParams;
   const svc = createServiceClient();
 
-  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
+  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, a_consumo, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
   if (!profile) notFound();
 
   const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: proposte }] = await Promise.all([
@@ -853,6 +853,35 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               nascosto proprio a chi non ha ancora niente — che è il caso per
               cui serve. */}
           <OneOffPaymentForm customerId={id} />
+
+          {/* Il cliente a consumo. È un permesso e non una deduzione: «non ha un
+              abbonamento» vale anche per chi se n'è andato, e a quello il ritiro
+              non lo si vuole lasciar prenotare. */}
+          <div className="mt-4 rounded-[16px] border border-line bg-ice/60 p-4">
+            <h3 className="font-display text-sm font-extrabold text-navy">Cliente a consumo</h3>
+            <p className="mt-1 text-xs font-medium text-muted">
+              Prenota i ritiri come gli altri, senza abbonamento: paga solo i capi, quotati a listino e addebitati sulla
+              carta salvata. <strong className="text-navy">Niente capi compresi</strong> — le camicie comprese le paga il
+              canone, e lui non ce l&apos;ha — e alla lavanderia paghiamo i capi, non il sacco.
+            </p>
+            {profile.a_consumo ? (
+              <p className="mt-2 rounded-[10px] bg-[#1F8A5B]/10 px-3 py-2 text-xs font-bold text-[#1F8A5B]">
+                Attivo: può prenotare quando vuole.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs font-semibold text-muted">
+                Prima di attivarlo, assicurati che abbia una carta salvata: senza, i capi non si possono addebitare.
+                La carta si salva con il link di pagamento una tantum qui sopra.
+              </p>
+            )}
+            <form action={impostaAConsumo} className="mt-3">
+              <input type="hidden" name="customer_id" value={id} />
+              <input type="hidden" name="a_consumo" value={profile.a_consumo ? "0" : "1"} />
+              <BottoneInvio className={`rounded-full px-4 py-2 font-display text-sm font-extrabold ${profile.a_consumo ? "border-2 border-line text-navy" : "bg-gradient-to-br from-blue to-cyan text-white"}`}>
+                {profile.a_consumo ? "Disattiva il consumo" : "Attiva il cliente a consumo →"}
+              </BottoneInvio>
+            </form>
+          </div>
         </Card>
 
         {/* Fatturazione: chi la vuole va saputo QUI, sulla scheda di chi paga.
