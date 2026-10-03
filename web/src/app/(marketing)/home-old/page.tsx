@@ -225,7 +225,7 @@ export default function HomePrecedente() {
             ))}
           </div>
           <p className="mx-auto mt-8 max-w-2xl text-center text-sm font-medium text-muted">
-            Ogni sacchetto contiene fino a 3 camicie. Sacchi extra a €45 l&apos;uno. I capi da lavanderia (in un sacco separato) si lavorano a prezzo di listino. Metti in pausa e riprendi quando vuoi.
+            Ogni sacco comprende fino a 3 camicie stirate; dalla quarta in poi si addebitano a listino. I capi da lavanderia (in un sacco separato) si lavorano a prezzo di listino. Metti in pausa e riprendi quando vuoi.
           </p>
         </div>
       </section>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import crypto from "crypto";
-import { contestoAssistente } from "@/lib/faq";
+import { contestoAssistente, prezziPerAssistente } from "@/lib/faq";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /** Assistente per le domande dei clienti, basato sulle FAQ.
@@ -91,6 +91,28 @@ export async function POST(req: Request) {
     /* senza database si risponde comunque, con le sole FAQ */
   }
 
+  // Piani e listino letti dal database, non dalle FAQ. Il 3 ottobre
+  // l'assistente ha risposto a una cliente che un sacco extra costa 45 EUR: una
+  // cifra che non esiste da nessuna parte e che nessun codice addebita. Non se
+  // l'era inventata — era scritta a mano nel file delle FAQ. Un prezzo scritto
+  // due volte e' un prezzo che prima o poi diverge.
+  let prezzi = "";
+  try {
+    const svc = createServiceClient();
+    const [{ data: piani }, { data: capi }] = await Promise.all([
+      svc.from("plans").select("name, price_month_cents, bags_per_week").eq("active", true).order("sort")
+        .returns<{ name: string; price_month_cents: number; bags_per_week: number }[]>(),
+      svc.from("special_items").select("name, price_cli_cents, incluse_per_sacco").eq("active", true).order("name")
+        .returns<{ name: string; price_cli_cents: number; incluse_per_sacco: number }[]>(),
+    ]);
+    prezzi = prezziPerAssistente({
+      piani: (piani ?? []).map((p) => ({ nome: p.name, prezzoMeseCents: p.price_month_cents, sacchiSettimana: p.bags_per_week })),
+      capi: (capi ?? []).map((c) => ({ nome: c.name, prezzoCents: c.price_cli_cents, inclusePerSacco: c.incluse_per_sacco })),
+    });
+  } catch {
+    /* senza listino si risponde comunque: le FAQ non contengono piu' prezzi */
+  }
+
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -102,7 +124,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         model: MODELLO,
         max_tokens: 400,
-        system: `${ISTRUZIONI}\n\n---\n${contestoAssistente()}${copertura}`,
+        system: `${ISTRUZIONI}\n\n---\n${contestoAssistente()}${copertura}${prezzi}`,
         messages: [{ role: "user", content: domanda }],
       }),
     });

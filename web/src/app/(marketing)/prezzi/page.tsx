@@ -46,9 +46,6 @@ export const metadata: Metadata = {
   },
 };
 
-/** Il sacco extra non è nel listino dei capi: è una voce dell'abbonamento, e
- *  sta scritta nelle FAQ dell'area cliente. Un solo numero, preso da lì. */
-const SACCO_EXTRA_CENTS = 4500;
 
 /** Quante settimane si contano in un mese per dire «a settimana».
  *
@@ -69,7 +66,7 @@ const PILASTRI = [
  *  servono a far scegliere, e parlano di persone invece che di funzioni. */
 const CARD: Record<string, { per: string; righe: (b: number) => string[]; evidenza?: string }> = {
   essential: {
-    per: "Per una persona, o per una coppia che non cucina in casa.",
+    per: "Per chi vive da solo, o per una coppia che fa poco bucato.",
     righe: (b) => [
       `${b * SETTIMANE_AL_MESE} ritiri e ${b * SETTIMANE_AL_MESE} riconsegne al mese`,
       "Lavaggio e stiratura di tutto il contenuto",
@@ -112,14 +109,13 @@ const COMPRESO = [
 const FUORI = [
   "Capi da lavasecco o tintoria: vanno in un sacco separato e si lavorano a listino, fuori dal volume dell'abbonamento",
   "Camicie oltre le 3 comprese in ogni sacchetto, addebitate a capo",
-  "Sacchi extra una tantum, oltre il numero previsto dal piano",
   "Trattamenti speciali — macchie difficili, restauri, pelli e piumini — su preventivo prima di lavorare il capo",
 ];
 
 const NON_SI_PAGA = [
   {
     t: "Non si paga a capo",
-    d: "Lo stiro è dentro l'abbonamento su tutti i capi che lo richiedono. Da 3 camicie a sacchetto in su, il conto resta quello del mese.",
+    d: "Lo stiro è dentro l'abbonamento su tutti i capi che lo richiedono, camicie comprese: le prime 3 di ogni sacco non si pagano, e dalla quarta il prezzo è quello del listino, scritto prima.",
   },
   {
     t: "Non si paga il trasporto",
@@ -198,8 +194,8 @@ export default async function Prezzi() {
       a: "Sì, dall'app, con effetto dal mese successivo. Se la famiglia cresce — o la casa si svuota d'estate — il piano si adegua senza rifare il contratto.",
     },
     {
-      q: "Quanto costa un sacco extra?",
-      a: `${eur(SACCO_EXTRA_CENTS)}, una tantum, oltre il numero previsto dal piano. Si aggiunge dall'app e si ritira nello stesso giorno fisso.`,
+      q: "E se mi serve più spazio di quello del mio piano?",
+      a: "Si passa al piano successivo: costa meno di qualunque aggiunta a consumo, e si cambia dall'app con effetto dal mese dopo. Non vendiamo sacchi extra a parte.",
     },
   ];
 
@@ -446,18 +442,10 @@ export default async function Prezzi() {
             Il listino, per intero.
           </h2>
           <p className="mt-4 max-w-2xl text-base font-medium text-muted">
-            Il bucato quotidiano è dentro il piano. Quello che sta fuori — capi da lavasecco, sacchi extra —
-            ha un prezzo fisso, pubblicato qui e mostrato nell&apos;ordine prima di procedere. Una regola sola:{" "}
+            Il bucato quotidiano è dentro il piano. Quello che sta fuori — capi da lavasecco, delicati, camicie
+            oltre le 3 comprese — ha un prezzo fisso, pubblicato qui e mostrato nell&apos;ordine prima di procedere. Una regola sola:{" "}
             <strong className="text-navy">nessun capo entra in lavorazione senza che tu abbia visto il prezzo.</strong>
           </p>
-
-          <div className="mt-10 rounded-[18px] border border-line bg-white p-5">
-            <div className="flex items-baseline justify-between gap-4 text-sm font-medium text-navy">
-              <span className="font-display font-extrabold">Sacco extra una tantum, oltre il piano</span>
-              <span className="font-display font-black">{eur(SACCO_EXTRA_CENTS)}</span>
-            </div>
-            <p className="mt-1 text-sm font-medium text-muted">Stesso giorno fisso, si aggiunge dall&apos;app.</p>
-          </div>
 
           {/* Le categorie: la prima aperta, le altre da aprire. Quarantatré voci
               tutte a schermo sono un muro, e la prima è quella che si cerca. */}

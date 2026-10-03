@@ -11,11 +11,11 @@ export const PLAN_COPY: Record<string, PlanCopy> = {
   },
   plus: {
     tagline: "Il preferito dei professionisti",
-    features: ["2 sacchi a settimana", "Ritiro 1 volta a settimana", "Cumuli i sacchi nel mese", "Lavaggio + stiratura premium", "Tracciabilità capo per capo"],
+    features: ["2 sacchi a settimana", "Ritiro 1 volta a settimana", "Fino a 6 camicie stirate a settimana", "Lavaggio + stiratura premium", "Tracciabilità capo per capo"],
   },
   family: {
     tagline: "Per coppie e famiglie",
-    features: ["3 sacchi a settimana", "Ritiro 1 volta a settimana", "Cumuli i sacchi nel mese", "Capi delicati inclusi", "Slot prioritari"],
+    features: ["3 sacchi a settimana", "Ritiro 1 volta a settimana", "Fino a 9 camicie stirate a settimana", "Capi delicati inclusi", "Slot prioritari"],
   },
 };
 
