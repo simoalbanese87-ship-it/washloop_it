@@ -9,6 +9,7 @@ import {
   ricaviDi,
   costiDi,
   lunediDi,
+  quotaDellaSettimana,
   type CanoneStorico,
 } from "./conto-settimanale.ts";
 
@@ -149,4 +150,55 @@ test("i totali di colonna sommano quello che si vede", () => {
   assert.equal(t[0].sacchi, 3);
   assert.equal(t[0].ricavoCanoneCents, 8000 + 3500);
   assert.equal(t[1].costoSaccoCents, 1230);
+});
+
+test("un pacchetto a termine vale la sua settimana, non un quarto di mese", () => {
+  // Il caso di Maura: 40 € per UNA settimana, in un ottobre da quattro
+  // settimane di servizio. Diviso per il mese faceva 10,00 €.
+  const maura: CanoneStorico[] = [
+    { clienteId: "maura", canoneCents: 4000, daIso: "2026-10-01T06:37:00.000Z", settimaneCoperte: 1 },
+  ];
+  assert.equal(quotaDellaSettimana(maura, "maura", "2026-10-05", 4), 4000);
+});
+
+test("un pacchetto di due settimane vale metà per settimana", () => {
+  const due: CanoneStorico[] = [
+    { clienteId: "x", canoneCents: 8000, daIso: "2026-10-01T00:00:00.000Z", settimaneCoperte: 2 },
+  ];
+  assert.equal(quotaDellaSettimana(due, "x", "2026-10-05", 4), 4000);
+});
+
+test("il canone mensile continua a dividersi per le settimane del mese", () => {
+  const mensile: CanoneStorico[] = [{ clienteId: "giulia", canoneCents: 16000, daIso: "2026-08-01T00:00:00.000Z" }];
+  assert.equal(quotaDellaSettimana(mensile, "giulia", "2026-09-07", 5), 3200);
+  assert.equal(quotaDellaSettimana(mensile, "giulia", "2026-10-05", 4), 4000);
+});
+
+test("chi passa da mensile a pacchetto usa la regola giusta in ogni settimana", () => {
+  const storico: CanoneStorico[] = [
+    { clienteId: "y", canoneCents: 16000, daIso: "2026-09-01T00:00:00.000Z" },
+    { clienteId: "y", canoneCents: 4000, daIso: "2026-10-01T00:00:00.000Z", settimaneCoperte: 1 },
+  ];
+  assert.equal(quotaDellaSettimana(storico, "y", "2026-09-07", 5), 3200);
+  assert.equal(quotaDellaSettimana(storico, "y", "2026-10-05", 4), 4000);
+});
+
+test("chi non era cliente vale zero anche con un pacchetto in giro", () => {
+  const storico: CanoneStorico[] = [
+    { clienteId: "z", canoneCents: 4000, daIso: "2026-10-01T00:00:00.000Z", settimaneCoperte: 1 },
+  ];
+  assert.equal(quotaDellaSettimana(storico, "z", "2026-09-07", 5), 0);
+});
+
+test("il conto del mese usa la durata del pacchetto, non quella del mese", () => {
+  const righe = contoDelMese({
+    clienti: [{ clienteId: "maura", nome: "Maura Minora" }],
+    settimane: ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"],
+    canoni: [{ clienteId: "maura", canoneCents: 4000, daIso: "2026-10-01T06:37:00.000Z", settimaneCoperte: 1 }],
+    ordini: [{ clienteId: "maura", settimana: "2026-10-05", sacchi: 1 }],
+    payouts: [],
+    extra: [],
+  });
+  assert.equal(righe[0].celle["2026-10-05"].ricavoCanoneCents, 4000);
+  assert.equal(righe[0].totale.ricavoCanoneCents, 4000);
 });

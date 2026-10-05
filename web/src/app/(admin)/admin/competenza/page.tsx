@@ -64,6 +64,7 @@ type Sub = {
   status: string;
   custom_price_cents: number | null;
   created_at: string;
+  termina_dopo_settimane: number | null;
   plans: { price_month_cents: number } | { price_month_cents: number }[] | null;
   profiles: { full_name: string | null; is_test: boolean } | { full_name: string | null; is_test: boolean }[] | null;
 };
@@ -105,7 +106,7 @@ export default async function Competenza({
     // canone — è il motivo per cui il venerdì tolto a ottobre non crea colonne.
     svc.from("slots").select("starts_at").eq("kind", "pickup").is("archived_at", null).gte("starts_at", dal).lt("starts_at", al)
       .returns<{ starts_at: string }[]>(),
-    svc.from("subscriptions").select("user_id, status, custom_price_cents, created_at, plans(price_month_cents), profiles(full_name, is_test)")
+    svc.from("subscriptions").select("user_id, status, custom_price_cents, created_at, termina_dopo_settimane, plans(price_month_cents), profiles(full_name, is_test)")
       .order("created_at", { ascending: true }).returns<Sub[]>(),
     svc.from("orders").select("id, customer_id, bags, bags_arrivati, created_at, pickup:slots!orders_pickup_slot_id_fkey(starts_at), profiles!orders_customer_id_fkey(is_test)")
       .neq("status", "cancelled").returns<Ordine[]>(),
@@ -131,6 +132,9 @@ export default async function Competenza({
       clienteId: s.user_id,
       canoneCents: s.custom_price_cents ?? piano?.price_month_cents ?? 0,
       daIso: s.created_at,
+      // Un pacchetto a termine copre le sue settimane, non un mese: 40 € per
+      // una settimana valgono 40 € in quella settimana.
+      settimaneCoperte: s.termina_dopo_settimane,
     });
     nomi.set(s.user_id, prof?.full_name ?? "Cliente");
   }
@@ -240,6 +244,7 @@ export default async function Competenza({
             settimane={settimane}
             righe={righe}
             valore={(c) => ricaviDi(c)}
+            dettaglio={(c) => `canone ${eur(c.ricavoCanoneCents)} · extra ${eur(c.ricavoExtraCents)}`}
             totali={colonne.map(ricaviDi)}
           />
           <Blocco
@@ -247,6 +252,7 @@ export default async function Competenza({
             settimane={settimane}
             righe={righe}
             valore={(c) => costiDi(c)}
+            dettaglio={(c) => `sacchi ${eur(c.costoSaccoCents)} · capi ${eur(c.costoExtraCents)}`}
             totali={colonne.map(costiDi)}
           />
 
@@ -347,12 +353,16 @@ function Blocco({
   settimane,
   righe,
   valore,
+  dettaglio,
   totali,
 }: {
   titolo: string;
   settimane: Settimana[];
   righe: RigaCliente[];
   valore: (c: Cella) => number;
+  /** Di cosa è fatta la cifra, per chi ci passa sopra il mouse. Un 47,40 € senza
+   *  spiegazione è la domanda che poi arriva per messaggio. */
+  dettaglio: (c: Cella) => string;
   totali: number[];
 }) {
   const eurOpt = (n: number) => (n ? eur(n) : "—");
@@ -376,11 +386,11 @@ function Blocco({
               <tr key={r.clienteId} className="border-b border-line/60">
                 <td className="py-2 pr-3 font-semibold text-navy">{r.nome}</td>
                 {settimane.map((s) => (
-                  <td key={s} className="py-2 pr-3 text-right text-navy">
+                  <td key={s} className="py-2 pr-3 text-right text-navy" title={r.celle[s] ? dettaglio(r.celle[s]) : undefined}>
                     {r.celle[s] ? eurOpt(valore(r.celle[s])) : ""}
                   </td>
                 ))}
-                <td className="py-2 text-right font-display font-extrabold text-navy">{eurOpt(valore(r.totale))}</td>
+                <td className="py-2 text-right font-display font-extrabold text-navy" title={dettaglio(r.totale)}>{eurOpt(valore(r.totale))}</td>
               </tr>
             ))}
             <tr className="font-display font-extrabold text-navy">

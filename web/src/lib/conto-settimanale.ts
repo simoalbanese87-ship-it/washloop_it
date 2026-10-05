@@ -49,7 +49,20 @@ export function lunediDi(iso: string): Settimana {
 }
 
 /** Un canone in vigore da una certa data. Più righe per cliente = cambi piano. */
-export type CanoneStorico = { clienteId: string; canoneCents: number; daIso: string };
+export type CanoneStorico = {
+  clienteId: string;
+  canoneCents: number;
+  daIso: string;
+  /** Quante settimane copre quell'importo. `null` = mensile, e allora si divide
+   *  per le settimane del mese.
+   *
+   *  Serve ai pacchetti a termine: 40 € per una settimana coprono **una**
+   *  settimana, non un quarto di mese. Senza questo campo la prova a pagamento
+   *  di Maura compariva a 10,00 €, cioè il suo canone diviso per i quattro
+   *  martedì di ottobre — una regola giusta per un abbonamento e sbagliata per
+   *  un pacchetto che dura sette giorni. */
+  settimaneCoperte?: number | null;
+};
 
 export type ClienteConto = { clienteId: string; nome: string };
 export type OrdineConto = { clienteId: string; settimana: Settimana; sacchi: number };
@@ -105,8 +118,8 @@ export function quotaSettimanale(canoneCents: number, quanteSettimane: number): 
 }
 
 /** Il canone in vigore per quel cliente in quella settimana: l'ultimo che è
- *  cominciato entro la fine della settimana. Zero se allora non era cliente. */
-export function canoneDellaSettimana(storico: CanoneStorico[], clienteId: string, settimana: Settimana): number {
+ *  cominciato entro la fine della settimana. `null` se allora non era cliente. */
+export function canoneInVigore(storico: CanoneStorico[], clienteId: string, settimana: Settimana): CanoneStorico | null {
   const fine = new Date(`${settimana}T12:00:00Z`);
   fine.setUTCDate(fine.getUTCDate() + 6);
   const limite = fine.getTime();
@@ -117,7 +130,28 @@ export function canoneDellaSettimana(storico: CanoneStorico[], clienteId: string
     if (!Number.isFinite(da) || da > limite) continue;
     if (!scelto || Date.parse(c.daIso) > Date.parse(scelto.daIso)) scelto = c;
   }
-  return scelto?.canoneCents ?? 0;
+  return scelto;
+}
+
+/** Quanto vale quella settimana per quel cliente.
+ *
+ *  Un canone mensile si divide per le settimane di servizio del mese; un
+ *  pacchetto a termine per le settimane che copre lui. È l'unico posto in cui
+ *  la differenza va guardata, e il motivo per cui questa funzione esiste. */
+export function quotaDellaSettimana(
+  storico: CanoneStorico[],
+  clienteId: string,
+  settimana: Settimana,
+  settimaneDelMese: number,
+): number {
+  const c = canoneInVigore(storico, clienteId, settimana);
+  if (!c) return 0;
+  return quotaSettimanale(c.canoneCents, c.settimaneCoperte ?? settimaneDelMese);
+}
+
+/** Il solo importo del canone in vigore, senza dividerlo. */
+export function canoneDellaSettimana(storico: CanoneStorico[], clienteId: string, settimana: Settimana): number {
+  return canoneInVigore(storico, clienteId, settimana)?.canoneCents ?? 0;
 }
 
 export function contoDelMese(input: {
@@ -151,10 +185,7 @@ export function contoDelMese(input: {
   for (const r of righe.values()) {
     for (const settimana of Object.keys(r.celle)) {
       if (r.celle[settimana].ritiri === 0) continue;
-      r.celle[settimana].ricavoCanoneCents = quotaSettimanale(
-        canoneDellaSettimana(canoni, r.clienteId, settimana),
-        settimane.length,
-      );
+      r.celle[settimana].ricavoCanoneCents = quotaDellaSettimana(canoni, r.clienteId, settimana, settimane.length);
     }
   }
 
