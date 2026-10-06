@@ -28,7 +28,11 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
     // È la stessa colonna che usa il conto quando la lavanderia registra i capi,
     // quindi quello che il cliente legge qui e quello che paga non possono
     // divergere.
-    supabase.from("special_items").select("incluse_per_sacco").eq("name", "Camicia").eq("active", true).maybeSingle<{ incluse_per_sacco: number | null }>(),
+    // Dalla vista, non dalla tabella: sulla tabella la colonna del compenso
+    // lavanderia è negata al cliente (0040) e PostgREST rifiuterebbe l'intera
+    // riga restituendo un `null` muto, che è esattamente come questa frase era
+    // sparita la prima volta.
+    supabase.from("special_items_public").select("incluse_per_sacco").eq("name", "Camicia").maybeSingle<{ incluse_per_sacco: number | null }>(),
   ]);
 
   const active = sub?.status === "active" || sub?.status === "trialing";
