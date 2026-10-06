@@ -363,7 +363,7 @@ export default async function PersonePage({
         I lead senza account non hanno codice cliente, perché il codice nasce con la registrazione: quelli che ce l’hanno
         portano il segno «ha account», hanno aperto un profilo ma non hanno ancora pagato.
         <br />
-        Gli stadi seguono i soldi: <strong>Lead</strong> non ha mai pagato · <strong>Cliente attivo</strong> paga
+        Gli stadi seguono i soldi: <strong>Lead</strong> non ha mai pagato · <strong>Cliente attivo</strong>{" "}paga
         · <strong>Pagamento fallito</strong> ha una fattura rimasta aperta · <strong>Cliente perso</strong> ha disdetto.
       </p>
     </>

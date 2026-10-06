@@ -78,7 +78,7 @@ export default async function InvitaPage() {
             Manda su WhatsApp →
           </a>
           <p className="mt-3 text-xs font-medium text-muted">
-            Il codice <strong className="text-navy">{codice}</strong> è lo stesso che trovi sull&apos;etichetta del tuo
+            Il codice <strong className="text-navy">{codice}</strong>{" "}è lo stesso che trovi sull&apos;etichetta del tuo
             sacco: non devi ricordarne un altro.
           </p>
         </section>

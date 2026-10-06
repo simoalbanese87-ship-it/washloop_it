@@ -60,8 +60,8 @@ export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
     <div className="mt-4 rounded-[16px] border border-line bg-ice/60 p-4">
       <h3 className="font-display text-sm font-extrabold text-navy">Crea abbonamento personalizzato</h3>
       <p className="mt-1 text-xs font-medium text-muted">
-        Importo a piacere. Genera un link di pagamento da inviare al cliente. Con la durata <strong>mensile</strong> si
-        rinnova da solo ogni mese; con una durata <strong>a termine</strong> il cliente paga una volta, ha l&apos;abbonamento
+        Importo a piacere. Genera un link di pagamento da inviare al cliente. Con la durata <strong>mensile</strong>{" "}si
+        rinnova da solo ogni mese; con una durata <strong>a termine</strong>{" "}il cliente paga una volta, ha l&apos;abbonamento
         completo per quelle settimane e poi si chiude da solo, senza nessun secondo addebito. È anche l&apos;unico posto da
         cui si può regalare la prima settimana.
       </p>

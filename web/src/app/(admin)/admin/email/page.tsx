@@ -122,9 +122,9 @@ export default async function EmailPage({ searchParams }: { searchParams: Promis
               sapere se sono state consegnate o sono rimbalzate.
             </p>
             <p className="mt-2 text-sm font-medium text-navy/80">
-              <strong>Aggiungere questo IP non basta.</strong> Non è un indirizzo nostro: il server gira su
+              <strong>Aggiungere questo IP non basta.</strong>{" "}Non è un indirizzo nostro: il server gira su
               macchine condivise e l&apos;indirizzo cambia da solo, quindi fra qualche giorno si torna qui. La
-              cosa da fare è <strong>togliere la restrizione</strong> — la chiave API resta il segreto che
+              cosa da fare è <strong>togliere la restrizione</strong>{" "}— la chiave API resta il segreto che
               protegge l&apos;account.
             </p>
             <a

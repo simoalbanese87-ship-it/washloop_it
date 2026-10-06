@@ -873,7 +873,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             <h3 className="font-display text-sm font-extrabold text-navy">Cliente a consumo</h3>
             <p className="mt-1 text-xs font-medium text-muted">
               Prenota i ritiri come gli altri, senza abbonamento: paga solo i capi, quotati a listino e addebitati sulla
-              carta salvata. <strong className="text-navy">Niente capi compresi</strong> — le camicie comprese le paga il
+              carta salvata. <strong className="text-navy">Niente capi compresi</strong>{" "}— le camicie comprese le paga il
               canone, e lui non ce l&apos;ha — e alla lavanderia paghiamo i capi, non il sacco.
             </p>
             {profile.a_consumo ? (

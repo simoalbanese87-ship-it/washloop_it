@@ -69,9 +69,9 @@ export default async function ListinoAdmin({
 
       <Card className="mb-4">
         <p className="text-sm font-medium text-muted">
-          <strong className="text-navy">Alla lavanderia</strong> paghiamo l&apos;imponibile: è la colonna
+          <strong className="text-navy">Alla lavanderia</strong>{" "}paghiamo l&apos;imponibile: è la colonna
           «prezzo IVA esclusa per calcolo lavanderia» del contratto, e l&apos;IVA si aggiunge sul proforma.{" "}
-          <strong className="text-navy">Il cliente</strong> paga il prezzo con l&apos;IVA già dentro, che è
+          <strong className="text-navy">Il cliente</strong>{" "}paga il prezzo con l&apos;IVA già dentro, che è
           quello che vede in app e che va su Stripe. Il margine qui sotto è calcolato al netto dell&apos;IVA
           da entrambi i lati.
         </p>

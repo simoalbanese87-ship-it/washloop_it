@@ -169,7 +169,7 @@ export function InstallGuide({ url }: { url: string }) {
 
         {!standalone && (
           <p className="mt-4 rounded-[14px] bg-ice px-4 py-3 text-xs font-medium text-muted">
-            <b className="text-navy">Come capisci che è fatta:</b> sulla schermata del telefono compare l&apos;icona
+            <b className="text-navy">Come capisci che è fatta:</b>{" "}sulla schermata del telefono compare l&apos;icona
             WashLoop 🧺. Aprendola da lì, l&apos;app si vede a tutto schermo, senza la barra degli indirizzi del browser.
           </p>
         )}

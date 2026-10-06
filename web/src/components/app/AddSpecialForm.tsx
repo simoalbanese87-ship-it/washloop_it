@@ -79,7 +79,7 @@ export function AddSpecialForm({
           Scrivi <strong className="text-navy">quanti capi hai trovato</strong>, non quanti addebitarne.
           {conFranchigia && (selected.incluse_per_sacco ?? 0) > 0 ? (
             <>
-              {" "}Le prime <strong className="text-navy">{selected.incluse_per_sacco} per sacco</strong> sono
+              {" "}Le prime <strong className="text-navy">{selected.incluse_per_sacco} per sacco</strong>{" "}sono
               comprese nell&apos;abbonamento: le toglie il sistema.
             </>
           ) : null}
