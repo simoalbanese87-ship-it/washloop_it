@@ -25,7 +25,7 @@ const Lock = () => (<svg width={18} height={18} viewBox="0 0 24 24" fill="none" 
 
 const TOTAL = 4; // register, address, plan, pay
 
-export function OnboardingWizard({ plans, initialPlanCode, codiceInvito }: { plans: WizPlan[]; initialPlanCode: string | null; codiceInvito?: string | null }) {
+export function OnboardingWizard({ plans, initialPlanCode, codiceInvito, invitanteNome }: { plans: WizPlan[]; initialPlanCode: string | null; codiceInvito?: string | null; invitanteNome?: string | null }) {
   const [step, setStep] = useState(0); // 0 welcome, 1 register, 2 address, 3 plan, 4 pay
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,9 +116,19 @@ export function OnboardingWizard({ plans, initialPlanCode, codiceInvito }: { pla
       {step === 0 ? (
         <div className="relative z-10 mx-auto flex w-full max-w-sm flex-1 flex-col justify-center">
           <Logo variant="white" payoff size={44} />
-          <div className="mt-8 inline-flex items-center gap-2 self-start rounded-full border border-cyan/30 bg-cyan/[0.13] px-4 py-1.5 font-display text-[12px] font-extrabold uppercase tracking-[0.12em] text-cyan">
-            <span className="h-2 w-2 rounded-full bg-cyan" /> Milano · attivo
-          </div>
+          {/* L'invito, detto subito. Il codice viaggia in un cookie e se lo porta
+              dietro da solo, ma una cosa invisibile non è una cosa di cui
+              fidarsi: chi arriva dal link di un amico deve vedere che il suo
+              amico c'è ancora, anche dopo aver girato per il sito. */}
+          {invitanteNome ? (
+            <div className="mt-8 inline-flex items-center gap-2 self-start rounded-full border border-cyan/30 bg-cyan/[0.13] px-4 py-1.5 font-display text-[12px] font-extrabold text-cyan">
+              🎁 Ti ha invitato {invitanteNome}
+            </div>
+          ) : (
+            <div className="mt-8 inline-flex items-center gap-2 self-start rounded-full border border-cyan/30 bg-cyan/[0.13] px-4 py-1.5 font-display text-[12px] font-extrabold uppercase tracking-[0.12em] text-cyan">
+              <span className="h-2 w-2 rounded-full bg-cyan" /> Milano · attivo
+            </div>
+          )}
           <h1 className="mt-5 font-display text-[34px] font-black leading-[1.06] tracking-[-0.02em]">
             Il tuo bucato,<br />gestito da <span className="text-cyan">professionisti</span>.
           </h1>
@@ -134,6 +144,12 @@ export function OnboardingWizard({ plans, initialPlanCode, codiceInvito }: { pla
         </div>
       ) : (
         <div className="relative z-10 mx-auto flex w-full max-w-sm flex-1 flex-col">
+          {invitanteNome && step === 1 && (
+            <div className="mt-2 rounded-[14px] border border-cyan/30 bg-cyan/[0.1] px-4 py-2.5 text-sm font-semibold text-cyan">
+              🎁 Ti ha invitato {invitanteNome}: il suo invito è collegato al tuo account.
+            </div>
+          )}
+
           {/* progress */}
           <div className="flex items-center gap-3 pt-2">
             <button onClick={back} aria-label="Indietro" className="grid h-10 w-10 flex-none place-items-center rounded-full bg-white/10 text-white">

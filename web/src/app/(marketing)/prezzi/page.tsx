@@ -7,6 +7,7 @@ import { graficoPagina } from "@/lib/area-servita";
 import { VerificaCap } from "@/components/lead/VerificaCap";
 import { createClient } from "@/lib/supabase/server";
 import { eurCents as eur } from "@/lib/format";
+import { invitoCorrente } from "@/lib/invito-corrente";
 
 /* ============================================================
    Pagina prezzi
@@ -140,6 +141,12 @@ type Categoria = { id: string; name: string; sort: number };
 type Voce = { id: string; category_id: string; name: string; price_cli_cents: number; sort: number };
 
 export default async function Prezzi() {
+  // Chi è arrivato da un invito se lo porta dietro anche nei bottoni, non solo
+  // nel cookie: un browser che blocca i cookie, o un link aperto sul telefono e
+  // finito dal computer, perderebbero l'amico in silenzio. Due strade, perché
+  // questa non si può controllare dopo.
+  const invito = await invitoCorrente();
+  const refQS = invito ? `&ref=${invito.codice}` : "";
   const supabase = await createClient();
   const [{ data: piani }, { data: categorie }, { data: voci }] = await Promise.all([
     supabase
@@ -316,7 +323,7 @@ export default async function Prezzi() {
                   </ul>
 
                   <div className="mt-7 pt-1">
-                    <ButtonLink href={`/onboarding?plan=${p.code}`} variant={evidenziato ? "light" : undefined}>
+                    <ButtonLink href={`/onboarding?plan=${p.code}${refQS}`} variant={evidenziato ? "light" : undefined}>
                       Attiva {p.name} →
                     </ButtonLink>
                   </div>
