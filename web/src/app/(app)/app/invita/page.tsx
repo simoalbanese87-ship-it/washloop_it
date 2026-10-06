@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { linkInvito } from "@/lib/invito";
 import { siteUrl } from "@/lib/stripe";
@@ -29,12 +29,19 @@ const soloNome = (full: string | null) => (full ?? "").trim().split(/\s+/)[0] ||
 
 export default async function InvitaPage() {
   const profile = await getCurrentProfile();
-  const supabase = await createClient();
-  const { data: premi } = await supabase
-    .from("referral_premi")
-    .select("id, stato, valore_cents, created_at, invitato:profiles!referral_premi_invitato_id_fkey(full_name)")
-    .order("created_at", { ascending: false })
-    .returns<Premio[]>();
+  // Service client, e filtro esplicito sull'utente: con la sessione del cliente
+  // la RLS di `profiles` nasconderebbe il nome dell'amico — non un errore, un
+  // `null` — e la pagina direbbe «Un amico» a chi quell'amico l'ha portato lui.
+  // Il filtro per `invitante_id` è la garanzia, e sta scritto qui sopra.
+  const svc = createServiceClient();
+  const { data: premi } = profile
+    ? await svc
+        .from("referral_premi")
+        .select("id, stato, valore_cents, created_at, invitato:profiles!referral_premi_invitato_id_fkey(full_name)")
+        .eq("invitante_id", profile.id)
+        .order("created_at", { ascending: false })
+        .returns<Premio[]>()
+    : { data: [] as Premio[] };
 
   const codice = profile?.client_code ?? null;
   const link = codice ? linkInvito(siteUrl(), codice) : null;

@@ -78,7 +78,7 @@ export default async function Inviti() {
         <p className="text-sm font-medium text-muted">
           Chi porta un amico riceve <strong className="text-navy">una settimana del proprio piano</strong>, accreditata
           come credito su Stripe e scalata in automatico dalla fattura successiva. Il premio scatta al{" "}
-          <strong className="text-navy">primo acquisto</strong> dell&apos;amico, mai sui rinnovi, e vale una volta sola
+          <strong className="text-navy">primo acquisto</strong>{" "}dell&apos;amico, mai sui rinnovi, e vale una volta sola
           per ogni persona portata. Il codice di invito è il <strong className="text-navy">WL-</strong> che il cliente ha
           già.
         </p>
