@@ -45,6 +45,23 @@ export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const needsAuth = PROTECTED.some((p) => path === p || path.startsWith(p + "/"));
 
+  // Porta un amico: chi apre un link di invito si porta dietro il codice anche
+  // se non si iscrive subito. Il parametro `?ref=` basta per chi va dritto, ma
+  // la maggior parte delle persone apre il link, guarda, chiude, e torna il
+  // giorno dopo da sola: senza questo cookie quell'invito sarebbe perso.
+  //
+  // Cookie di servizio e non di profilazione: contiene un codice cliente nostro,
+  // non traccia niente, non esce da qui e scade da solo.
+  const invito = path.match(/^\/invita\/(WL-\d{3,})/i);
+  if (invito) {
+    response.cookies.set("wl_invito", invito[1].toUpperCase(), {
+      maxAge: 60 * 60 * 24 * 90,
+      httpOnly: false,
+      sameSite: "lax",
+      path: "/",
+    });
+  }
+
   if (needsAuth && !user) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

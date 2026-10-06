@@ -11,6 +11,7 @@ import { fmtDate } from "@/lib/format";
 import { inviaSollecito, chiudiRecupero } from "@/lib/dunning";
 import { registraGuasto } from "@/lib/incidenti";
 import { registraCartaDalCheckout } from "@/lib/carta-registrata";
+import { assegnaPremioSeDovuto } from "@/lib/referral";
 
 /** Webhook Stripe → aggiorna `subscriptions` con service-role (bypassa RLS).
  *  Eventi: checkout completato, subscription creata/aggiornata/cancellata,
@@ -108,6 +109,11 @@ export async function POST(request: NextRequest) {
           id: string; number?: string | null; customer: string;
           customer_email?: string | null; customer_name?: string | null;
           amount_paid: number; created: number;
+          // `subscription_create` sul primo pagamento di un abbonamento,
+          // `subscription_cycle` sui rinnovi. Stripe lo manda da sempre e non
+          // lo leggeva nessuno: e' la differenza fra «ha comprato» e «ha
+          // rinnovato», e il premio «porta un amico» spetta solo alla prima.
+          billing_reason?: string | null;
           charge?: string | null; payment_intent?: string | null;
           status_transitions?: { paid_at?: number | null };
           lines?: { data?: { description?: string | null; amount?: number }[] };
@@ -159,6 +165,22 @@ export async function POST(request: NextRequest) {
             dataIso: new Date((inv.status_transitions?.paid_at ?? inv.created) * 1000).toISOString().slice(0, 10),
           });
         });
+
+        // Porta un amico: il premio scatta all'ACQUISTO, non al rinnovo. È la
+        // regola scritta per prima, e `billing_reason` è l'unico posto in cui
+        // la differenza è scritta nero su bianco.
+        if (inv.billing_reason === "subscription_create") {
+          after(async () => {
+            const { data: sub } = await db
+              .from("subscriptions")
+              .select("user_id")
+              .eq("stripe_customer_id", inv.customer)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle<{ user_id: string | null }>();
+            await assegnaPremioSeDovuto(sub?.user_id ?? null);
+          });
+        }
 
         // Destinatario: email da fattura, fallback al customer Stripe.
         let to = inv.customer_email ?? null;

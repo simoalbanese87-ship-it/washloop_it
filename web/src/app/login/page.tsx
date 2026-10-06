@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { requestPasswordReset } from "@/lib/actions/auth";
 import { sendWelcomeIfNeeded } from "@/lib/actions/welcome";
 import { registraUtente, segnaConsenso } from "@/lib/registrazione";
+import { collegaInvito } from "@/lib/actions/onboarding";
 import { messaggioAuth } from "@/lib/auth-messaggi";
 import { PasswordField } from "@/components/ui/PasswordField";
 import { Logo } from "@/components/Logo";
@@ -85,6 +86,9 @@ function LoginForm() {
       // intoppo qui bloccava l'iscrizione a metà.
       void segnaConsenso(supabase, esito.userId, acceptedAt, phone);
       void sendWelcomeIfNeeded();
+      // Porta un amico: qui il codice non passa dal link, lo ritrova il cookie
+      // messo quando la persona ha aperto l'invito.
+      void collegaInvito();
       vaiA(dest);
       return;
     }

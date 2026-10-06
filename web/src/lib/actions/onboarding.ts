@@ -3,6 +3,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { zoneIdForCap } from "@/lib/zones";
 import { geocodeAddress } from "@/lib/geo";
+import { cookies } from "next/headers";
+import { registraInvito } from "@/lib/referral";
 
 /** Crea l'indirizzo principale durante l'onboarding (utente già registrato).
  *  Zona = prima zona attiva (serviamo tutta Milano). Ritorna ok/errore. */
@@ -66,4 +68,25 @@ export async function createOnboardingAddress(input: {
   });
   if (error) return { ok: false, error: error.message };
   return { ok: true };
+}
+
+/** Porta un amico: lega il nuovo iscritto a chi l'ha invitato.
+ *
+ *  Si chiama subito dopo la registrazione, dal wizard. Il codice arriva dal
+ *  link (`?ref=`) oppure dal cookie messo da `proxy.ts` quando la persona ha
+ *  aperto l'invito: le due strade esistono perché chi apre un link di invito
+ *  quasi mai si iscrive nello stesso minuto.
+ *
+ *  Non lancia e non blocca niente: un invito perso è un peccato, un'iscrizione
+ *  che fallisce per colpa di un invito è molto peggio. */
+export async function collegaInvito(codiceDalLink?: string | null): Promise<void> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const biscotti = await cookies();
+  const codice = codiceDalLink?.trim() || biscotti.get("wl_invito")?.value || null;
+  if (!codice) return;
+
+  await registraInvito(user.id, codice);
 }

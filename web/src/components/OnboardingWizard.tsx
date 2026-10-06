@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
-import { createOnboardingAddress } from "@/lib/actions/onboarding";
+import { createOnboardingAddress, collegaInvito } from "@/lib/actions/onboarding";
 import { startCheckout } from "@/lib/actions/billing";
 import { sendWelcomeIfNeeded } from "@/lib/actions/welcome";
 import { registraUtente, segnaConsenso } from "@/lib/registrazione";
@@ -25,7 +25,7 @@ const Lock = () => (<svg width={18} height={18} viewBox="0 0 24 24" fill="none" 
 
 const TOTAL = 4; // register, address, plan, pay
 
-export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[]; initialPlanCode: string | null }) {
+export function OnboardingWizard({ plans, initialPlanCode, codiceInvito }: { plans: WizPlan[]; initialPlanCode: string | null; codiceInvito?: string | null }) {
   const [step, setStep] = useState(0); // 0 welcome, 1 register, 2 address, 3 plan, 4 pay
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +70,9 @@ export function OnboardingWizard({ plans, initialPlanCode }: { plans: WizPlan[];
     // un intoppo lasciava la persona ferma sul modulo con l'account già creato.
     void segnaConsenso(supabase, esito.userId, acceptedAt, phone);
     void sendWelcomeIfNeeded();
+    // Porta un amico: il codice dell'invito, se c'è, si lega adesso. Anche
+    // questo best-effort e fuori strada: non deve poter fermare un'iscrizione.
+    void collegaInvito(codiceInvito ?? undefined);
     setLoading(false); setStep(2);
   }
 

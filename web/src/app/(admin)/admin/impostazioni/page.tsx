@@ -33,6 +33,7 @@ const GRUPPI: { titolo: string; nota: string; voci: { href: string; label: strin
     titolo: "Marketing",
     nota: "Comunicazione e crescita.",
     voci: [
+      { href: "/admin/inviti", label: "Porta un amico", sub: "Chi ha portato chi, i premi maturati e quelli da sistemare" },
       { href: "/admin/email", label: "Email inviate", sub: "Log delle consegne (Brevo)" },
       { href: "/admin/crescita", label: "Crescita", sub: "Guide e checklist SEO, social e acquisizione" },
     ],
