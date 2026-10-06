@@ -48,10 +48,19 @@ type Slot = { id: string; starts_at: string; ends_at: string; kind: string };
  *  parole tecniche in inglese in una schermata che si legge di fretta. */
 const STATO_ADDEBITO: Record<string, string> = {
   pending: "da addebitare",
-  invoiced: "sulla prossima fattura",
+  invoiced: "fattura emessa, non pagata",
   settled: "incassato",
   void: "annullato",
 };
+
+/** «invoiced» vuol dire due cose diverse a seconda di com'è nato l'addebito, e
+ *  mostrarne una sola mentirebbe su metà delle righe: le voci vecchie (`ii_…`)
+ *  sono in coda al rinnovo, quelle nuove (`in_…`) sono una fattura già emessa
+ *  che il prelievo ha rifiutato. */
+function statoAddebito(c: Charge): string {
+  if (c.status === "invoiced" && c.stripe_ref?.startsWith("ii_")) return "in coda al prossimo rinnovo";
+  return STATO_ADDEBITO[c.status] ?? c.status;
+}
 type Rec = {
   id: string; weekday: number; hhmm: string; bags: number; active: boolean; needs_confirmation: boolean;
   delivery_hhmm: string | null; address_id: string; addresses: { label: string | null } | null;
@@ -1176,7 +1185,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             </span>
           )}
         </div>
-        <p className="mt-1 text-xs font-medium text-muted">Extra fuori ordine, modifiche, crediti. Gli addebiti su cliente con carta Stripe finiscono sulla prossima ricevuta. I rimborsi vanno confermati anche da Stripe.</p>
+        <p className="mt-1 text-xs font-medium text-muted">Extra fuori ordine, modifiche, crediti. Gli addebiti su cliente con carta Stripe si incassano <strong>subito</strong>: fattura fuori ciclo e prelievo immediato, non si aspetta il rinnovo. I rimborsi vanno confermati anche da Stripe.</p>
 
         {/* Servizio a settimane.
             I piani sono mensili e a sacchi fissi: chi chiede «una settimana con
@@ -1208,8 +1217,8 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           </form>
           <p className="mt-2 text-[11px] font-medium text-muted">
             Registra un addebito, non crea un abbonamento e non genera ritiri: quelli si fanno da «Crea un
-            ritiro per il cliente». Se il cliente ha una carta collegata la voce entra nella prossima
-            fattura; altrimenti resta qui e va incassata a parte.
+            ritiro per il cliente». Se il cliente ha una carta collegata si incassa subito; altrimenti
+            resta qui e va incassato a parte.
           </p>
         </details>
 
@@ -1235,7 +1244,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <span className={`font-bold text-navy ${c.status === "void" ? "line-through" : ""}`}>{c.description}</span>
-                    <span className="ml-2 text-xs font-medium text-muted">{fmtDate(c.created_at)} · {STATO_ADDEBITO[c.status] ?? c.status}</span>
+                    <span className="ml-2 text-xs font-medium text-muted">{fmtDate(c.created_at)} · {statoAddebito(c)}</span>
                   </div>
                   <div className="flex flex-none items-center gap-3">
                     <span className={`font-display font-extrabold ${c.kind === "refund" ? "text-[#1F8A5B]" : "text-navy"}`}>{c.kind === "refund" ? "−" : ""}{eur(c.amount_cents)}</span>

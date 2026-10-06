@@ -20,6 +20,7 @@ import { salvaNotaCliente } from "@/lib/note-interne";
 import { paracadute, tetto } from "@/lib/prova";
 import { ricorrenza, settimaneValide } from "@/lib/durata-abbonamento";
 import { TURNAROUND_ORE } from "@/lib/planning-rider";
+import { incassaSubito } from "@/lib/incasso-subito";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -675,26 +676,26 @@ export async function addCustomerCharge(formData: FormData) {
   let stripeRef: string | null = null;
 
   if (kind === "charge") {
-    const { data: sub } = await svc
-      .from("subscriptions")
-      .select("stripe_customer_id, stripe_subscription_id, status")
-      .eq("user_id", customerId)
-      .not("stripe_customer_id", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle<{ stripe_customer_id: string | null; stripe_subscription_id: string | null; status: string }>();
-    if (sub?.stripe_customer_id) {
-      const active = ["active", "trialing"].includes(sub.status);
-      const ii = await stripe().invoiceItems.create({
-        customer: sub.stripe_customer_id,
-        amount,
-        currency: "eur",
-        description: `WashLoop · ${description}`,
-        ...(sub.stripe_subscription_id && active ? { subscription: sub.stripe_subscription_id } : {}),
-        metadata: { kind: "admin_custom", customer_id: customerId },
-      });
+    // Si incassa ADESSO, non alla prossima fattura.
+    //
+    // Prima questo addebito diventava un invoice item appeso al cliente, e i
+    // soldi arrivavano al rinnovo: fino a trenta giorni dopo, e su chi disdice
+    // prima mai. Per chi fa questo mestiere è un problema di cassa, non una
+    // sfumatura contabile.
+    const esito = await incassaSubito({
+      userId: customerId,
+      descrizione: description,
+      importoCents: amount,
+      metadata: { kind: "admin_custom" },
+    });
+    if (esito.esito === "incassato") {
+      status = "settled";
+      stripeRef = esito.invoiceId;
+    } else if (esito.esito === "in-attesa") {
+      // La fattura esiste e ha un link: l'importo non è perso, va solo pagato
+      // a mano. Resta «invoiced» perche' su Stripe c'e' eccome.
       status = "invoiced";
-      stripeRef = ii.id;
+      stripeRef = esito.invoiceId;
     }
   }
 
@@ -722,15 +723,22 @@ export async function editCustomerCharge(formData: FormData) {
   if (!id || !description || !Number.isFinite(amount) || amount <= 0) throw new Error("Dati non validi");
 
   const svc = createServiceClient();
-  const { data: row } = await svc.from("customer_charges").select("stripe_ref, status").eq("id", id).maybeSingle<{ stripe_ref: string | null; status: string }>();
-  if (row?.stripe_ref && row.status === "invoiced") {
+  const { data: row } = await svc.from("customer_charges").select("stripe_ref, status, amount_cents").eq("id", id).maybeSingle<{ stripe_ref: string | null; status: string; amount_cents: number }>();
+  // Un addebito già incassato non si modifica: i soldi sono passati, e cambiare
+  // il numero qui lo farebbe solo divergere dalla ricevuta che ha il cliente.
+  // Per correggerlo si storna e si rifà.
+  if (row?.status === "settled" && amount !== row.amount_cents) {
+    redirect(`/admin/abbonati/${customerId}?warn=${encodeURIComponent("Questo addebito è già stato incassato: l'importo non si cambia. Fai un rimborso su Stripe e registra l'addebito giusto.")}`);
+  }
+  // Voce in coda alla prossima fattura (vecchio modo, `ii_...`): si aggiorna.
+  // Fattura fuori ciclo (`in_...`): l'importo lo porta la voce dentro, e se è
+  // già finalizzata non si tocca più — resta la descrizione nel nostro registro.
+  if (row?.stripe_ref?.startsWith("ii_") && row.status === "invoiced") {
     try { await stripe().invoiceItems.update(row.stripe_ref, { amount, description: `WashLoop · ${description}` }); } catch { /* già fatturato: solo DB */ }
   }
   await svc.from("customer_charges").update({ description, amount_cents: amount }).eq("id", id);
   if (customerId) revalidatePath(`/admin/abbonati/${customerId}`);
 }
-
-/** Annulla un addebito (e prova a rimuovere l'invoice item se non ancora fatturato). */
 export async function voidCustomerCharge(formData: FormData) {
   await requireAdmin();
   const id = String(formData.get("id") ?? "");
@@ -738,9 +746,27 @@ export async function voidCustomerCharge(formData: FormData) {
   if (!id) throw new Error("Addebito mancante");
   const svc = createServiceClient();
   const { data: row } = await svc.from("customer_charges").select("stripe_ref, status").eq("id", id).maybeSingle<{ stripe_ref: string | null; status: string }>();
-  if (row?.stripe_ref && row.status === "invoiced") {
-    try { await stripe().invoiceItems.del(row.stripe_ref); } catch { /* già fatturato: ignora */ }
+
+  // Già incassato: non si annulla, si rimborsa. Mettere «annullato» qui e
+  // lasciare il pagamento su Stripe sarebbe la bugia peggiore di tutte — il
+  // registro direbbe che il cliente non ha pagato mentre i soldi sono nostri.
+  if (row?.status === "settled") {
+    redirect(`/admin/abbonati/${customerId}?warn=${encodeURIComponent("Questo addebito è già stato incassato sulla carta: va rimborsato da Stripe, non annullato qui.")}`);
   }
+
+  if (row?.stripe_ref?.startsWith("ii_")) {
+    // Voce in coda alla prossima fattura: si cancella e non diventa mai soldi.
+    try { await stripe().invoiceItems.del(row.stripe_ref); } catch { /* già fatturato: ignora */ }
+  } else if (row?.stripe_ref?.startsWith("in_")) {
+    // Fattura fuori ciclo emessa e non pagata: si annulla su Stripe, altrimenti
+    // resta aperta col suo link e il cliente potrebbe pagarla domani.
+    try {
+      const inv = await stripe().invoices.retrieve(row.stripe_ref);
+      if (inv.status === "draft") await stripe().invoices.del(row.stripe_ref);
+      else if (inv.status === "open") await stripe().invoices.voidInvoice(row.stripe_ref);
+    } catch { /* se Stripe non la trova, resta solo il nostro registro */ }
+  }
+
   await svc.from("customer_charges").update({ status: "void" }).eq("id", id);
   if (customerId) revalidatePath(`/admin/abbonati/${customerId}`);
 }
@@ -1246,36 +1272,30 @@ export async function addebitoTemporaneo(formData: FormData) {
     (nota ? ` · ${nota}` : "");
 
   const svc = createServiceClient();
-  const { data: sub } = await svc
-    .from("subscriptions")
-    .select("stripe_customer_id, stripe_subscription_id, status")
-    .eq("user_id", customerId)
-    .not("stripe_customer_id", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<{ stripe_customer_id: string | null; stripe_subscription_id: string | null; status: string }>();
+
+  // Si incassa adesso. Prima questo addebito era un invoice item appeso al
+  // cliente, e i soldi arrivavano al rinnovo: su un mensile fino a trenta
+  // giorni dopo, e su chi disdice prima mai.
+  const esito = await incassaSubito({
+    userId: customerId,
+    descrizione,
+    importoCents: importo,
+    metadata: { kind: "servizio_temporaneo", settimane: String(settimane), sacchi: String(sacchi) },
+  });
 
   let status = "pending";
   let stripeRef: string | null = null;
-  let coda = "Nessuna carta collegata: l'addebito resta registrato qui e va incassato a parte.";
-
-  if (sub?.stripe_customer_id) {
-    const attivo = ["active", "trialing"].includes(sub.status);
-    const ii = await stripe().invoiceItems.create({
-      customer: sub.stripe_customer_id,
-      amount: importo,
-      currency: "eur",
-      description: `WashLoop · ${descrizione}`,
-      // Agganciato all'abbonamento solo se è vivo: su uno disdetto l'invoice
-      // item resterebbe appeso al cliente senza una fattura che lo raccolga.
-      ...(sub.stripe_subscription_id && attivo ? { subscription: sub.stripe_subscription_id } : {}),
-      metadata: { kind: "servizio_temporaneo", customer_id: customerId, settimane: String(settimane), sacchi: String(sacchi) },
-    });
+  let coda: string;
+  if (esito.esito === "incassato") {
+    status = "settled";
+    stripeRef = esito.invoiceId;
+    coda = "Incassato subito sulla carta del cliente.";
+  } else if (esito.esito === "in-attesa") {
     status = "invoiced";
-    stripeRef = ii.id;
-    coda = attivo
-      ? "Entrerà nella prossima fattura dell'abbonamento."
-      : "Registrato su Stripe come voce in attesa: serve una fattura che la raccolga, oppure incassalo a parte.";
+    stripeRef = esito.invoiceId;
+    coda = `Fattura emessa ma non pagata (${esito.motivo})` + (esito.link ? ` — link da mandare al cliente: ${esito.link}` : "") + ".";
+  } else {
+    coda = esito.motivo;
   }
 
   await svc.from("customer_charges").insert({
