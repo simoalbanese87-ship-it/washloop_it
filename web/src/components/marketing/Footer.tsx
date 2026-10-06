@@ -24,6 +24,7 @@ export function Footer() {
             <li><Link href="/servizio-stiro-a-domicilio-milano" className="hover:text-white">Servizio stiro a domicilio</Link></li>
             <li><Link href="/prezzi" className="hover:text-white">Prezzi e piani</Link></li>
             <li><Link href="/#come-funziona" className="hover:text-white">Come funziona</Link></li>
+            <li><Link href="/porta-un-amico" className="hover:text-white">Porta un amico</Link></li>
             {/* Prezzi, zone e domande non sono più sezioni della home: stanno
                 nelle pagine di servizio qui sopra, che le trattano per intero.
                 Un link a un'ancora che non esiste ricarica la pagina e basta. */}

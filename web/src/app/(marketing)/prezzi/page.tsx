@@ -346,6 +346,21 @@ export default async function Prezzi() {
               il prezzo che vedi prima.
             </p>
           </div>
+
+          {/* Porta un amico: qui, dove si sta decidendo quanto spendere, una
+              settimana gratis è un'informazione sul prezzo, non un banner. */}
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-[24px] border border-cyan/40 bg-cyan/[0.07] p-7">
+            <div>
+              <h3 className="font-display text-lg font-extrabold text-navy">Porta un amico, una settimana in regalo</h3>
+              <p className="mt-1.5 text-sm font-medium leading-relaxed text-muted">
+                Quando un amico attiva un abbonamento con il tuo link, ti regaliamo una settimana del tuo
+                piano. Senza limite al numero di amici.
+              </p>
+            </div>
+            <Link href="/porta-un-amico" className="font-display text-sm font-extrabold text-blue hover:underline">
+              Come funziona →
+            </Link>
+          </div>
         </div>
       </section>
 

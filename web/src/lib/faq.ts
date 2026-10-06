@@ -13,6 +13,7 @@ export const FAQ: { q: string; a: string }[] = [
   { q: "E i capi da lavanderia o delicati?", a: "Mettili in un sacco separato apposito: li lavoriamo a prezzo di listino, fuori dal volume dell'abbonamento." },
   { q: "Posso mettere in pausa l'abbonamento?", a: "Sì. Vai in vacanza? Metti in pausa per un mese intero dall'app, e lo riprendi quando vuoi. Paghi solo quando usi davvero il servizio." },
   { q: "Cosa succede se un capo si rovina?", a: "Abbiamo una policy danni trasparente: ogni capo è tracciato e fotografato. In caso di problema ti rimborsiamo secondo termini chiari, scritti nero su bianco." },
+  { q: "Posso invitare un amico?", a: "Sì, e conviene: ogni cliente ha un link personale (lo trova nella sua area, alla voce «Porta un amico»). Quando un amico attiva un abbonamento con quel link, regaliamo una settimana del piano a chi ha invitato, scalata in automatico dalla fattura successiva. Vale sul primo acquisto dell'amico, non sui rinnovi, e non c'è limite al numero di amici." },
   { q: "Quali zone coprite a Milano?", a: "Milano città, più Rozzano, Assago e Buccinasco. Inserisci il tuo CAP: ti diciamo subito se sei in zona, oppure ti avvisiamo appena apriamo da te. L'elenco dei CAP serviti qui sotto è quello vero, aggiornato." },
 ];
 

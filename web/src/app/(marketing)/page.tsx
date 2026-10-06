@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
+import Link from "next/link";
 import { Bubbles } from "@/components/marketing/Bubbles";
 import { JsonLd } from "@/components/marketing/JsonLd";
 import { ZonaProvider } from "@/components/home/ZonaContext";
@@ -274,7 +275,30 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ============ 5 · RICHIESTA ============ */}
+      {/* ============ 5 · PORTA UN AMICO ============ */}
+      {/* Il commento in cima dice «cinque sezioni, e non una di più», e questa
+          è la sesta: scelta consapevole del 6 ottobre 2026. Per non tradire la
+          regola è tenuta a una riga di titolo, una di testo e un link — una
+          fascia, non una sezione. */}
+      <section className="bg-white">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-5 px-5 py-14">
+          <div>
+            <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Porta un amico</div>
+            <h2 className="mt-2 font-display text-2xl font-black tracking-[-0.02em] text-navy md:text-3xl">
+              Una settimana in regalo, per ogni amico che porti<span className="text-cyan">.</span>
+            </h2>
+            <p className="mt-2 max-w-xl text-sm font-medium leading-relaxed text-muted">
+              Il tuo amico attiva un abbonamento con il tuo link, e noi scaliamo una settimana dalla tua
+              prossima fattura. Senza limite al numero di amici.
+            </p>
+          </div>
+          <Link href="/porta-un-amico" className="font-display text-sm font-extrabold text-blue hover:underline">
+            Come funziona →
+          </Link>
+        </div>
+      </section>
+
+      {/* ============ 6 · RICHIESTA ============ */}
       <section id="richiesta" className="scroll-mt-20 bg-white">
         <div className="mx-auto max-w-6xl px-5 py-20">
           <RichiestaZona />

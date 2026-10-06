@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
+import { RiderMapLoader } from "@/components/app/RiderMapLoader";
+import type { Stop, Depot } from "@/components/app/RiderMap";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { passaggiDellOrdine, type Passaggio } from "@/lib/planning-rider";
+import { primoGiornoDelGiro } from "@/lib/giro-del-giorno";
+import { optimizeOrder, partenzaDelGiro } from "@/lib/route";
 import { STATI_CHIUSI, type OrderStatus } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +30,15 @@ export const dynamic = "force-dynamic";
  *
  *  Previsione e impegno restano distinti a vista: dove la fascia è stata
  *  concordata c'è l'ora, dove è calcolata c'è scritto «prevista». Confonderli
- *  vorrebbe dire far promettere al rider un orario che nessuno gli ha dato. */
+ *  vorrebbe dire far promettere al rider un orario che nessuno gli ha dato.
+ *
+ *  Il prossimo giro, in mappa
+ *  --------------------------
+ *  In cima c'è la giornata del prossimo ritiro — il martedì — disegnata come la
+ *  pagina «Oggi» disegna la giornata in corso: fermate numerate nell'ordine in
+ *  cui si guida, partenza dal deposito (o dalla lavanderia, se si apre con una
+ *  riconsegna). Chiesto da Meryl il 6 ottobre 2026: l'elenco dice cosa c'è, la
+ *  mappa dice come si organizza, e sono due domande diverse. */
 
 type Riga = {
   id: string;
@@ -34,7 +46,7 @@ type Riga = {
   bags: number;
   eta_ready_at: string | null;
   customer: { full_name: string | null; client_code: string | null } | null;
-  addresses: { street: string; zones: { name: string } | null } | null;
+  addresses: { street: string; lat: number | null; lng: number | null; zones: { name: string } | null } | null;
   pickup_slot: { starts_at: string; ends_at: string } | null;
   delivery_slot: { starts_at: string; ends_at: string } | null;
 };
@@ -59,10 +71,17 @@ export default async function PlanningRider({
   const profile = await getCurrentProfile();
   const supabase = await createClient();
 
+  // Il punto di partenza del giro, come in «Oggi»: il deposito è l'hub interno,
+  // la lavanderia serve solo quando la giornata apre con una riconsegna.
+  const [{ data: depotRow }, { data: lavRow }] = await Promise.all([
+    supabase.from("depots").select("lat, lng").eq("active", true).limit(1).maybeSingle<{ lat: number | null; lng: number | null }>(),
+    supabase.from("laundries").select("lat, lng").eq("active", true).not("lat", "is", null).limit(1).maybeSingle<{ lat: number | null; lng: number | null }>(),
+  ]);
+
   const { data } = await supabase
     .from("orders")
     .select(
-      "id, status, bags, eta_ready_at, customer:profiles!orders_customer_id_fkey(full_name, client_code), addresses(street, zones(name)), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
+      "id, status, bags, eta_ready_at, customer:profiles!orders_customer_id_fkey(full_name, client_code), addresses(street, lat, lng, zones(name)), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
     )
     .eq("courier_id", profile?.id ?? "")
     .returns<Riga[]>();
@@ -99,6 +118,46 @@ export default async function PlanningRider({
   }
   const oggi = giornoDi(adesso.toISOString());
 
+  // ---- Il prossimo giro, in mappa ----------------------------------------
+  // Si sceglie una giornata sola: la prima, da oggi in avanti, che ha un ritiro
+  // con l'ora concordata. Poi si ordinano le sue fermate con la stessa macchina
+  // della pagina «Oggi» — nessun criterio nuovo, o il rider si troverebbe due
+  // percorsi diversi per lo stesso giro.
+  const giornoGiro = primoGiornoDelGiro(
+    voci.map((v) => ({ giorno: giornoDi(v.quando), tipo: v.tipo, confermato: v.confermato })),
+    oggi,
+  );
+  // Solo le fermate con l'ora davvero fissata: una riconsegna «prevista» è una
+  // stima a 72 ore, e un giro disegnato su una stima manda il rider a suonare a
+  // un'ora che nessuno ha promesso.
+  const fermate = giornoGiro
+    ? voci.filter((v) => giornoDi(v.quando) === giornoGiro && v.confermato)
+    : [];
+  const conGeo = fermate.filter((v) => v.riga.addresses?.lat != null && v.riga.addresses?.lng != null);
+  const senzaGeo = fermate.filter((v) => !(v.riga.addresses?.lat != null && v.riga.addresses?.lng != null));
+
+  const depot: Depot = depotRow?.lat != null && depotRow?.lng != null ? { lat: depotRow.lat, lng: depotRow.lng } : null;
+  const lavanderia: Depot = lavRow?.lat != null && lavRow?.lng != null ? { lat: lavRow.lat, lng: lavRow.lng } : null;
+  const primaPerOrario = [...fermate].sort((a, b) => a.quando.localeCompare(b.quando))[0];
+  const partenza = partenzaDelGiro(!!primaPerOrario && primaPerOrario.tipo === "riconsegna", lavanderia, depot);
+
+  const ordine = optimizeOrder(
+    partenza,
+    conGeo.map((v) => ({ lat: v.riga.addresses!.lat!, lng: v.riga.addresses!.lng!, deadlineMs: Date.parse(v.quando) })),
+  );
+  const fermateOrdinate = ordine.map((i) => conGeo[i]);
+  const stops: Stop[] = fermateOrdinate.map((v, i) => ({
+    id: `${v.orderId}-${v.tipo}`,
+    kind: v.tipo === "ritiro" ? "pickup" : "delivery",
+    n: i + 1,
+    lat: v.riga.addresses!.lat!,
+    lng: v.riga.addresses!.lng!,
+    name: v.riga.customer?.full_name ?? "Cliente",
+    address: v.riga.addresses?.street ?? "—",
+    when: ora(v.quando),
+  }));
+  const ritiriDelGiro = fermate.filter((v) => v.tipo === "ritiro").length;
+
   const nRitiri = voci.filter((v) => v.tipo === "ritiro").length;
   const nConsegne = voci.filter((v) => v.tipo === "riconsegna").length;
   const nPreviste = voci.filter((v) => !v.confermato).length;
@@ -110,6 +169,65 @@ export default async function PlanningRider({
         title="I prossimi giorni"
         sub={`${nRitiri} ${nRitiri === 1 ? "ritiro" : "ritiri"} · ${nConsegne} ${nConsegne === 1 ? "riconsegna" : "riconsegne"}${nPreviste > 0 ? ` · ${nPreviste} da confermare` : ""}`}
       />
+
+      {giornoGiro && fermate.length > 0 && (
+        <Card className="mb-6 overflow-hidden !p-0">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 pt-4">
+            <h2 className="font-display text-base font-extrabold capitalize text-navy">
+              {etichettaGiorno(fermate[0].quando)}
+              {giornoGiro === oggi && <span className="ml-2 rounded-full bg-navy px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-wide text-white">oggi</span>}
+            </h2>
+            <span className="font-display text-xs font-bold text-muted">
+              il prossimo giro · {ritiriDelGiro} {ritiriDelGiro === 1 ? "ritiro" : "ritiri"}
+              {fermate.length > ritiriDelGiro ? ` · ${fermate.length - ritiriDelGiro} in riconsegna` : ""}
+            </span>
+          </div>
+
+          {stops.length > 0 && (
+            <div className="mt-3">
+              <RiderMapLoader stops={stops} depot={partenza} />
+            </div>
+          )}
+
+          <ol className="divide-y divide-line px-4 pb-4">
+            {fermateOrdinate.map((v, i) => (
+              <li key={`${v.orderId}-${v.tipo}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
+                <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-navy font-display text-[11px] font-extrabold text-white">{i + 1}</span>
+                <span className="font-display text-sm font-extrabold tabular-nums text-navy">{ora(v.quando)}</span>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-wide ${
+                    v.tipo === "ritiro" ? "bg-blue/10 text-blue" : "bg-[#1F8A5B]/12 text-[#1F8A5B]"
+                  }`}
+                >
+                  {v.tipo}
+                </span>
+                <span className="font-display text-sm font-bold text-navy">{v.riga.customer?.full_name ?? "Cliente"}</span>
+                <span className="text-sm font-medium text-muted">{v.riga.addresses?.street ?? "—"}</span>
+              </li>
+            ))}
+            {/* Senza coordinate non si può disegnare, ma la fermata esiste lo
+                stesso: nasconderla vorrebbe dire far saltare un cliente al
+                rider perché il geocoder non ha trovato la via. */}
+            {senzaGeo.map((v) => (
+              <li key={`${v.orderId}-${v.tipo}-nogeo`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
+                <span className="grid h-6 w-6 flex-none place-items-center rounded-full border border-line font-display text-[11px] font-extrabold text-muted">?</span>
+                <span className="font-display text-sm font-extrabold tabular-nums text-navy">{ora(v.quando)}</span>
+                <span className="font-display text-sm font-bold text-navy">{v.riga.customer?.full_name ?? "Cliente"}</span>
+                <span className="text-sm font-medium text-muted">{v.riga.addresses?.street ?? "—"}</span>
+                <span className="rounded-full border border-[#C9881F]/35 px-2.5 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-wide text-[#C9881F]">
+                  senza posizione
+                </span>
+              </li>
+            ))}
+          </ol>
+
+          <p className="px-4 pb-4 text-xs font-medium text-muted">
+            {partenza
+              ? "Percorso calcolato partendo dal punto di partenza del giro e rientrando lì."
+              : "Nessun punto di partenza impostato: l'ordine tiene conto solo degli orari e delle distanze fra le fermate."}
+          </p>
+        </Card>
+      )}
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
         {[7, 14, 30].map((n) => (

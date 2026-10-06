@@ -1,7 +1,13 @@
 /** Spiegazione "Cosa è incluso vs Extra" — riusabile (area cliente + marketing).
  *  Costo fisso = canone mensile (lavaggio+stiratura+ritiro+consegna, N sacchi/sett,
  *  capi ordinari "compreso sacchetto"). Extra = capi speciali addebitati a listino
- *  sulla prossima fattura. Differenziazione icona+colore+testo (non solo colore). */
+ *  sulla prossima fattura. Differenziazione icona+colore+testo (non solo colore).
+ *
+ *  Le camicie comprese arrivano da fuori, non scritte qui: il numero vero sta sul
+ *  listino (`special_items.incluse_per_sacco`, modificabile da /admin/listino) ed è
+ *  quello che il conto usa davvero. Scriverlo a mano qui vorrebbe dire aggiungere
+ *  una nona copia di «3» al sito e lasciarla indietro il giorno che cambia — che è
+ *  come il 3 ottobre l'assistente è finito a promettere cose che non esistevano. */
 
 const CheckIcon = () => (
   <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
@@ -14,7 +20,7 @@ const INCLUSI = [
   "Lavaggio + stiratura",
   "Ritiro 1 volta a settimana",
   "Consegna a domicilio",
-  "Capi ordinari: camicie, pantaloni, t-shirt, intimo, biancheria (nel sacco)",
+  "Capi ordinari: pantaloni, t-shirt, intimo, biancheria (nel sacco)",
 ];
 const EXTRA = [
   "Capispalla: giacche, cappotti, piumini",
@@ -23,7 +29,16 @@ const EXTRA = [
   "Scarpe, tappeti, capi voluminosi",
 ];
 
-export function CostsExplainer() {
+export function CostsExplainer({ camiciePerSacco }: { camiciePerSacco?: number | null } = {}) {
+  // Senza il numero il riquadro resta quello di prima: il componente è usato
+  // anche dove quel dato non c'è, e una frase con un buco al posto della cifra
+  // sarebbe peggio della frase che manca.
+  const n = Number.isFinite(camiciePerSacco) && (camiciePerSacco ?? 0) > 0 ? Math.trunc(camiciePerSacco!) : 0;
+  const inclusi = n > 0
+    ? [INCLUSI[0], INCLUSI[1], INCLUSI[2], `Fino a ${n} ${n === 1 ? "camicia stirata" : "camicie stirate"} per sacco`, INCLUSI[3]]
+    : INCLUSI;
+  const extra = n > 0 ? [`Camicie oltre le ${n} comprese`, ...EXTRA] : EXTRA;
+
   return (
     <section className="rounded-[22px] border border-line bg-white p-5">
       <h2 className="font-display text-base font-extrabold text-navy">Cosa è incluso e cosa è extra</h2>
@@ -37,7 +52,7 @@ export function CostsExplainer() {
             <span className="font-display text-sm font-extrabold text-[#1F8A5B]">Incluso nel canone</span>
           </div>
           <ul className="mt-3 space-y-2">
-            {INCLUSI.map((t) => (
+            {inclusi.map((t) => (
               <li key={t} className="flex items-start gap-2 text-sm font-medium text-navy">
                 <span className="mt-0.5 flex-none text-[#1F8A5B]"><CheckIcon /></span>{t}
               </li>
@@ -52,7 +67,7 @@ export function CostsExplainer() {
             <span className="font-display text-sm font-extrabold text-[#C9881F]">Extra a listino</span>
           </div>
           <ul className="mt-3 space-y-2">
-            {EXTRA.map((t) => (
+            {extra.map((t) => (
               <li key={t} className="flex items-start gap-2 text-sm font-medium text-navy">
                 <span className="mt-0.5 flex-none text-[#C9881F]"><PlusIcon /></span>{t}
               </li>

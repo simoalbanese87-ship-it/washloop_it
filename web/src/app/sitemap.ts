@@ -21,5 +21,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     // I prezzi cambiano più spesso delle due pagine di servizio, e la pagina li
     // legge dal database: quando cambiano in pannello, cambia anche qui.
     { url: `${base}/prezzi`, changeFrequency: "weekly", priority: 0.9, lastModified: aggiornato },
+    // «Porta un amico»: la regola scritta per intero, per chi la cerca da fuori.
+    // `/invita/[codice]` resta fuori dall'indice ed è voluto — parla di una
+    // persona precisa e non ha senso in un motore di ricerca.
+    { url: `${base}/porta-un-amico`, changeFrequency: "monthly", priority: 0.6, lastModified: new Date("2026-10-06") },
   ];
 }

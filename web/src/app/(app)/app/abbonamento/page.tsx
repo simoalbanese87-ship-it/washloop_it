@@ -18,12 +18,17 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
   const supabase = await createClient();
   const now = new Date();
   const monthStartIso = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-  const [{ need }, { data: plans }, { data: sub }, { data: monthOrders }, { data: monthSpecials }] = await Promise.all([
+  const [{ need }, { data: plans }, { data: sub }, { data: monthOrders }, { data: monthSpecials }, { data: camicia }] = await Promise.all([
     searchParams,
     supabase.from("plans").select("id, code, name, price_month_cents, pickups_per_week, turnaround_hours").eq("active", true).order("sort").returns<Plan[]>(),
     supabase.from("subscriptions").select("status, current_period_end, cancel_at_period_end, plan_id, last_failed_invoice_url, prova_fine_at, prova_ordine_id, termina_dopo_settimane, custom_price_cents, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     supabase.from("orders").select("bags, status, created_at").gte("created_at", monthStartIso).neq("status", "cancelled").returns<{ bags: number; status: string; created_at: string }[]>(),
     supabase.from("order_specials").select("price_cli_cents, created_at").gte("created_at", monthStartIso).returns<{ price_cli_cents: number; created_at: string }[]>(),
+    // Le camicie comprese nel sacco: il numero sta sul listino, non nel codice.
+    // È la stessa colonna che usa il conto quando la lavanderia registra i capi,
+    // quindi quello che il cliente legge qui e quello che paga non possono
+    // divergere.
+    supabase.from("special_items").select("incluse_per_sacco").eq("name", "Camicia").eq("active", true).maybeSingle<{ incluse_per_sacco: number | null }>(),
   ]);
 
   const active = sub?.status === "active" || sub?.status === "trialing";
@@ -227,7 +232,7 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
       </div>
 
       {/* Costi fissi vs extra */}
-      <CostsExplainer />
+      <CostsExplainer camiciePerSacco={camicia?.incluse_per_sacco ?? null} />
 
       {/* Recesso/disdetta — discreto. Porta al Customer Portal Stripe. */}
       {active && (

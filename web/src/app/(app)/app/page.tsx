@@ -7,6 +7,7 @@ import { fmtDate, fmtFull, fmtSlot, WEEKDAY_IT } from "@/lib/format";
 import { cancelRecurring, confirmRecurring, rejectRecurring } from "@/lib/actions/orders";
 import { passiMancanti, PASSO_TESTO } from "@/lib/passi-mancanti";
 import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
+import { BannerInvita } from "@/components/app/BannerInvita";
 
 type OrderRow = { id: string; status: OrderStatus; created_at: string; bags: number; eta_ready_at: string | null; pickup_slot: { starts_at: string; ends_at: string } | null; delivery_slot: { starts_at: string; ends_at: string } | null };
 type SubRow = { status: string; current_period_end: string | null; cancel_at_period_end: boolean | null; prova_fine_at: string | null; plans: { name: string; bags_per_week: number } | null };
@@ -256,6 +257,9 @@ export default async function Home() {
         <QuickAction href="/app/indirizzi" title="Indirizzi" sub="Dove ritiriamo" />
         <QuickAction href="/app/abbonamento" title="Abbonamento" sub={active ? "Gestisci piano" : "Attiva"} />
       </section>
+
+      {/* Porta un amico: sempre a vista, non solo dentro il profilo */}
+      <BannerInvita />
 
       {/* Guida installa app + notifiche (sempre visibile, per chi non è pratico) */}
       <Link href="/app/installa" className="flex items-center gap-3 rounded-[18px] border border-line bg-white px-4 py-3.5 transition-colors active:bg-ice">
