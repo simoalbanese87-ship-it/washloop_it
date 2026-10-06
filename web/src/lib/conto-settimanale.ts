@@ -68,12 +68,20 @@ export type ClienteConto = { clienteId: string; nome: string };
 export type OrdineConto = { clienteId: string; settimana: Settimana; sacchi: number };
 export type PayoutConto = { clienteId: string; settimana: Settimana; kind: string; amountCents: number };
 export type ExtraConto = { clienteId: string; settimana: Settimana; prezzoCents: number };
+/** Un addebito fatto a mano dal pannello: un sacco in più, una lavorazione fuori
+ *  listino, una modifica concordata. Non passa dagli ordini e non ha un costo
+ *  lavanderia agganciato, ma è un incasso come gli altri e deve vedersi. */
+export type AddebitoConto = { clienteId: string; settimana: Settimana; cents: number };
 
 export type Cella = {
   ritiri: number;
   sacchi: number;
   ricavoCanoneCents: number;
   ricavoExtraCents: number;
+  /** Addebiti ad-hoc registrati dal pannello. Separati dai capi perché non
+   *  hanno un costo della lavanderia che li accompagna: sommarli ai capi
+   *  farebbe sembrare quel margine migliore di com'è. */
+  ricavoAddebitiCents: number;
   costoSaccoCents: number;
   costoExtraCents: number;
 };
@@ -90,6 +98,7 @@ const cellaVuota = (): Cella => ({
   sacchi: 0,
   ricavoCanoneCents: 0,
   ricavoExtraCents: 0,
+  ricavoAddebitiCents: 0,
   costoSaccoCents: 0,
   costoExtraCents: 0,
 });
@@ -161,8 +170,9 @@ export function contoDelMese(input: {
   ordini: OrdineConto[];
   payouts: PayoutConto[];
   extra: ExtraConto[];
+  addebiti?: AddebitoConto[];
 }): RigaCliente[] {
-  const { clienti, settimane, canoni, ordini, payouts, extra } = input;
+  const { clienti, settimane, canoni, ordini, payouts, extra, addebiti = [] } = input;
   const righe = new Map<string, RigaCliente>();
   for (const c of clienti) {
     righe.set(c.clienteId, { clienteId: c.clienteId, nome: c.nome, celle: {}, totale: cellaVuota() });
@@ -193,6 +203,10 @@ export function contoDelMese(input: {
     const c = cella(e.clienteId, e.settimana);
     if (c) c.ricavoExtraCents += e.prezzoCents;
   }
+  for (const a of addebiti) {
+    const c = cella(a.clienteId, a.settimana);
+    if (c) c.ricavoAddebitiCents += a.cents;
+  }
   for (const p of payouts) {
     const c = cella(p.clienteId, p.settimana);
     if (!c) continue;
@@ -206,6 +220,7 @@ export function contoDelMese(input: {
       r.totale.sacchi += s.sacchi;
       r.totale.ricavoCanoneCents += s.ricavoCanoneCents;
       r.totale.ricavoExtraCents += s.ricavoExtraCents;
+      r.totale.ricavoAddebitiCents += s.ricavoAddebitiCents;
       r.totale.costoSaccoCents += s.costoSaccoCents;
       r.totale.costoExtraCents += s.costoExtraCents;
     }
@@ -215,7 +230,7 @@ export function contoDelMese(input: {
   // larga è rumore, e questa pagina serve a leggere un mese in un colpo d'occhio.
   return [...righe.values()]
     .filter((r) => Object.keys(r.celle).length > 0)
-    .sort((a, b) => b.totale.ricavoCanoneCents + b.totale.ricavoExtraCents - (a.totale.ricavoCanoneCents + a.totale.ricavoExtraCents));
+    .sort((a, b) => ricaviDi(b.totale) - ricaviDi(a.totale));
 }
 
 /** I totali di colonna, nell'ordine delle settimane. */
@@ -229,6 +244,7 @@ export function totaliPerSettimana(righe: RigaCliente[], settimane: Settimana[])
       t.sacchi += c.sacchi;
       t.ricavoCanoneCents += c.ricavoCanoneCents;
       t.ricavoExtraCents += c.ricavoExtraCents;
+      t.ricavoAddebitiCents += c.ricavoAddebitiCents;
       t.costoSaccoCents += c.costoSaccoCents;
       t.costoExtraCents += c.costoExtraCents;
     }
@@ -236,5 +252,5 @@ export function totaliPerSettimana(righe: RigaCliente[], settimane: Settimana[])
   });
 }
 
-export const ricaviDi = (c: Cella) => c.ricavoCanoneCents + c.ricavoExtraCents;
+export const ricaviDi = (c: Cella) => c.ricavoCanoneCents + c.ricavoExtraCents + c.ricavoAddebitiCents;
 export const costiDi = (c: Cella) => c.costoSaccoCents + c.costoExtraCents;

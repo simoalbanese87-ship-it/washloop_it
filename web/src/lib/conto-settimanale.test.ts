@@ -202,3 +202,54 @@ test("il conto del mese usa la durata del pacchetto, non quella del mese", () =>
   assert.equal(righe[0].celle["2026-10-05"].ricavoCanoneCents, 4000);
   assert.equal(righe[0].totale.ricavoCanoneCents, 4000);
 });
+
+test("un addebito fatto a mano entra nei ricavi, separato dai capi", () => {
+  // Il sacco in piu' di Elvira: 40 € addebitati dal pannello. Prima non
+  // comparivano da nessuna parte nel conto settimanale, e quel cliente
+  // sembrava rendere meno di quanto rendeva.
+  const righe = contoDelMese({
+    clienti: [{ clienteId: "elvira", nome: "Elvira" }],
+    settimane: ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"],
+    canoni: [{ clienteId: "elvira", canoneCents: 16000, daIso: "2026-09-27T00:00:00.000Z" }],
+    ordini: [{ clienteId: "elvira", settimana: "2026-10-05", sacchi: 2 }],
+    payouts: [{ clienteId: "elvira", settimana: "2026-10-05", kind: "bag", amountCents: 1230 }],
+    extra: [{ clienteId: "elvira", settimana: "2026-10-05", prezzoCents: 1540 }],
+    addebiti: [{ clienteId: "elvira", settimana: "2026-10-05", cents: 4000 }],
+  });
+  const c = righe[0].celle["2026-10-05"];
+  assert.equal(c.ricavoCanoneCents, 4000);
+  assert.equal(c.ricavoExtraCents, 1540);
+  assert.equal(c.ricavoAddebitiCents, 4000);
+  // Tre voci distinte, un totale solo.
+  assert.equal(ricaviDi(c), 4000 + 1540 + 4000);
+  assert.equal(righe[0].totale.ricavoAddebitiCents, 4000);
+});
+
+test("gli addebiti stanno fuori dai capi: il margine non si confonde", () => {
+  // I capi hanno un costo lavanderia che li accompagna, gli addebiti no.
+  // Sommarli insieme farebbe sembrare quel margine migliore di com'è.
+  const righe = contoDelMese({
+    clienti: [{ clienteId: "x", nome: "X" }],
+    settimane: ["2026-10-05"],
+    canoni: [],
+    ordini: [{ clienteId: "x", settimana: "2026-10-05", sacchi: 1 }],
+    payouts: [],
+    extra: [],
+    addebiti: [{ clienteId: "x", settimana: "2026-10-05", cents: 2500 }],
+  });
+  assert.equal(righe[0].celle["2026-10-05"].ricavoExtraCents, 0);
+  assert.equal(righe[0].celle["2026-10-05"].ricavoAddebitiCents, 2500);
+});
+
+test("un addebito di una settimana che non si mostra non entra di nascosto", () => {
+  const righe = contoDelMese({
+    clienti: [{ clienteId: "x", nome: "X" }],
+    settimane: ["2026-10-05"],
+    canoni: [],
+    ordini: [{ clienteId: "x", settimana: "2026-10-05", sacchi: 1 }],
+    payouts: [],
+    extra: [],
+    addebiti: [{ clienteId: "x", settimana: "2026-11-02", cents: 9999 }],
+  });
+  assert.equal(righe[0].totale.ricavoAddebitiCents, 0);
+});

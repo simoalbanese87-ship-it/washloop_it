@@ -11,6 +11,7 @@ import {
   totaliPerSettimana,
   ricaviDi,
   costiDi,
+  type AddebitoConto,
   type CanoneStorico,
   type Cella,
   type RigaCliente,
@@ -78,6 +79,7 @@ type Ordine = {
   profiles: { is_test: boolean } | { is_test: boolean }[] | null;
 };
 type Payout = { amount_cents: number; kind: string; servizio_il: string; orders: { customer_id: string | null } | { customer_id: string | null }[] | null };
+type Addebito = { customer_id: string; amount_cents: number; created_at: string; description: string };
 type Extra = {
   qty: number;
   price_cli_cents: number;
@@ -100,7 +102,7 @@ export default async function Competenza({
   const dal = new Date(Date.UTC(a, m - 1, 1)).toISOString();
   const al = new Date(Date.UTC(a, m, 1)).toISOString();
 
-  const [{ data: fasce }, { data: subs }, { data: ordini }, { data: payouts }, { data: extra }] = await Promise.all([
+  const [{ data: fasce }, { data: subs }, { data: ordini }, { data: payouts }, { data: extra }, { data: addebiti }] = await Promise.all([
     // Le settimane del mese: quelle in cui c'è una fascia di ritiro aperta. Una
     // fascia archiviata non è una settimana di servizio e non deve dividere il
     // canone — è il motivo per cui il venerdì tolto a ottobre non crea colonne.
@@ -116,6 +118,17 @@ export default async function Competenza({
       .returns<Payout[]>(),
     svc.from("order_specials").select("qty, price_cli_cents, item_name, orders(customer_id, created_at, pickup:slots!orders_pickup_slot_id_fkey(starts_at))")
       .not("charged_at", "is", null).is("refunded_at", null).is("annullato_at", null).returns<Extra[]>(),
+    // Gli addebiti fatti a mano dal pannello: un sacco in più, una lavorazione
+    // fuori listino, una modifica concordata. Non passano dagli ordini, e
+    // finora non comparivano da nessuna parte in questo conto — quel cliente
+    // sembrava rendere meno di quanto rendeva.
+    //
+    // Solo `charge`: le righe `refund` di questa tabella sono gli storni dei
+    // capi, e quei capi sono già fuori dal conto perché la query sopra li
+    // esclude. Sottrarli di nuovo li conterebbe due volte. Un addebito a mano
+    // da annullare si annulla, e diventa `void`.
+    svc.from("customer_charges").select("customer_id, amount_cents, created_at, description")
+      .eq("kind", "charge").neq("status", "void").returns<Addebito[]>(),
   ]);
 
   const settimane = settimaneDelMese((fasce ?? []).map((f) => f.starts_at), mese);
@@ -163,6 +176,10 @@ export default async function Competenza({
     })
     .filter((x) => x.clienteId && x.quando);
 
+  const addebitiConto: AddebitoConto[] = (addebiti ?? [])
+    .filter((a) => nomi.has(a.customer_id))
+    .map((a) => ({ clienteId: a.customer_id, settimana: lunediDi(a.created_at), cents: a.amount_cents }));
+
   const righe = contoDelMese({
     clienti: [...nomi.entries()].map(([clienteId, nome]) => ({ clienteId, nome })),
     settimane,
@@ -170,6 +187,7 @@ export default async function Competenza({
     ordini: ordiniConto,
     payouts: payoutConto,
     extra: extraConto.map((x) => ({ clienteId: x.clienteId!, settimana: lunediDi(x.quando!), prezzoCents: x.cents })),
+    addebiti: addebitiConto,
   });
 
   const colonne = totaliPerSettimana(righe, settimane);
@@ -179,10 +197,11 @@ export default async function Competenza({
       costi: t.costi + costiDi(r.totale),
       canone: t.canone + r.totale.ricavoCanoneCents,
       extra: t.extra + r.totale.ricavoExtraCents,
+      addebiti: t.addebiti + r.totale.ricavoAddebitiCents,
       sacco: t.sacco + r.totale.costoSaccoCents,
       capi: t.capi + r.totale.costoExtraCents,
     }),
-    { ricavi: 0, costi: 0, canone: 0, extra: 0, sacco: 0, capi: 0 },
+    { ricavi: 0, costi: 0, canone: 0, extra: 0, addebiti: 0, sacco: 0, capi: 0 },
   );
   const nettoMese = scorpora(totaleMese.ricavi).imponibile;
   const guadagnoMese = nettoMese - totaleMese.costi;
@@ -224,7 +243,7 @@ export default async function Competenza({
       </Card>
 
       <div className="mb-4 grid gap-3 sm:grid-cols-4">
-        <Riquadro label="Ricavi (IVA incl.)" valore={eur(totaleMese.ricavi)} sub={`${eur(totaleMese.canone)} canoni · ${eur(totaleMese.extra)} extra`} />
+        <Riquadro label="Ricavi (IVA incl.)" valore={eur(totaleMese.ricavi)} sub={`${eur(totaleMese.canone)} canoni · ${eur(totaleMese.extra)} capi · ${eur(totaleMese.addebiti)} addebiti`} />
         <Riquadro label="Ricavi netti" valore={eur(nettoMese)} sub="scorporata l'IVA al 22%" />
         <Riquadro label="Costo lavanderia" valore={eur(totaleMese.costi)} sub={`${eur(totaleMese.sacco)} sacchi · ${eur(totaleMese.capi)} capi`} />
         <Riquadro label="Guadagno" valore={eur(guadagnoMese)} sub="netto meno costo" tono={guadagnoMese >= 0 ? "bene" : "male"} />
@@ -244,7 +263,7 @@ export default async function Competenza({
             settimane={settimane}
             righe={righe}
             valore={(c) => ricaviDi(c)}
-            dettaglio={(c) => `canone ${eur(c.ricavoCanoneCents)} · extra ${eur(c.ricavoExtraCents)}`}
+            dettaglio={(c) => `canone ${eur(c.ricavoCanoneCents)} · capi ${eur(c.ricavoExtraCents)} · addebiti ${eur(c.ricavoAddebitiCents)}`}
             totali={colonne.map(ricaviDi)}
           />
           <Blocco
@@ -296,7 +315,8 @@ export default async function Competenza({
                         <th className="py-2 pr-3 text-right">Ritiri</th>
                         <th className="py-2 pr-3 text-right">Sacchi</th>
                         <th className="py-2 pr-3 text-right">Canone</th>
-                        <th className="py-2 pr-3 text-right">Extra</th>
+                        <th className="py-2 pr-3 text-right">Capi</th>
+                        <th className="py-2 pr-3 text-right">Addebiti</th>
                         <th className="py-2 pr-3 text-right">Costo sacchi</th>
                         <th className="py-2 pr-3 text-right">Costo capi</th>
                         <th className="py-2 text-right">Guadagno</th>
@@ -314,6 +334,7 @@ export default async function Competenza({
                             <td className="py-2 pr-3 text-right text-muted">{c.sacchi}</td>
                             <td className="py-2 pr-3 text-right text-navy">{eur(c.ricavoCanoneCents)}</td>
                             <td className="py-2 pr-3 text-right text-navy">{c.ricavoExtraCents ? eur(c.ricavoExtraCents) : "—"}</td>
+                            <td className="py-2 pr-3 text-right text-navy">{c.ricavoAddebitiCents ? eur(c.ricavoAddebitiCents) : "—"}</td>
                             <td className="py-2 pr-3 text-right text-muted">{c.costoSaccoCents ? eur(c.costoSaccoCents) : "—"}</td>
                             <td className="py-2 pr-3 text-right text-muted">{c.costoExtraCents ? eur(c.costoExtraCents) : "—"}</td>
                             <td className={`py-2 text-right font-display font-extrabold ${gs >= 0 ? "text-[#1F8A5B]" : "text-[#C0392B]"}`}>{eur(gs)}</td>
