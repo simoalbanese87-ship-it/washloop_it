@@ -3,6 +3,8 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Fisarmonica } from "@/components/ui/Fisarmonica";
 import { createServiceClient } from "@/lib/supabase/server";
 import { scorpora } from "@/lib/iva";
+import { sacchiOsservati, sacchiDaContare } from "@/lib/franchigia";
+import { sacchiInclusi, haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
 import {
   lunediDi,
   meseDi,
@@ -13,6 +15,7 @@ import {
   costiDi,
   type AddebitoConto,
   type CanoneStorico,
+  type PrevistoConto,
   type Cella,
   type RigaCliente,
   type Settimana,
@@ -72,13 +75,16 @@ type Sub = {
 type Ordine = {
   id: string;
   customer_id: string | null;
+  status: string;
   bags: number | null;
   bags_arrivati: number | null;
   created_at: string;
+  laundry_id: string | null;
+  laundries: { bag_comp_cents: number | null } | { bag_comp_cents: number | null }[] | null;
   pickup: { starts_at: string } | { starts_at: string }[] | null;
   profiles: { is_test: boolean } | { is_test: boolean }[] | null;
 };
-type Payout = { amount_cents: number; kind: string; servizio_il: string; orders: { customer_id: string | null } | { customer_id: string | null }[] | null };
+type Payout = { order_id: string | null; amount_cents: number; kind: string; servizio_il: string; orders: { customer_id: string | null } | { customer_id: string | null }[] | null };
 type Addebito = { customer_id: string; amount_cents: number; created_at: string; description: string };
 type Extra = {
   qty: number;
@@ -110,11 +116,11 @@ export default async function Competenza({
       .returns<{ starts_at: string }[]>(),
     svc.from("subscriptions").select("user_id, status, custom_price_cents, created_at, termina_dopo_settimane, plans(price_month_cents), profiles(full_name, is_test)")
       .order("created_at", { ascending: true }).returns<Sub[]>(),
-    svc.from("orders").select("id, customer_id, bags, bags_arrivati, created_at, pickup:slots!orders_pickup_slot_id_fkey(starts_at), profiles!orders_customer_id_fkey(is_test)")
+    svc.from("orders").select("id, customer_id, status, bags, bags_arrivati, created_at, laundry_id, laundries(bag_comp_cents), pickup:slots!orders_pickup_slot_id_fkey(starts_at), profiles!orders_customer_id_fkey(is_test)")
       .neq("status", "cancelled").returns<Ordine[]>(),
     // `servizio_il` è già la presa in carico, riallineata dalla migration 0083:
     // non si ricalcola la data una seconda volta con regole proprie.
-    svc.from("laundry_payouts").select("amount_cents, kind, servizio_il, orders(customer_id)").neq("status", "void")
+    svc.from("laundry_payouts").select("order_id, amount_cents, kind, servizio_il, orders(customer_id)").neq("status", "void")
       .returns<Payout[]>(),
     svc.from("order_specials").select("qty, price_cli_cents, item_name, orders(customer_id, created_at, pickup:slots!orders_pickup_slot_id_fkey(starts_at))")
       .not("charged_at", "is", null).is("refunded_at", null).is("annullato_at", null).returns<Extra[]>(),
@@ -176,6 +182,64 @@ export default async function Competenza({
     })
     .filter((x) => x.clienteId && x.quando);
 
+  // ---- Il costo dei sacchi ritirati e non ancora riconsegnati --------------
+  //
+  // La riga vera in `laundry_payouts` nasce alla riconsegna. Il ricavo invece
+  // matura alla presa in carico: finché i sacchi sono in lavanderia, la
+  // settimana in corso si leggeva tutta margine — 222,90 € di ricavi e 9,02 €
+  // di costo, il 7 ottobre, con sei sacchi già ritirati.
+  //
+  // Qui si imputa lo stesso costo che verrà registrato, con le stesse regole di
+  // `registraSacchiLavanderia`: i sacchi contati dalla lavanderia, poi quelli
+  // scansionati dal rider, poi quelli dichiarati; mai più di quanti ne comprende
+  // l'abbonamento; e zero per chi un abbonamento non ce l'ha, perché il compenso
+  // a sacco è la contropartita del canone.
+  const ordiniDelMese = (ordini ?? []).filter(
+    (o) => o.customer_id && (includiProva || !uno(o.profiles)?.is_test) && meseDi(giornoOrdine(o)) === mese,
+  );
+  const conPayoutSacco = new Set(
+    (payouts ?? []).filter((p) => p.kind === "bag" && p.order_id).map((p) => p.order_id as string),
+  );
+  // Un ritiro ancora da fare non è un costo: si contano solo gli ordini presi
+  // in carico, cioè tutto quello che è uscito da «ritiro programmato».
+  const daImputare = ordiniDelMese.filter(
+    (o) => o.laundry_id && o.status !== "pickup_scheduled" && o.status !== "requested" && !conPayoutSacco.has(o.id),
+  );
+
+  const scansioniPerOrdine = new Map<string, number>();
+  if (daImputare.length > 0) {
+    const { data: tag } = await svc
+      .from("order_bags")
+      .select("order_id")
+      .in("order_id", daImputare.map((o) => o.id))
+      .not("pickup_scanned_at", "is", null)
+      .returns<{ order_id: string }[]>();
+    for (const t of tag ?? []) scansioniPerOrdine.set(t.order_id, (scansioniPerOrdine.get(t.order_id) ?? 0) + 1);
+  }
+
+  const clientiDaImputare = [...new Set(daImputare.map((o) => o.customer_id!))];
+  const tetti = new Map<string, { attivo: boolean; tetto: number | null }>();
+  await Promise.all(
+    clientiDaImputare.map(async (id) => {
+      const [attivo, tetto] = await Promise.all([haAbbonamentoAttivo(svc, id), sacchiInclusi(svc, id)]);
+      tetti.set(id, { attivo, tetto });
+    }),
+  );
+
+  const previsti: PrevistoConto[] = [];
+  for (const o of daImputare) {
+    const stato = tetti.get(o.customer_id!);
+    if (!stato?.attivo) continue;
+    const lav = uno(o.laundries);
+    const compenso = lav?.bag_comp_cents ?? 1500;
+    const sacchi = sacchiDaContare(
+      sacchiOsservati(o.bags_arrivati, scansioniPerOrdine.get(o.id) ?? 0, o.bags),
+      stato.tetto,
+    ).sacchi;
+    if (sacchi <= 0) continue;
+    previsti.push({ clienteId: o.customer_id!, settimana: lunediDi(giornoOrdine(o)), cents: compenso * sacchi });
+  }
+
   const addebitiConto: AddebitoConto[] = (addebiti ?? [])
     .filter((a) => nomi.has(a.customer_id))
     .map((a) => ({ clienteId: a.customer_id, settimana: lunediDi(a.created_at), cents: a.amount_cents }));
@@ -188,6 +252,7 @@ export default async function Competenza({
     payouts: payoutConto,
     extra: extraConto.map((x) => ({ clienteId: x.clienteId!, settimana: lunediDi(x.quando!), prezzoCents: x.cents })),
     addebiti: addebitiConto,
+    previsti,
   });
 
   const colonne = totaliPerSettimana(righe, settimane);
@@ -200,8 +265,9 @@ export default async function Competenza({
       addebiti: t.addebiti + r.totale.ricavoAddebitiCents,
       sacco: t.sacco + r.totale.costoSaccoCents,
       capi: t.capi + r.totale.costoExtraCents,
+      previsti: t.previsti + r.totale.costoSaccoPrevistoCents,
     }),
-    { ricavi: 0, costi: 0, canone: 0, extra: 0, addebiti: 0, sacco: 0, capi: 0 },
+    { ricavi: 0, costi: 0, canone: 0, extra: 0, addebiti: 0, sacco: 0, capi: 0, previsti: 0 },
   );
   const nettoMese = scorpora(totaleMese.ricavi).imponibile;
   const guadagnoMese = nettoMese - totaleMese.costi;
@@ -240,12 +306,23 @@ export default async function Competenza({
           stato servito davvero. I ricavi sono IVA inclusa, il costo della lavanderia è imponibile: il guadagno si
           calcola sul <strong className="text-navy">netto</strong>.
         </p>
+        <p className="mt-2 text-sm font-medium text-muted">
+          Il costo del sacco si imputa alla settimana del ritiro, anche se la riconsegna non c&apos;è ancora stata:
+          finché i sacchi sono in lavanderia è segnato{" "}
+          <strong className="text-[#C9881F]">in lavorazione</strong>. Alla consegna diventa una riga vera nel dovuto
+          alla lavanderia, e l&apos;importo non cambia. Si pagano i sacchi che l&apos;abbonamento comprende: quelli in
+          più si vedono nei ricavi come addebito, non qui.
+        </p>
       </Card>
 
       <div className="mb-4 grid gap-3 sm:grid-cols-4">
         <Riquadro label="Ricavi (IVA incl.)" valore={eur(totaleMese.ricavi)} sub={`${eur(totaleMese.canone)} canoni · ${eur(totaleMese.extra)} capi · ${eur(totaleMese.addebiti)} addebiti`} />
         <Riquadro label="Ricavi netti" valore={eur(nettoMese)} sub="scorporata l'IVA al 22%" />
-        <Riquadro label="Costo lavanderia" valore={eur(totaleMese.costi)} sub={`${eur(totaleMese.sacco)} sacchi · ${eur(totaleMese.capi)} capi`} />
+        <Riquadro
+          label="Costo lavanderia"
+          valore={eur(totaleMese.costi)}
+          sub={`${eur(totaleMese.sacco + totaleMese.previsti)} sacchi · ${eur(totaleMese.capi)} capi${totaleMese.previsti ? ` · di cui ${eur(totaleMese.previsti)} ancora in lavorazione` : ""}`}
+        />
         <Riquadro label="Guadagno" valore={eur(guadagnoMese)} sub="netto meno costo" tono={guadagnoMese >= 0 ? "bene" : "male"} />
       </div>
 
@@ -271,7 +348,9 @@ export default async function Competenza({
             settimane={settimane}
             righe={righe}
             valore={(c) => costiDi(c)}
-            dettaglio={(c) => `sacchi ${eur(c.costoSaccoCents)} · capi ${eur(c.costoExtraCents)}`}
+            dettaglio={(c) =>
+              `sacchi ${eur(c.costoSaccoCents + c.costoSaccoPrevistoCents)}${c.costoSaccoPrevistoCents ? ` (${eur(c.costoSaccoPrevistoCents)} da registrare)` : ""} · capi ${eur(c.costoExtraCents)}`
+            }
             totali={colonne.map(costiDi)}
           />
 
@@ -335,7 +414,12 @@ export default async function Competenza({
                             <td className="py-2 pr-3 text-right text-navy">{eur(c.ricavoCanoneCents)}</td>
                             <td className="py-2 pr-3 text-right text-navy">{c.ricavoExtraCents ? eur(c.ricavoExtraCents) : "—"}</td>
                             <td className="py-2 pr-3 text-right text-navy">{c.ricavoAddebitiCents ? eur(c.ricavoAddebitiCents) : "—"}</td>
-                            <td className="py-2 pr-3 text-right text-muted">{c.costoSaccoCents ? eur(c.costoSaccoCents) : "—"}</td>
+                            <td className="py-2 pr-3 text-right text-muted">
+                              {c.costoSaccoCents + c.costoSaccoPrevistoCents ? eur(c.costoSaccoCents + c.costoSaccoPrevistoCents) : "—"}
+                              {c.costoSaccoPrevistoCents > 0 && (
+                                <span className="ml-1 text-[11px] font-bold uppercase tracking-wide text-[#C9881F]">in lavorazione</span>
+                              )}
+                            </td>
                             <td className="py-2 pr-3 text-right text-muted">{c.costoExtraCents ? eur(c.costoExtraCents) : "—"}</td>
                             <td className={`py-2 text-right font-display font-extrabold ${gs >= 0 ? "text-[#1F8A5B]" : "text-[#C0392B]"}`}>{eur(gs)}</td>
                           </tr>

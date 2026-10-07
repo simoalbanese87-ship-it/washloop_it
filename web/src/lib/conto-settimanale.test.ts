@@ -253,3 +253,34 @@ test("un addebito di una settimana che non si mostra non entra di nascosto", () 
   });
   assert.equal(righe[0].totale.ricavoAddebitiCents, 0);
 });
+
+test("il sacco ritirato e non ancora riconsegnato costa lo stesso, segnato come previsto", () => {
+  const righe = contoDelMese({
+    clienti: [{ clienteId: "elvira", nome: "Elvira" }],
+    settimane: ["2026-10-05"],
+    canoni: [{ clienteId: "elvira", canoneCents: 16000, daIso: "2026-09-27T00:00:00.000Z" }],
+    ordini: [{ clienteId: "elvira", settimana: "2026-10-05", sacchi: 1 }],
+    payouts: [],
+    extra: [],
+    previsti: [{ clienteId: "elvira", settimana: "2026-10-05", cents: 1230 }],
+  });
+  const c = righe[0].celle["2026-10-05"];
+  assert.equal(c.costoSaccoCents, 0);
+  assert.equal(c.costoSaccoPrevistoCents, 1230);
+  // Previsto o registrato, il costo della settimana è lo stesso: è il punto.
+  assert.equal(costiDi(c), 1230);
+  assert.equal(righe[0].totale.costoSaccoPrevistoCents, 1230);
+});
+
+test("quando arriva la riga vera i due costi si sommano, non si sovrascrivono", () => {
+  const righe = contoDelMese({
+    clienti: [{ clienteId: "elvira", nome: "Elvira" }],
+    settimane: ["2026-10-05"],
+    canoni: [{ clienteId: "elvira", canoneCents: 16000, daIso: "2026-09-27T00:00:00.000Z" }],
+    ordini: [{ clienteId: "elvira", settimana: "2026-10-05", sacchi: 2 }],
+    payouts: [{ clienteId: "elvira", settimana: "2026-10-05", kind: "bag", amountCents: 1230 }],
+    extra: [],
+    previsti: [{ clienteId: "elvira", settimana: "2026-10-05", cents: 1230 }],
+  });
+  assert.equal(costiDi(righe[0].celle["2026-10-05"]), 2460);
+});

@@ -72,6 +72,16 @@ export type ExtraConto = { clienteId: string; settimana: Settimana; prezzoCents:
  *  listino, una modifica concordata. Non passa dagli ordini e non ha un costo
  *  lavanderia agganciato, ma è un incasso come gli altri e deve vedersi. */
 export type AddebitoConto = { clienteId: string; settimana: Settimana; cents: number };
+/** Il costo del sacco di un ritiro **già fatto ma non ancora riconsegnato**.
+ *
+ *  La riga vera in `laundry_payouts` nasce alla consegna, perché prima di
+ *  allora il lavoro potrebbe non essere stato fatto e non si deve niente a
+ *  nessuno. Ma questa pagina non dice cosa dobbiamo pagare: dice cosa ci è
+ *  costata una settimana. Il ricavo matura alla presa in carico, e se il costo
+ *  arrivasse tre giorni dopo la settimana in corso sembrerebbe tutta margine.
+ *  Quindi il costo si imputa subito, segnato come previsto finché la riga vera
+ *  non lo sostituisce. */
+export type PrevistoConto = { clienteId: string; settimana: Settimana; cents: number };
 
 export type Cella = {
   ritiri: number;
@@ -84,6 +94,10 @@ export type Cella = {
   ricavoAddebitiCents: number;
   costoSaccoCents: number;
   costoExtraCents: number;
+  /** Costo del sacco imputato ma non ancora registrato: il ritiro è stato
+   *  fatto, la riconsegna no. Sta in un campo suo per poterlo dire a schermo —
+   *  sommarlo e basta farebbe sembrare pagato quello che non lo è ancora. */
+  costoSaccoPrevistoCents: number;
 };
 
 export type RigaCliente = {
@@ -101,6 +115,7 @@ const cellaVuota = (): Cella => ({
   ricavoAddebitiCents: 0,
   costoSaccoCents: 0,
   costoExtraCents: 0,
+  costoSaccoPrevistoCents: 0,
 });
 
 /** Le colonne del mese: i lunedì delle settimane in cui si ritira.
@@ -171,8 +186,9 @@ export function contoDelMese(input: {
   payouts: PayoutConto[];
   extra: ExtraConto[];
   addebiti?: AddebitoConto[];
+  previsti?: PrevistoConto[];
 }): RigaCliente[] {
-  const { clienti, settimane, canoni, ordini, payouts, extra, addebiti = [] } = input;
+  const { clienti, settimane, canoni, ordini, payouts, extra, addebiti = [], previsti = [] } = input;
   const righe = new Map<string, RigaCliente>();
   for (const c of clienti) {
     righe.set(c.clienteId, { clienteId: c.clienteId, nome: c.nome, celle: {}, totale: cellaVuota() });
@@ -207,6 +223,10 @@ export function contoDelMese(input: {
     const c = cella(a.clienteId, a.settimana);
     if (c) c.ricavoAddebitiCents += a.cents;
   }
+  for (const p of previsti) {
+    const c = cella(p.clienteId, p.settimana);
+    if (c) c.costoSaccoPrevistoCents += p.cents;
+  }
   for (const p of payouts) {
     const c = cella(p.clienteId, p.settimana);
     if (!c) continue;
@@ -223,6 +243,7 @@ export function contoDelMese(input: {
       r.totale.ricavoAddebitiCents += s.ricavoAddebitiCents;
       r.totale.costoSaccoCents += s.costoSaccoCents;
       r.totale.costoExtraCents += s.costoExtraCents;
+      r.totale.costoSaccoPrevistoCents += s.costoSaccoPrevistoCents;
     }
   }
 
@@ -247,10 +268,11 @@ export function totaliPerSettimana(righe: RigaCliente[], settimane: Settimana[])
       t.ricavoAddebitiCents += c.ricavoAddebitiCents;
       t.costoSaccoCents += c.costoSaccoCents;
       t.costoExtraCents += c.costoExtraCents;
+      t.costoSaccoPrevistoCents += c.costoSaccoPrevistoCents;
     }
     return t;
   });
 }
 
 export const ricaviDi = (c: Cella) => c.ricavoCanoneCents + c.ricavoExtraCents + c.ricavoAddebitiCents;
-export const costiDi = (c: Cella) => c.costoSaccoCents + c.costoExtraCents;
+export const costiDi = (c: Cella) => c.costoSaccoCents + c.costoExtraCents + c.costoSaccoPrevistoCents;
