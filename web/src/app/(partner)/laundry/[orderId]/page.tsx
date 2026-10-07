@@ -13,7 +13,7 @@ import { LAVORAZIONE_APERTA, signedProofUrl, type OrderStatus } from "@/lib/orde
 import { SEGNALABILE } from "@/lib/segnalazioni";
 import { fmtFull } from "@/lib/format";
 import { createServiceClient } from "@/lib/supabase/server";
-import { sacchiPerFranchigia, sacchiOsservati, sacchiDaContare } from "@/lib/franchigia";
+import { sacchiPerFranchigia, sacchiOsservati } from "@/lib/franchigia";
 import { haAbbonamentoAttivoPerOrdine } from "@/lib/abbonamento-sacchi";
 
 export const dynamic = "force-dynamic";
@@ -106,8 +106,11 @@ export default async function LaundryOrderDetail({
   // Gli stessi sacchi che userà `addSpecial`: se qui e lì il numero differisse,
   // la schermata direbbe una cosa e il conto ne farebbe un'altra — che è
   // esattamente com'è nato il guasto del 15 settembre.
+  // I sacchi che si pagano sono quelli registrati: dal 7 ottobre 2026 il tetto
+  // dell'abbonamento non li taglia più. Resta sui capi compresi, che sono una
+  // promessa fatta al cliente e non una prestazione della lavanderia — per
+  // quelli il numero giusto è `sacchiFranchigia`, qui sotto.
   const osservati = sacchiOsservati(order.bags_arrivati, order.bags_scansionati, order.bags);
-  const dovuti = sacchiDaContare(osservati, order.sacchi_inclusi);
   const sacchiFranchigia = sacchiPerFranchigia(order.bags_arrivati, order.bags_scansionati, order.bags, order.sacchi_inclusi);
   const items = specials ?? [];
   const totComp = items.reduce((s, i) => s + i.comp_lav_cents * i.qty, 0);
@@ -153,17 +156,8 @@ export default async function LaundryOrderDetail({
             <div className="flex justify-between">
               <dt>Sacchi</dt>
               <dd className="text-right font-bold text-navy">
-                {dovuti.sacchi}
+                {osservati}
                 {order.bags_arrivati == null && <span className="ml-1 text-xs font-semibold text-[#C9881F]">da confermare</span>}
-                {/* Quando il conto supera l'abbonamento si dice, invece di
-                    mostrare un numero più basso di quello contato senza
-                    spiegazione: da lì sembrerebbe che il portale abbia perso
-                    un sacco. */}
-                {dovuti.limitato && (
-                  <span className="mt-0.5 block text-xs font-semibold text-[#C9881F]">
-                    ne risultano {osservati}, l&apos;abbonamento ne comprende {order.sacchi_inclusi}
-                  </span>
-                )}
               </dd>
             </div>
             {order.service && <div className="flex justify-between"><dt>Servizio</dt><dd className="font-bold text-navy">{order.service}</dd></div>}
@@ -245,8 +239,8 @@ export default async function LaundryOrderDetail({
                     e quando non torna il conto sembra che il modulo sia rotto. */}
                 <span className="mt-1 block font-medium text-navy/75">
                   Conto fatto su <strong>{sacchiFranchigia} {sacchiFranchigia === 1 ? "sacco" : "sacchi"}</strong>
-                  {dovuti.limitato
-                    ? ` — l'abbonamento ne comprende ${order.sacchi_inclusi}, anche se ne risultano ${osservati}.`
+                  {sacchiFranchigia < osservati
+                    ? ` — i capi compresi li dà l'abbonamento, che ne comprende ${order.sacchi_inclusi}, anche se i sacchi lavorati sono ${osservati}.`
                     : order.bags_arrivati == null
                       ? " — non ancora confermati. Se non torna, conferma il conteggio qui a sinistra: i capi già registrati si ricalcolano da soli."
                       : ", confermati da te."}

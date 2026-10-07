@@ -1,7 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
-import { sacchiOsservati, sacchiDaContare } from "@/lib/franchigia";
-import { sacchiInclusi, haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
+import { sacchiOsservati } from "@/lib/franchigia";
+import { haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
 import { dataServizio } from "@/lib/periodo-servizio";
 
 /** Registra quanto dobbiamo alla lavanderia per i sacchi di un ordine.
@@ -61,14 +61,7 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
       .eq("order_id", orderId)
       .not("pickup_scanned_at", "is", null);
 
-    // 4. **Il tetto dell'abbonamento**, sopra a tutte e tre.
-    //
-    // Le tre prove qui sopra dicono cosa risulta; l'abbonamento dice cosa è
-    // dovuto, e nessuna delle tre crea un diritto che il contratto non dà. L'8
-    // settembre l'ordine di Giulia — piano Small, un sacco — è stato pagato
-    // 24,60 €, cioè due, perché il rider aveva letto due tag e nessuno ha
-    // guardato il piano.
-    // 5. **E se non c'è nessun abbonamento, non c'è nessun sacco da pagare.**
+    // 4. **E se non c'è nessun abbonamento, non c'è nessun sacco da pagare.**
     //
     // Il compenso a sacco è la contropartita del canone: la lavanderia ce lo
     // fattura perché il cliente ha un abbonamento, e dentro quel compenso ci
@@ -76,17 +69,24 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
     // fattura i capi, uno per uno, e quelli hanno già la loro riga `special`.
     // Scrivere anche il sacco sarebbe un costo che nessuno ci ha chiesto, e
     // falserebbe il conto del cliente in Competenza.
-    //
-    // Stessa regola della franchigia, e non è un caso: niente abbonamento,
-    // niente capi compresi e niente compenso a sacco.
     if (!(await haAbbonamentoAttivo(svc, ordine.customer_id))) return;
 
-    const tetto = await sacchiInclusi(svc, ordine.customer_id);
-    const conto = sacchiDaContare(sacchiOsservati(ordine.bags_arrivati, scansionati, ordine.bags), tetto);
-    const sacchi = conto.sacchi;
-    if (conto.limitato) {
-      console.warn(`[payout] ordine ${orderId}: risultavano più sacchi del dovuto, pagati ${sacchi} come da abbonamento`);
-    }
+    // Si paga quello che risulta registrato, **senza fermarsi al tetto
+    // dell'abbonamento**.
+    //
+    // Fino al 7 ottobre 2026 il conto si fermava ai sacchi compresi nel piano:
+    // su uno Small da un sacco, due sacchi lavati ne pagavano uno. Era nato per
+    // il guasto dell'8 settembre — due tag letti per sbaglio, compenso doppio —
+    // ma risolveva il problema sbagliato: quel giorno il numero era falso, qui
+    // il numero è vero. Elvira il 6 ottobre ha dato due sacchi, la lavanderia
+    // li ha contati e lavati entrambi, noi le abbiamo addebitato il secondo, e
+    // alla lavanderia ne pagavamo uno.
+    //
+    // Decisione di Simone, 7 ottobre 2026: «si paga il numero di sacchi
+    // registrati per quella settimana». Il tetto resta dov'era giusto — sui
+    // capi compresi, che sono una promessa dell'abbonamento e non una
+    // prestazione della lavanderia.
+    const sacchi = sacchiOsservati(ordine.bags_arrivati, scansionati, ordine.bags);
 
     const { error } = await svc.from("laundry_payouts").insert({
       laundry_id: ordine.laundry_id,

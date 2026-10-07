@@ -3,8 +3,8 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Fisarmonica } from "@/components/ui/Fisarmonica";
 import { createServiceClient } from "@/lib/supabase/server";
 import { scorpora } from "@/lib/iva";
-import { sacchiOsservati, sacchiDaContare } from "@/lib/franchigia";
-import { sacchiInclusi, haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
+import { sacchiOsservati } from "@/lib/franchigia";
+import { haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
 import {
   lunediDi,
   meseDi,
@@ -191,9 +191,9 @@ export default async function Competenza({
   //
   // Qui si imputa lo stesso costo che verrà registrato, con le stesse regole di
   // `registraSacchiLavanderia`: i sacchi contati dalla lavanderia, poi quelli
-  // scansionati dal rider, poi quelli dichiarati; mai più di quanti ne comprende
-  // l'abbonamento; e zero per chi un abbonamento non ce l'ha, perché il compenso
-  // a sacco è la contropartita del canone.
+  // scansionati dal rider, poi quelli dichiarati — si paga quello che risulta,
+  // anche sopra i sacchi dell'abbonamento — e zero per chi un abbonamento non
+  // ce l'ha, perché il compenso a sacco è la contropartita del canone.
   const ordiniDelMese = (ordini ?? []).filter(
     (o) => o.customer_id && (includiProva || !uno(o.profiles)?.is_test) && meseDi(giornoOrdine(o)) === mese,
   );
@@ -218,24 +218,17 @@ export default async function Competenza({
   }
 
   const clientiDaImputare = [...new Set(daImputare.map((o) => o.customer_id!))];
-  const tetti = new Map<string, { attivo: boolean; tetto: number | null }>();
+  const conAbbonamento = new Map<string, boolean>();
   await Promise.all(
-    clientiDaImputare.map(async (id) => {
-      const [attivo, tetto] = await Promise.all([haAbbonamentoAttivo(svc, id), sacchiInclusi(svc, id)]);
-      tetti.set(id, { attivo, tetto });
-    }),
+    clientiDaImputare.map(async (id) => conAbbonamento.set(id, await haAbbonamentoAttivo(svc, id))),
   );
 
   const previsti: PrevistoConto[] = [];
   for (const o of daImputare) {
-    const stato = tetti.get(o.customer_id!);
-    if (!stato?.attivo) continue;
+    if (!conAbbonamento.get(o.customer_id!)) continue;
     const lav = uno(o.laundries);
     const compenso = lav?.bag_comp_cents ?? 1500;
-    const sacchi = sacchiDaContare(
-      sacchiOsservati(o.bags_arrivati, scansioniPerOrdine.get(o.id) ?? 0, o.bags),
-      stato.tetto,
-    ).sacchi;
+    const sacchi = sacchiOsservati(o.bags_arrivati, scansioniPerOrdine.get(o.id) ?? 0, o.bags);
     if (sacchi <= 0) continue;
     previsti.push({ clienteId: o.customer_id!, settimana: lunediDi(giornoOrdine(o)), cents: compenso * sacchi });
   }
@@ -310,8 +303,8 @@ export default async function Competenza({
           Il costo del sacco si imputa alla settimana del ritiro, anche se la riconsegna non c&apos;è ancora stata:
           finché i sacchi sono in lavanderia è segnato{" "}
           <strong className="text-[#C9881F]">in lavorazione</strong>. Alla consegna diventa una riga vera nel dovuto
-          alla lavanderia, e l&apos;importo non cambia. Si pagano i sacchi che l&apos;abbonamento comprende: quelli in
-          più si vedono nei ricavi come addebito, non qui.
+          alla lavanderia, e l&apos;importo non cambia. Si pagano i sacchi <strong className="text-navy">registrati</strong>:
+          se la lavanderia ne conta due, due si pagano, anche su un piano da uno.
         </p>
       </Card>
 
