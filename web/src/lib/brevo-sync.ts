@@ -78,7 +78,11 @@ export async function sincronizzaTuttiIContatti(opts: { dry?: boolean; limite?: 
     await listeBrevo(true);
   }
 
-  const candidati = persone.filter((p) => p.email && p.email.includes("@"));
+  // Un indirizzo scritto male non si corregge qui: si salta e si lascia dov'è.
+  // In produzione ce n'è uno — «simo?@gmail.com» — e inventarne la versione
+  // giusta vorrebbe dire scrivere a una persona che non l'ha mai chiesto.
+  const indirizzoSensato = /^[^\s@?]+@[^\s@?]+\.[a-z]{2,}$/i;
+  const candidati = persone.filter((p) => p.email && indirizzoSensato.test(p.email.trim()));
   const lista = opts.limite ? candidati.slice(0, opts.limite) : candidati;
 
   for (const [i, p] of lista.entries()) {
