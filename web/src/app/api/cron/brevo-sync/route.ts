@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sincronizzaTuttiIContatti, riassuntoSync } from "@/lib/brevo-sync";
 import { eseguiCron } from "@/lib/cron-log";
+import { getCurrentProfile } from "@/lib/auth";
 
 /** Cron notturno: riallinea le liste di Brevo a quello che dice il database.
  *
@@ -22,10 +23,15 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 export async function GET(req: Request) {
+  // Due chiavi per la stessa porta: il segreto del cron per Vercel, e la
+  // sessione admin per chi vuole guardare la prova a secco dal browser senza
+  // andarsi a cercare un token. L'elenco di chi sta in quale lista è un dato
+  // da pannello, non un segreto: chi è già dentro /admin può leggerlo.
   const secret = process.env.CRON_SECRET;
   const auth = req.headers.get("authorization");
   if (secret && auth !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const me = await getCurrentProfile();
+    if (me?.role !== "admin") return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const url = new URL(req.url);
