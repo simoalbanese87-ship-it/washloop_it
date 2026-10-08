@@ -3,6 +3,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { notifyWelcome } from "@/lib/notify";
+import { sincronizzaPersona } from "@/lib/brevo-sync";
 
 /** Manda l'email di benvenuto a chi si è appena registrato dal sito, una volta sola.
  *
@@ -37,6 +38,10 @@ export async function sendWelcomeIfNeeded(): Promise<void> {
     if (!email) return;
 
     await notifyWelcome(me.id, email, vinta.full_name);
+    // Da qui in poi non è più un lead: ha un account. Su Brevo esce dai «Lead
+    // Meta» ed entra negli «Account Free Creato», che è la lista con cui gli si
+    // racconta cosa può fare adesso. Best-effort: non lancia mai.
+    await sincronizzaPersona(me.id);
   } catch (err) {
     console.error("[welcome] invio benvenuto fallito:", err);
   }

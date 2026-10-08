@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { sincronizzaDisiscritto } from "@/lib/brevo-sync";
 
 /** Disiscrizione dalle email non di servizio.
  *
@@ -34,6 +35,11 @@ export async function disiscriviConToken(token: string): Promise<{ ok: boolean; 
     await svc.from("leads").update({ unsubscribed_at: ora }).eq("id", lead.id);
   }
   await svc.from("email_optouts").upsert({ email, source: "landing" }, { onConflict: "email" });
+
+  // La stessa volontà, anche dall'altra parte: su Brevo esce da tutte le liste
+  // di invio e resta solo fra i «Disiscritti», così si sa chi sono senza
+  // doverlo dedurre da un registro locale che Brevo non vede.
+  await sincronizzaDisiscritto(email);
 
   return { ok: true, email };
 }

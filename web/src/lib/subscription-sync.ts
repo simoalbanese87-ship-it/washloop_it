@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { createServiceClient } from "@/lib/supabase/server";
 import { registraCartaDalCheckout } from "@/lib/carta-registrata";
+import { sincronizzaPersona } from "@/lib/brevo-sync";
 
 /** Scrive su `subscriptions` lo stato reale di un abbonamento Stripe.
  *
@@ -73,6 +74,11 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
       .update({ activated_at: new Date().toISOString() })
       .eq("stripe_subscription_id", sub.id)
       .is("activated_at", null);
+    // Da adesso è un cliente, e su Brevo deve stare in una lista sola: esce
+    // dai lead e dagli account free. Qui e non nel webhook perché questa
+    // funzione è l'imbuto di tutti i percorsi — webhook, ritorno dal checkout,
+    // eventi successivi — ed è già idempotente. Non lancia mai.
+    await sincronizzaPersona(userId);
     // I sacchi concordati al momento del link, scritti **solo se la colonna è
     // ancora vuota**: erano un campo che qualcuno doveva compilare a mano dopo
     // il pagamento, cioè il passaggio che salta quando le prove sono cento.

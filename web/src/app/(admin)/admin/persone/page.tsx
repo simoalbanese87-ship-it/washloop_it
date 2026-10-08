@@ -4,6 +4,7 @@ import { elencoPersone, STADI, STADIO_LABEL, STADIO_TONO, type Stadio } from "@/
 import { importaFunnelSeServe } from "@/lib/funnel-import";
 import { fmtDate, eurCents } from "@/lib/format";
 import { LeadStatusSelect } from "@/components/admin/LeadStatusSelect";
+import { TipoServizioSelect } from "@/components/admin/TipoServizioSelect";
 import { NotaPersona } from "@/components/admin/NotaPersona";
 import { LeadActions } from "@/components/admin/LeadActions";
 import { DeleteUserButton } from "@/components/admin/DeleteUserButton";
@@ -29,7 +30,7 @@ const uno = (v: string | string[] | undefined): string | undefined =>
 export default async function PersonePage({
   searchParams,
 }: {
-  searchParams: Promise<{ stadio?: string | string[]; contatto?: string | string[]; zona?: string | string[]; q?: string | string[]; prova?: string | string[]; ok?: string | string[]; warn?: string | string[] }>;
+  searchParams: Promise<{ stadio?: string | string[]; contatto?: string | string[]; zona?: string | string[]; q?: string | string[]; prova?: string | string[]; disiscritti?: string | string[]; ok?: string | string[]; warn?: string | string[] }>;
 }) {
   const sp = await searchParams;
   const q = uno(sp.q);
@@ -50,6 +51,10 @@ export default async function PersonePage({
   // perde. Un valore che non esiste si ignora, come per lo stadio.
   const zonaGrezza = uno(sp.zona);
   const zona = zonaGrezza === "in" || zonaGrezza === "fuori" ? zonaGrezza : undefined;
+  // Chi ha chiesto di non ricevere più email. Il dato c'era in due tabelle e
+  // non si vedeva da nessuna parte: senza questo filtro, per sapere a chi non
+  // scrivere bisognava aprire Brevo.
+  const disiscrittiSolo = uno(sp.disiscritti) === "1";
   const includiProva = prova === "1";
   const needle = (q ?? "").toLowerCase();
 
@@ -70,7 +75,9 @@ export default async function PersonePage({
   // Chi non ha CAP non è «fuori zona», è sconosciuto: non entra in nessuno dei
   // due filtri, altrimenti «fuori zona» diventerebbe un cestino.
   const inZonaDi = (p: (typeof tutte)[number]) => (zona === "in" ? p.inZona === true : p.inZona === false);
-  const base = tutte.filter((p) => cerca(p) && (!contatto || statoDi(p) === contatto) && (!zona || inZonaDi(p)));
+  const base = tutte.filter(
+    (p) => cerca(p) && (!contatto || statoDi(p) === contatto) && (!zona || inZonaDi(p)) && (!disiscrittiSolo || p.disiscritto),
+  );
   const lista = stadio ? base.filter((p) => p.stadio === stadio) : base;
 
   const conta = (s: Stadio) => base.filter((p) => p.stadio === s).length;
@@ -86,7 +93,8 @@ export default async function PersonePage({
 
   const qs = (patch: Record<string, string | undefined>) => {
     const u = new URLSearchParams();
-    for (const [k, v] of Object.entries({ stadio, contatto, zona, q, prova, ...patch })) if (v) u.set(k, v);
+    const correnti = { stadio, contatto, zona, q, prova, disiscritti: disiscrittiSolo ? "1" : undefined };
+    for (const [k, v] of Object.entries({ ...correnti, ...patch })) if (v) u.set(k, v);
     return u.toString() ? `?${u}` : "";
   };
 
@@ -177,6 +185,12 @@ export default async function PersonePage({
           <Link href={`/admin/persone${qs({ zona: "fuori" })}`} className={pill(zona === "fuori")}>
             Fuori zona ({senzaZona.filter((p) => p.inZona === false).length})
           </Link>
+          <Link
+            href={`/admin/persone${qs({ disiscritti: disiscrittiSolo ? undefined : "1" })}`}
+            className={pill(disiscrittiSolo)}
+          >
+            Disiscritti ({tutte.filter((p) => p.disiscritto).length})
+          </Link>
         </div>
 
         <form className="mt-3 flex flex-wrap items-center gap-2">
@@ -184,6 +198,7 @@ export default async function PersonePage({
           {zona && <input type="hidden" name="zona" value={zona} />}
           {contatto && <input type="hidden" name="contatto" value={contatto} />}
           {prova && <input type="hidden" name="prova" value={prova} />}
+          {disiscrittiSolo && <input type="hidden" name="disiscritti" value="1" />}
           <input
             name="q"
             defaultValue={q ?? ""}
@@ -226,6 +241,7 @@ export default async function PersonePage({
                 <th className="py-2 pr-4">Zona</th>
                 <th className="py-2">Stadio</th>
                 <th className="py-2">Contatto</th>
+                <th className="py-2">Servizio</th>
                 <th className="py-2">Valore</th>
                 <th className="py-2">Ordini</th>
                 <th className="py-2">Da</th>
@@ -285,6 +301,13 @@ export default async function PersonePage({
                       <span className="ml-1 rounded-full bg-[#2b7fd4]/12 px-2 py-0.5 text-[10px] font-bold text-blue">ha account</span>
                     )}
                     {p.isTest && <span className="ml-1 rounded-full bg-navy/10 px-2 py-0.5 text-[10px] font-bold text-navy/60">prova</span>}
+                    {/* Scritto qui e non in una colonna sua: è una cosa che si
+                        deve notare leggendo la riga, non cercando. */}
+                    {p.disiscritto && (
+                      <span className="ml-1 rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[10px] font-extrabold text-[#C0392B]" title="Ha chiesto di non ricevere più email">
+                        disiscritto
+                      </span>
+                    )}
                   </td>
                   <td className="py-2.5">
                     <LeadStatusSelect
@@ -295,6 +318,15 @@ export default async function PersonePage({
                     />
                     {!isContactStatus(p.statoContatto ?? "") && (
                       <div className="mt-0.5 text-[10px] font-medium text-muted">mai impostato</div>
+                    )}
+                  </td>
+                  {/* Il tipo di servizio vive solo su chi ha un account: un
+                      lead non ha un servizio, ha una richiesta. */}
+                  <td className="py-2.5">
+                    {p.profileId ? (
+                      <TipoServizioSelect profileId={p.profileId} value={p.tipoServizio} back={qui} />
+                    ) : (
+                      <span className="text-xs font-medium text-muted">—</span>
                     )}
                   </td>
                   {/* La cadenza accanto all'importo, e la parola giusta sotto.

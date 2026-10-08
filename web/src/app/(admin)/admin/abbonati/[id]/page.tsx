@@ -11,6 +11,8 @@ import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionFor
 import { LinkOfferta } from "@/components/admin/LinkOfferta";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { impersonate } from "@/lib/actions/impersonate";
+import { TipoServizioSelect } from "@/components/admin/TipoServizioSelect";
+import { isTipoServizio } from "@/lib/tipo-servizio";
 import { cancelOrder } from "@/lib/actions/orders";
 import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
 import { ACCESS_MODE_LABEL, ORDER_STATUS_LABEL, ordineAperto, type AccessMode, type OrderStatus } from "@/lib/orders";
@@ -25,7 +27,7 @@ const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFr
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
 
-type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null;
+type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
 type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null } | null };
@@ -75,7 +77,8 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const { ok, warn } = await searchParams;
   const svc = createServiceClient();
 
-  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, a_consumo, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
+  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, a_consumo, tipo_servizio, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
+  const tipoServizio = isTipoServizio(profile?.tipo_servizio) ? profile.tipo_servizio : null;
   if (!profile) notFound();
 
   const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: proposte }] = await Promise.all([
@@ -567,6 +570,12 @@ export default async function CustomerPage({ params, searchParams }: { params: P
         {/* Abbonamento */}
         <Card>
           <h2 id="abbonamento" className="font-display text-base font-extrabold text-navy">Abbonamento</h2>
+          {/* Che servizio fa: lo sa chi gli parla, non il database. Da qui
+              decide anche la lista di Brevo — «solo stiro» ha le sue email. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm font-medium text-muted">
+            <span>Tipo di servizio:</span>
+            <TipoServizioSelect profileId={id} value={tipoServizio} back={`/admin/abbonati/${id}`} />
+          </div>
           {sub ? (
             <>
               <div className="mt-3 space-y-1 text-sm font-medium text-muted">

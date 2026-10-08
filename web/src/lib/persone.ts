@@ -2,6 +2,7 @@ import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { stadioDaSubscription, type Stadio } from "./persone-stadio";
 import { capCoperto } from "@/lib/copertura";
+import { isTipoServizio, type TipoServizio } from "@/lib/tipo-servizio";
 
 /** Tutte le persone in una lista sola, ognuna con il suo stadio.
  *
@@ -68,6 +69,13 @@ export type Persona = {
    *  ancora un lead da `leads.nota_interna`. Mai da `leads.notes`, che è del
    *  questionario del funnel. */
   nota: string | null;
+  /** Il servizio concordato: lo compila l'ops dal pannello, non si deduce da
+   *  nessun dato. `null` = ancora da decidere. Solo per chi ha un account. */
+  tipoServizio: TipoServizio | null;
+  /** Ha chiesto di non ricevere più email. Il dato stava in due tabelle e non
+   *  si vedeva da nessuna parte: scriverlo qui è il motivo per cui ora in
+   *  elenco c'è una pastiglia e un filtro. */
+  disiscritto: boolean;
 };
 
 const norm = (e: string | null | undefined) => (e ?? "").trim().toLowerCase();
@@ -80,18 +88,18 @@ const normTel = (p: string | null | undefined) => {
 export async function elencoPersone(includiProva = false): Promise<Persona[]> {
   const svc = createServiceClient();
 
-  const [{ data: profili }, { data: subs }, { data: leads }, { data: ordini }, { data: note }, { data: indirizzi }, { data: mappaCap }] =
+  const [{ data: profili }, { data: subs }, { data: leads }, { data: ordini }, { data: note }, { data: indirizzi }, { data: mappaCap }, { data: optout }] =
     await Promise.all([
-    svc.from("profiles").select("id, full_name, phone, client_code, created_at, is_test, contact_status").eq("role", "customer")
-      .returns<{ id: string; full_name: string | null; phone: string | null; client_code: string | null; created_at: string; is_test: boolean; contact_status: string | null }[]>(),
+    svc.from("profiles").select("id, full_name, phone, client_code, created_at, is_test, contact_status, tipo_servizio").eq("role", "customer")
+      .returns<{ id: string; full_name: string | null; phone: string | null; client_code: string | null; created_at: string; is_test: boolean; contact_status: string | null; tipo_servizio: string | null }[]>(),
     svc.from("subscriptions").select("user_id, status, custom_price_cents, current_period_end, created_at, cancel_at_period_end, termina_dopo_settimane, plans(name, price_month_cents)")
       .order("created_at", { ascending: false })
       .returns<{ user_id: string; status: string; custom_price_cents: number | null; current_period_end: string | null; created_at: string; cancel_at_period_end: boolean | null; termina_dopo_settimane: number | null; plans: { name: string; price_month_cents: number } | null }[]>(),
-    svc.from("leads").select("id, full_name, email, phone, created_at, source, contact_status, covered, nota_interna, cap")
+    svc.from("leads").select("id, full_name, email, phone, created_at, source, contact_status, covered, nota_interna, cap, unsubscribed_at")
       // `full_name` è nullable: tipizzarlo `string` non lo rende tale, rende
       // solo cieco chi legge. Senza il ripiego qui sotto, un lead senza nome
       // finiva in tabella come riga vuota e nella ricerca come «null».
-      .returns<{ id: string; full_name: string | null; email: string; phone: string | null; created_at: string; source: string | null; contact_status: string; covered: boolean; nota_interna: string | null; cap: string | null }[]>(),
+      .returns<{ id: string; full_name: string | null; email: string; phone: string | null; created_at: string; source: string | null; contact_status: string; covered: boolean; nota_interna: string | null; cap: string | null; unsubscribed_at: string | null }[]>(),
     svc.from("orders").select("customer_id, created_at").neq("status", "cancelled")
       .returns<{ customer_id: string | null; created_at: string }[]>(),
     // Dentro la stessa Promise.all e non dopo: in fila sarebbe un viaggio in
@@ -109,9 +117,19 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
     // la tabella deve far vedere.
     svc.from("zone_caps").select("cap, zones!inner(name, active)").eq("zones.active", true)
       .returns<{ cap: string; zones: { name: string } | { name: string }[] | null }[]>(),
+    // Chi ha premuto «non voglio più email». È la lista globale, quella che
+    // sopravvive alla cancellazione del lead: vale anche per chi nel frattempo
+    // si è registrato.
+    svc.from("email_optouts").select("email").returns<{ email: string }[]>(),
   ]);
 
   const notaDi = new Map((note ?? []).map((n) => [n.customer_id, n.note]));
+  // Disiscritti: la lista globale più i lead che hanno premuto il link. Due
+  // fonti perché l'optout sopravvive alla cancellazione della riga del lead.
+  const disiscritte = new Set<string>([
+    ...(optout ?? []).map((o) => norm(o.email)),
+    ...(leads ?? []).filter((l) => l.unsubscribed_at).map((l) => norm(l.email)),
+  ]);
 
   // Un CAP per utente: la lista arriva già dal più recente al più vecchio.
   const capDi = new Map<string, string>();
@@ -190,6 +208,8 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       creatoIl: p.created_at,
       isTest: p.is_test,
       nota: notaDi.get(p.id) ?? null,
+      tipoServizio: isTipoServizio(p.tipo_servizio) ? p.tipo_servizio : null,
+      disiscritto: email ? disiscritte.has(norm(email)) : false,
       ...copertura(capDi.get(p.id) ?? null),
     });
   }
@@ -229,6 +249,8 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       creatoIl: l.created_at,
       isTest: false,
       nota: l.nota_interna,
+      tipoServizio: null,
+      disiscritto: l.unsubscribed_at != null || disiscritte.has(norm(l.email)),
       ...copertura(l.cap),
     });
   }

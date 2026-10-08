@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
+import { isTipoServizio, tipoServizioDaForm, TIPO_SERVIZIO_LABEL } from "@/lib/tipo-servizio";
+import { sincronizzaPersona } from "@/lib/brevo-sync";
 import { zoneIdForCap } from "@/lib/zones";
 import { capCoperto, formatoCapValido } from "@/lib/copertura";
 import { appendLeadToSheet } from "@/lib/leads-sheet";
@@ -367,4 +369,36 @@ export async function convertLeadToCustomer(formData: FormData) {
   revalidatePath("/admin/abbonati");
   revalidatePath("/admin");
   redirect(`/admin/abbonati/${uid}?ok=${encodeURIComponent("Lead convertito in cliente. Attiva l'abbonamento quando ha pagato.")}`);
+}
+
+/** Il tipo di servizio di un cliente: lava e stira, solo stiro, solo lavanderia.
+ *
+ *  Vive solo su chi ha un account — un lead non ha ancora un servizio, ha una
+ *  richiesta. Si compila a mano perché nessun dato che abbiamo lo sa: un piano
+ *  Small non dice se quella persona ci manda camicie o lenzuola.
+ *
+ *  Appena cambia, il contatto si riallinea su Brevo: «solo stiro» è una lista
+ *  con le sue email, e un'etichetta che resta solo nel nostro database non
+ *  serve a nessuno. */
+export async function impostaTipoServizio(formData: FormData) {
+  await requireAdmin();
+  const profileId = String(formData.get("profile_id") ?? "");
+  const grezzo = String(formData.get("tipo_servizio") ?? "");
+  if (!profileId) redirect(backWith(formData, { warn: "Cliente mancante." }));
+  if (grezzo !== "" && !isTipoServizio(grezzo)) {
+    redirect(backWith(formData, { warn: "Tipo di servizio non valido." }));
+  }
+  const valore = tipoServizioDaForm(grezzo);
+
+  const svc = createServiceClient();
+  const { error } = await svc.from("profiles").update({ tipo_servizio: valore }).eq("id", profileId);
+  if (error) redirect(backWith(formData, { warn: `Non salvato: ${error.message}` }));
+
+  await sincronizzaPersona(profileId);
+
+  revalidatePath("/admin/persone");
+  revalidatePath(`/admin/abbonati/${profileId}`);
+  redirect(backWith(formData, {
+    ok: valore ? `Tipo di servizio: ${TIPO_SERVIZIO_LABEL[valore]}.` : "Tipo di servizio svuotato.",
+  }));
 }
