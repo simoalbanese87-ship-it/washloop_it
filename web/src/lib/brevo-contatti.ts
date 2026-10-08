@@ -110,6 +110,17 @@ export async function assicuraAttributi(): Promise<void> {
 
 // -------------------------------------------------------------- contatti ----
 
+/** Le risposte che sembrano errori e non lo sono.
+ *
+ *  Brevo risponde 400 con «Contact already in list and/or does not exist» anche
+ *  quando lo stato è già quello che volevamo: togliere qualcuno da una lista in
+ *  cui non è mai stato è un 400, e di quei 400 ce ne sono tre o quattro per
+ *  persona. Alla prima esecuzione vera il cron ha dichiarato 24 falliti su 24
+ *  mentre aveva fatto tutto giusto — e un registro che grida al lupo ogni notte
+ *  è un registro che fra un mese nessuno guarda più. */
+const innocuo = (errore: string) =>
+  /already in list|already removed|does not exist|not found|not in list/i.test(errore);
+
 export type ContattoDaSincronizzare = {
   email: string;
   nome?: string | null;
@@ -162,14 +173,13 @@ export async function sincronizzaContatto(c: ContattoDaSincronizzare): Promise<E
     const l = id(nome);
     if (!l) { errori.push(`lista «${nome}» non trovata`); continue; }
     const r = await chiama(`/contacts/lists/${l}/contacts/add`, { method: "POST", body: { emails: [email] } });
-    // 400 «Contact already in list» non è un guasto: è lo stato desiderato.
-    if (!r.ok && !/already in list/i.test(r.errore)) errori.push(r.errore);
+    if (!r.ok && !innocuo(r.errore)) errori.push(r.errore);
   }
   for (const nome of fuori) {
     const l = id(nome);
     if (!l) continue; // una lista che non esiste non ha nessuno dentro
     const r = await chiama(`/contacts/lists/${l}/contacts/remove`, { method: "POST", body: { emails: [email] } });
-    if (!r.ok && !/not (in|found)/i.test(r.errore)) errori.push(r.errore);
+    if (!r.ok && !innocuo(r.errore)) errori.push(r.errore);
   }
 
   if (errori.length > 0) {
