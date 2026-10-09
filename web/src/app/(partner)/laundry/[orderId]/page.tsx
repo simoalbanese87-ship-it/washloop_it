@@ -106,12 +106,12 @@ export default async function LaundryOrderDetail({
   // Gli stessi sacchi che userà `addSpecial`: se qui e lì il numero differisse,
   // la schermata direbbe una cosa e il conto ne farebbe un'altra — che è
   // esattamente com'è nato il guasto del 15 settembre.
-  // I sacchi che si pagano sono quelli registrati: dal 7 ottobre 2026 il tetto
-  // dell'abbonamento non li taglia più. Resta sui capi compresi, che sono una
-  // promessa fatta al cliente e non una prestazione della lavanderia — per
-  // quelli il numero giusto è `sacchiFranchigia`, qui sotto.
+  // Un numero solo: i sacchi lavorati. Su quelli si paga la lavanderia (dal 7
+  // ottobre 2026) e su quelli corrono i capi compresi (dal 9, dopo le quattro
+  // camicie addebitate a Elvira). Tenere due conti diversi sulla stessa
+  // schermata è ciò che ha fatto sembrare rotto il modulo.
   const osservati = sacchiOsservati(order.bags_arrivati, order.bags_scansionati, order.bags);
-  const sacchiFranchigia = sacchiPerFranchigia(order.bags_arrivati, order.bags_scansionati, order.bags, order.sacchi_inclusi);
+  const sacchiFranchigia = sacchiPerFranchigia(order.bags_arrivati, order.bags_scansionati, order.bags);
   const items = specials ?? [];
   const totComp = items.reduce((s, i) => s + i.comp_lav_cents * i.qty, 0);
 
@@ -178,7 +178,7 @@ export default async function LaundryOrderDetail({
               <div className="font-display text-sm font-extrabold text-[#C9881F]">Quanti sacchi sono arrivati?</div>
               <p className="mt-1 text-xs font-medium text-navy/75">
                 {order.bags_arrivati == null
-                  ? `Ne aspettavamo ${order.bags}, il rider ne ha registrati ${order.bags_scansionati}. Conta quelli che hai sul banco.${order.sacchi_inclusi ? ` L'abbonamento ne comprende ${order.sacchi_inclusi}: oltre quel numero il compenso non sale, ma scrivi comunque quello che hai contato.` : ""}`
+                  ? `Ne aspettavamo ${order.bags}, il rider ne ha registrati ${order.bags_scansionati}. Conta quelli che hai sul banco: il compenso segue quelli.`
                   : `Hai contato ${order.bags_arrivati}. Se ti sei accorto di un errore puoi correggerlo finché il lavoro è in corso.`}
               </p>
               <div className="mt-2 flex items-center gap-2">
@@ -239,11 +239,9 @@ export default async function LaundryOrderDetail({
                     e quando non torna il conto sembra che il modulo sia rotto. */}
                 <span className="mt-1 block font-medium text-navy/75">
                   Conto fatto su <strong>{sacchiFranchigia} {sacchiFranchigia === 1 ? "sacco" : "sacchi"}</strong>
-                  {sacchiFranchigia < osservati
-                    ? ` — i capi compresi li dà l'abbonamento, che ne comprende ${order.sacchi_inclusi}, anche se i sacchi lavorati sono ${osservati}.`
-                    : order.bags_arrivati == null
-                      ? " — non ancora confermati. Se non torna, conferma il conteggio qui a sinistra: i capi già registrati si ricalcolano da soli."
-                      : ", confermati da te."}
+                  {order.bags_arrivati == null
+                    ? " — non ancora confermati. Se non torna, conferma il conteggio qui a sinistra: i capi già registrati si ricalcolano da soli."
+                    : ", confermati da te."}
                 </span>
               </p>
               <div className="mt-4">

@@ -7,8 +7,8 @@ import { getCurrentProfile } from "@/lib/auth";
 import { notifyOrderStatus, notifySegnalazioneCliente, notifySegnalazioneOps } from "@/lib/notify";
 import { LAVORAZIONE_APERTA, statusIndex, type OrderStatus } from "@/lib/orders";
 import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isTipoSegnalazione } from "@/lib/segnalazioni";
-import { conteggiaConFranchigia, franchigiaPerSacco, sacchiPerFranchigia, ridistribuisciFranchigia, sacchiDaContare } from "@/lib/franchigia";
-import { sacchiInclusi, haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
+import { conteggiaConFranchigia, franchigiaPerSacco, sacchiPerFranchigia, ridistribuisciFranchigia } from "@/lib/franchigia";
+import { haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
 import { dataServizio } from "@/lib/periodo-servizio";
 import { portaAPronto } from "@/lib/pronto";
 
@@ -160,15 +160,23 @@ export async function addSpecial(formData: FormData) {
     svc.from("orders").select("customer_id, bags, bags_arrivati").eq("id", orderId).maybeSingle<{ customer_id: string; bags: number | null; bags_arrivati: number | null }>(),
     svc.from("order_bags").select("id", { count: "exact", head: true }).eq("order_id", orderId),
   ]);
-  // Il conteggio del rider mancava proprio qui, e il 15 settembre è costato sei
-  // camicie: la schermata mostrava «Sacchi 1», la franchigia ne usava 2.
-  // Il tetto dell'abbonamento sta sopra a tutto: le camicie comprese sono tre
-  // per sacco **dovuto**, non per sacco che risulta da una scansione.
-  const tetto = ordine ? await sacchiInclusi(svc, ordine.customer_id) : null;
-  // Le camicie comprese le paga il canone: chi lavora a consumo non ne ha
-  // nessuna compresa, e regalargliele sarebbe listino buttato a ogni ritiro.
+  // Le camicie comprese seguono i **sacchi lavorati**, non quelli del piano.
+  //
+  // Fino al 9 ottobre 2026 il conto si fermava al tetto dell'abbonamento, e il
+  // risultato si è visto su Elvira: due sacchi consegnati e lavorati, sette
+  // camicie dentro, tre comprese invece di sei. Quattro camicie addebitate, 14 €
+  // tolti a una cliente che ne doveva pagare una sola.
+  //
+  // La ragione è la stessa per cui dal 7 ottobre la lavanderia viene pagata sui
+  // sacchi registrati: il secondo sacco il cliente lo paga (glielo addebitiamo a
+  // parte), la lavanderia lo lava, e dentro un sacco pagato ci sono le sue tre
+  // camicie. Il tetto del piano dice quanto costa il canone, non quanto lavoro
+  // è stato fatto.
+  //
+  // Le camicie comprese le paga comunque il canone: chi lavora a consumo non ne
+  // ha nessuna compresa, e regalargliele sarebbe listino buttato a ogni ritiro.
   const conAbbonamento = ordine ? await haAbbonamentoAttivo(svc, ordine.customer_id) : false;
-  const sacchiVeri = sacchiPerFranchigia(ordine?.bags_arrivati, scansionati, ordine?.bags, tetto);
+  const sacchiVeri = sacchiPerFranchigia(ordine?.bags_arrivati, scansionati, ordine?.bags);
   const { data: precedenti } = await svc
     .from("order_specials")
     .select("qty, qty_totale")
@@ -460,12 +468,11 @@ export async function confermaSacchiArrivati(formData: FormData) {
     .eq("id", orderId);
   if (error) throw new Error(error.message);
 
-  // Anche il numero appena scritto dalla lavanderia passa dal tetto: se il
-  // banco ne conta tre su un abbonamento da uno, il conto resta a uno.
-  const { data: cli } = await svc.from("orders").select("customer_id").eq("id", orderId).maybeSingle<{ customer_id: string }>();
-  const tetto = cli ? await sacchiInclusi(svc, cli.customer_id) : null;
-  const dovuti = sacchiDaContare(n, tetto);
-  const rifatti = await rifaiFranchigia(svc, orderId, dovuti.sacchi, profile.laundry_id!);
+  // Il numero appena contato al banco è quello su cui corre la franchigia: i
+  // sacchi lavorati, non quelli del piano. Il tetto dell'abbonamento è uscito di
+  // qui il 9 ottobre 2026, dopo le quattro camicie addebitate a Elvira su due
+  // sacchi che aveva pagato.
+  const rifatti = await rifaiFranchigia(svc, orderId, n, profile.laundry_id!);
 
   revalidatePath("/laundry");
   revalidatePath(`/laundry/${orderId}`);
