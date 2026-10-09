@@ -317,6 +317,14 @@ export async function refundOrderSpecial(formData: FormData) {
       );
       refundRef = refund.id;
       moneyMoved = true;
+    } else {
+      // Qui ci si ferma, invece di scrivere «rimborsato» su un rimborso che non
+      // è avvenuto. Il silenzio è il modo in cui questo guasto si è ripetuto
+      // due volte: la riga diceva una cosa e il conto corrente un'altra.
+      const inv = await sk.invoices.retrieve(fatturaDiretta);
+      throw new Error(
+        `Non trovo il pagamento della fattura ${fatturaDiretta} (stato: ${inv.status ?? "?"}). Il rimborso non è stato fatto: aprila su Stripe e rimborsa da lì.`,
+      );
     }
   } else if (sp.stripe_invoice_item) {
     const ii = await sk.invoiceItems.retrieve(sp.stripe_invoice_item);
