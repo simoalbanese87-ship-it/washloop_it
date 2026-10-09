@@ -26,11 +26,29 @@ export type OrigineRimborso =
 
 export async function origineDelPagamento(invoiceId: string): Promise<OrigineRimborso | null> {
   const sk = stripe();
-  const inv = await sk.invoices.retrieve(invoiceId, { expand: ["payments"] });
-  if (inv.status !== "paid") return null;
 
   const id = (v: unknown): string | null =>
     typeof v === "string" ? v : v && typeof v === "object" && "id" in v ? String((v as { id: string }).id) : null;
+
+  // 1. La strada maestra: la lista dei pagamenti della fattura, che è una
+  //    risorsa a sé (`/v1/invoice_payments`). Si chiede direttamente invece di
+  //    sperare che arrivi dentro la fattura: l'`expand` dipende dalla versione
+  //    dell'API, questa no. Il 9 ottobre 2026 l'`expand` ha restituito una
+  //    fattura senza pagamenti e il rimborso di 14,00 € a Elvira non è partito.
+  try {
+    const pagamenti = await sk.invoicePayments.list({ invoice: invoiceId, limit: 10 });
+    for (const p of pagamenti.data) {
+      if (p.status !== "paid") continue;
+      const pi = id(p.payment?.payment_intent);
+      if (pi) return { tipo: "payment_intent", id: pi };
+      const ch = id(p.payment?.charge);
+      if (ch) return { tipo: "charge", id: ch };
+    }
+  } catch {
+    // Versione dell'API che non conosce questa risorsa: si prova dalla fattura.
+  }
+
+  const inv = await sk.invoices.retrieve(invoiceId, { expand: ["payments"] });
 
   for (const p of inv.payments?.data ?? []) {
     const pagamento = (p as unknown as { payment?: { payment_intent?: unknown; charge?: unknown } }).payment;
@@ -47,6 +65,20 @@ export async function origineDelPagamento(invoiceId: string): Promise<OrigineRim
   if (pi) return { tipo: "payment_intent", id: pi };
   const ch = id(vecchia.charge);
   if (ch) return { tipo: "charge", id: ch };
+
+  // 3. Ultima strada: il pagamento esiste ma non è agganciato alla fattura in
+  //    nessuno dei modi sopra. Si cerca fra i PaymentIntent del cliente quello
+  //    che porta questo numero di fattura.
+  const cliente = typeof inv.customer === "string" ? inv.customer : inv.customer?.id ?? null;
+  if (cliente) {
+    const intenti = await sk.paymentIntents.list({ customer: cliente, limit: 25 });
+    for (const pi2 of intenti.data) {
+      const suaFattura = (pi2 as unknown as { invoice?: unknown }).invoice;
+      if (id(suaFattura) === invoiceId && pi2.status === "succeeded") {
+        return { tipo: "payment_intent", id: pi2.id };
+      }
+    }
+  }
 
   return null;
 }
