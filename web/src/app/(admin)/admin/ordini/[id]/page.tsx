@@ -196,7 +196,12 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   );
   const daAvvisare = segnalazioni.filter((sg) => !sg.published_at).length;
 
-  const { data: specials } = await supabase
+  // Service client, e non la sessione: su `order_specials` la policy di lettura
+  // passa da `can_see_order`, e per un admin quella funzione non sempre dice di
+  // sì. Il risultato non è un errore ma una lista vuota — stamattina la scheda
+  // dell'ordine di Elvira diceva «Nessun capo speciale» mentre il cliente era
+  // già stato addebitato di 14,00 €, e da lì non si poteva nemmeno stornare.
+  const { data: specials } = await createServiceClient()
     .from("order_specials")
     .select("id, item_name, qty, price_cli_cents, charged_at, incassato_at, incasso_fallito_at, refunded_at, annullato_at, created_at, autore:profiles!order_specials_added_by_fkey(full_name, role)")
     .eq("order_id", id)
