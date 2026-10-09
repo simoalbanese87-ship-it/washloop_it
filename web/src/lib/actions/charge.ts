@@ -132,6 +132,9 @@ type CapoSpeciale = {
   refunded_at: string | null;
   annullato_at: string | null;
   stripe_invoice_item: string | null;
+  /** La fattura fuori ciclo dei capi incassati subito, dal 6 ottobre 2026. */
+  stripe_invoice_id: string | null;
+  refund_ref: string | null;
   orders: { customer_id: string } | null;
 };
 
@@ -278,11 +281,15 @@ export async function refundOrderSpecial(formData: FormData) {
 
   const { data: sp } = await svc
     .from("order_specials")
-    .select("id, order_id, item_name, qty, price_cli_cents, charged_at, refunded_at, annullato_at, stripe_invoice_item, orders(customer_id)")
+    .select("id, order_id, item_name, qty, price_cli_cents, charged_at, refunded_at, annullato_at, stripe_invoice_item, stripe_invoice_id, refund_ref, orders(customer_id)")
     .eq("id", specialId)
     .maybeSingle<CapoSpeciale>();
   if (!sp) throw new Error("Capo non trovato");
-  if (sp.refunded_at) throw new Error("Capo già rimborsato");
+  // Già rimborsato **davvero**: la riga ha il riferimento del rimborso. Se
+  // quello manca, i soldi non si sono mossi e ripassare di qui è l'unico modo
+  // per farli muovere — è successo il 9 ottobre con le camicie di Elvira, 14 €
+  // segnati come rimborsati e rimasti sul nostro conto.
+  if (sp.refunded_at && sp.refund_ref) throw new Error("Capo già rimborsato");
   if (sp.annullato_at) throw new Error("Capo già annullato");
   if (!sp.charged_at) throw new Error("Capo non ancora addebitato");
 
@@ -291,7 +298,27 @@ export async function refundOrderSpecial(formData: FormData) {
   let refundRef: string | null = null;
   let moneyMoved = false;
 
-  if (sp.stripe_invoice_item) {
+  // Da quale fattura si rimborsa.
+  //
+  // Due strade, perché i capi si addebitano in due modi: quelli vecchi come
+  // voce in coda al rinnovo (`stripe_invoice_item`), quelli dal 6 ottobre con
+  // una fattura fuori ciclo pagata subito (`stripe_invoice_id`). Il codice
+  // guardava solo la prima: sulla seconda usciva di qui senza rimborsare
+  // niente, scriveva «rimborsato» nel registro e teneva i soldi. Stesso guaio
+  // delle 3 camicie di Giulia, con un'altra porta d'ingresso.
+  const fatturaDiretta = (sp as { stripe_invoice_id?: string | null }).stripe_invoice_id ?? null;
+  if (!sp.stripe_invoice_item && fatturaDiretta) {
+    const origine = await origineDelPagamento(fatturaDiretta);
+    if (origine) {
+      const refund = await sk.refunds.create(
+        origine.tipo === "payment_intent"
+          ? { payment_intent: origine.id, amount }
+          : { charge: origine.id, amount },
+      );
+      refundRef = refund.id;
+      moneyMoved = true;
+    }
+  } else if (sp.stripe_invoice_item) {
     const ii = await sk.invoiceItems.retrieve(sp.stripe_invoice_item);
     const invoiceId = typeof ii.invoice === "string" ? ii.invoice : ii.invoice?.id ?? null;
     if (!invoiceId) {
@@ -346,15 +373,34 @@ export async function refundOrderSpecial(formData: FormData) {
     await svc.from("laundry_payouts").update({ status: "void" }).eq("special_id", specialId);
   }
   if (sp.orders?.customer_id) {
-    await svc.from("customer_charges").insert({
-      customer_id: sp.orders.customer_id,
-      description: `Rimborso capo: ${sp.item_name}${sp.qty > 1 ? ` ×${sp.qty}` : ""}${regalato ? " (offerto: la lavanderia resta pagata)" : ""}`,
-      amount_cents: amount,
-      kind: "refund",
-      status: moneyMoved ? "settled" : "pending",
-      stripe_ref: refundRef,
-      created_by: profile.id,
-    });
+    const descrizione = `Rimborso capo: ${sp.item_name}${sp.qty > 1 ? ` ×${sp.qty}` : ""}${regalato ? " (offerto: la lavanderia resta pagata)" : ""}`;
+    // Al secondo passaggio — quando il rimborso di ieri non era andato a buon
+    // fine — la riga nel registro c'è già: si aggiorna, non se ne scrive una
+    // seconda. Due righe da 14 € direbbero che abbiamo rimborsato 28.
+    const { data: esistente } = await svc
+      .from("customer_charges")
+      .select("id")
+      .eq("customer_id", sp.orders.customer_id)
+      .eq("kind", "refund")
+      .eq("amount_cents", amount)
+      .eq("description", descrizione)
+      .eq("status", "pending")
+      .maybeSingle<{ id: string }>();
+    if (esistente) {
+      await svc.from("customer_charges")
+        .update({ status: moneyMoved ? "settled" : "pending", stripe_ref: refundRef })
+        .eq("id", esistente.id);
+    } else {
+      await svc.from("customer_charges").insert({
+        customer_id: sp.orders.customer_id,
+        description: descrizione,
+        amount_cents: amount,
+        kind: "refund",
+        status: moneyMoved ? "settled" : "pending",
+        stripe_ref: refundRef,
+        created_by: profile.id,
+      });
+    }
   }
   revalidatePath(`/admin/ordini/${sp.order_id}`);
 }

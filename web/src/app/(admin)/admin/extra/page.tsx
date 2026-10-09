@@ -4,7 +4,7 @@ import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { LinkOfferta } from "@/components/admin/LinkOfferta";
 import { createServiceClient } from "@/lib/supabase/server";
-import { addebitaSubitoCapo, correggiPrezzoCapo, stornaCapoSpeciale } from "@/lib/actions/charge";
+import { addebitaSubitoCapo, correggiPrezzoCapo, refundOrderSpecial, stornaCapoSpeciale } from "@/lib/actions/charge";
 import { fmtFull } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +42,7 @@ type Riga = {
   incasso_errore: string | null;
   link_pagamento: string | null;
   refunded_at: string | null;
+  refund_ref: string | null;
   annullato_at: string | null;
   annullato_motivo: string | null;
   /** Tolto al cliente ma lavorato davvero: la lavanderia resta pagata. */
@@ -69,7 +70,7 @@ export default async function RegistroExtra({
       .from("order_specials")
       .select(
         "id, order_id, item_name, qty, price_cli_cents, comp_lav_cents, created_at, charged_at, " +
-          "incassato_at, incasso_fallito_at, incasso_errore, link_pagamento, refunded_at, annullato_at, annullato_motivo, regalato, " +
+          "incassato_at, incasso_fallito_at, incasso_errore, link_pagamento, refunded_at, refund_ref, annullato_at, annullato_motivo, regalato, " +
           "orders(customer_id, profiles!orders_customer_id_fkey(full_name, client_code, is_test))",
       )
       .order("created_at", { ascending: false })
@@ -86,6 +87,10 @@ export default async function RegistroExtra({
   // per tenere il conto della franchigia. Non sono lavoro da fare.
   const inAttesa = tutte.filter((r) => r.qty > 0 && !r.charged_at && !r.refunded_at && !r.annullato_at);
   const chiusi = tutte.filter((r) => r.refunded_at || r.annullato_at);
+  // Segnate come rimborsate, ma senza il riferimento del rimborso: i soldi non
+  // si sono mossi e il registro dice il contrario. Finché non si vedono qui,
+  // un rimborso fallito è indistinguibile da uno riuscito.
+  const rimborsiDaRifare = tutte.filter((r) => r.refunded_at && !r.refund_ref && !r.regalato && r.incassato_at);
   const chiusiOk = (r: Riga) => !r.incasso_fallito_at && !r.refunded_at && !r.annullato_at;
   const incassati = tutte.filter((r) => r.incassato_at && chiusiOk(r));
   // Chiesti a Stripe ma senza conferma che i soldi siano arrivati: sono le voci
@@ -221,6 +226,37 @@ export default async function RegistroExtra({
           </div>
         )}
       </Card>
+
+      {rimborsiDaRifare.length > 0 && (
+        <Card className="mt-4 border-[#C0392B]/35 bg-[#C0392B]/[0.04]">
+          <span className="font-display text-sm font-extrabold text-[#C0392B]">Rimborsi da completare</span>
+          <p className="mt-1 text-xs font-medium text-muted">
+            Segnati come rimborsati, ma su Stripe non risulta nessun rimborso: i soldi sono ancora nostri.
+            Premi «Rimborsa davvero» per spostarli.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {rimborsiDaRifare.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[12px] bg-white px-3 py-2 text-sm">
+                <span className="font-semibold text-navy">
+                  {r.qty}× {r.item_name}
+                  <span className="ml-2 text-xs font-medium text-muted">
+                    {uno(uno(r.orders)?.profiles)?.full_name ?? "Cliente"}
+                  </span>
+                </span>
+                <span className="flex items-center gap-3">
+                  <span className="font-display text-sm font-bold text-navy">{eur(r.price_cli_cents * r.qty)}</span>
+                  <form action={refundOrderSpecial}>
+                    <input type="hidden" name="special_id" value={r.id} />
+                    <BottoneInvio attesa="Rimborso…" className="font-display text-xs font-bold text-[#C0392B] hover:underline">
+                      Rimborsa davvero
+                    </BottoneInvio>
+                  </form>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {chiusi.length > 0 && (
         <Card className="mt-4">
