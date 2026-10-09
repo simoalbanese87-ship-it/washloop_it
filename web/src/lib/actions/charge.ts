@@ -271,6 +271,23 @@ export async function annullaCapoSpeciale(formData: FormData) {
  *  - se è già su una fattura pagata → esegue un refund reale su Stripe per
  *    l'importo del capo.
  *  Registra anche una riga nel ledger cliente per tracciabilità. Solo admin. */
+/** Il ritentativo dal riquadro «Rimborsi da completare».
+ *
+ *  Uguale a `refundOrderSpecial`, ma invece di lanciare torna sulla pagina con
+ *  il motivo scritto in chiaro. Un'eccezione dentro una server action, da qui,
+ *  si vede come una pagina che si ricarica identica: il 9 ottobre ho premuto
+ *  quel bottone quattro volte senza sapere che cosa stesse rispondendo Stripe. */
+export async function ritentaRimborsoCapo(formData: FormData) {
+  const tornaA = String(formData.get("torna_a") ?? "/admin/extra");
+  try {
+    await refundOrderSpecial(formData);
+  } catch (err) {
+    const motivo = err instanceof Error ? err.message : "errore sconosciuto";
+    redirect(`${tornaA}?warn=${encodeURIComponent(`Rimborso non riuscito: ${motivo}`)}`);
+  }
+  redirect(`${tornaA}?ok=${encodeURIComponent("Rimborso eseguito.")}`);
+}
+
 export async function refundOrderSpecial(formData: FormData) {
   const profile = await getCurrentProfile();
   if (!profile || profile.role !== "admin") throw new Error("Solo admin");

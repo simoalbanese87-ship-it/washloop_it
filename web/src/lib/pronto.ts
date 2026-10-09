@@ -29,8 +29,32 @@ import type { OrderStatus } from "@/lib/orders";
 export async function portaAPronto(orderId: string): Promise<OrderStatus> {
   const svc = createServiceClient();
 
+  const { data: prima } = await svc
+    .from("orders")
+    .select("bags_arrivati")
+    .eq("id", orderId)
+    .maybeSingle<{ bags_arrivati: number | null }>();
+
   const { error } = await svc.from("orders").update({ status: "ready" }).eq("id", orderId);
   if (error) throw new Error(error.message);
+
+  // **Non si incassa finché la lavanderia non ha contato i sacchi.**
+  //
+  // I capi compresi dipendono da quel numero: tre camicie per sacco lavorato.
+  // Il 9 ottobre l'addebito è partito alle 07:04 e il conteggio è arrivato alle
+  // 09:12 — a Elvira sono stati tolti 14,00 € calcolati su un sacco quando i
+  // sacchi erano due, e una volta incassato il conto non si rifà più: la
+  // franchigia si ricalcola solo sulle righe non ancora addebitate.
+  //
+  // Quindi si aspetta. I capi restano in attesa e si incassano da soli appena
+  // il conteggio arriva (`confermaSacchi`), che è il momento in cui il totale
+  // è davvero completo. Regola di Simone, 9 ottobre 2026: «devi aspettare
+  // almeno che la lavanderia segni tutto».
+  if (prima?.bags_arrivati == null) {
+    revalidatePath("/admin/extra");
+    revalidatePath("/admin");
+    return await programmaRiconsegnaSeScelta(orderId);
+  }
 
   const esito = await incassaExtraDelRitiro(svc, orderId);
   if (esito.esito === "incassato") {

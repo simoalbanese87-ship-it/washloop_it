@@ -181,6 +181,15 @@ export default async function LaundryOrderDetail({
                   ? `Ne aspettavamo ${order.bags}, il rider ne ha registrati ${order.bags_scansionati}. Conta quelli che hai sul banco: il compenso segue quelli.`
                   : `Hai contato ${order.bags_arrivati}. Se ti sei accorto di un errore puoi correggerlo finché il lavoro è in corso.`}
               </p>
+              {/* Detto qui, dove si decide: l'addebito al cliente aspetta questo
+                  numero, perché i capi compresi sono tre per sacco e senza il
+                  conteggio il conto esce sbagliato. */}
+              {order.bags_arrivati == null && (
+                <p className="mt-1 text-xs font-bold text-[#C9881F]">
+                  Finché non confermi, i capi extra non vengono addebitati al cliente: i capi compresi dipendono da
+                  quanti sacchi hai davvero lavorato.
+                </p>
+              )}
               <div className="mt-2 flex items-center gap-2">
                 <input
                   name="bags_arrivati"

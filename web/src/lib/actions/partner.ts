@@ -10,6 +10,8 @@ import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isT
 import { conteggiaConFranchigia, franchigiaPerSacco, sacchiPerFranchigia, ridistribuisciFranchigia } from "@/lib/franchigia";
 import { haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
 import { dataServizio } from "@/lib/periodo-servizio";
+import { incassaExtraDelRitiro } from "@/lib/incasso-extra";
+import { notificaExtraIncassati } from "@/lib/notify";
 import { portaAPronto } from "@/lib/pronto";
 
 /** Transizioni di stato consentite alla lavanderia (e solo queste). */
@@ -474,6 +476,24 @@ export async function confermaSacchiArrivati(formData: FormData) {
   // sacchi che aveva pagato.
   const rifatti = await rifaiFranchigia(svc, orderId, n, profile.laundry_id!);
 
+  // Il conteggio è l'ultima cosa che mancava: da qui in poi il totale dei capi
+  // è completo e i capi compresi sono quelli giusti, quindi si incassa. Sui
+  // sacchi già segnati «pronto» l'incasso era stato tenuto in sospeso apposta
+  // (vedi `portaAPronto`): questo è il momento in cui si sblocca.
+  let incassato = 0;
+  const { data: ord } = await svc
+    .from("orders")
+    .select("status")
+    .eq("id", orderId)
+    .maybeSingle<{ status: string }>();
+  if (ord && ["ready", "delivery_scheduled", "out_for_delivery", "delivered", "completed"].includes(ord.status)) {
+    const esito = await incassaExtraDelRitiro(svc, orderId);
+    if (esito.esito === "incassato") {
+      incassato = esito.totaleCents;
+      await notificaExtraIncassati(orderId, esito.totaleCents);
+    }
+  }
+
   revalidatePath("/laundry");
   revalidatePath(`/laundry/${orderId}`);
   revalidatePath("/laundry/storico");
@@ -481,7 +501,8 @@ export async function confermaSacchiArrivati(formData: FormData) {
   revalidatePath("/admin/extra");
   revalidatePath(`/admin/ordini/${orderId}`);
 
-  if (rifatti) redirect(`/laundry/${orderId}?ok=${encodeURIComponent(rifatti)}`);
+  const righe = [rifatti, incassato > 0 ? `Capi extra incassati: ${(incassato / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}.` : null].filter(Boolean);
+  if (righe.length > 0) redirect(`/laundry/${orderId}?ok=${encodeURIComponent(righe.join(" "))}`);
 }
 
 /** Rifà il conto della franchigia sui capi già registrati, col numero di sacchi

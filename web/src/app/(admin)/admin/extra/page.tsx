@@ -4,7 +4,7 @@ import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { LinkOfferta } from "@/components/admin/LinkOfferta";
 import { createServiceClient } from "@/lib/supabase/server";
-import { addebitaSubitoCapo, correggiPrezzoCapo, refundOrderSpecial, stornaCapoSpeciale } from "@/lib/actions/charge";
+import { addebitaSubitoCapo, correggiPrezzoCapo, ritentaRimborsoCapo, stornaCapoSpeciale } from "@/lib/actions/charge";
 import { fmtFull } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -245,8 +245,9 @@ export default async function RegistroExtra({
                 </span>
                 <span className="flex items-center gap-3">
                   <span className="font-display text-sm font-bold text-navy">{eur(r.price_cli_cents * r.qty)}</span>
-                  <form action={refundOrderSpecial}>
+                  <form action={ritentaRimborsoCapo}>
                     <input type="hidden" name="special_id" value={r.id} />
+                    <input type="hidden" name="torna_a" value="/admin/extra" />
                     <BottoneInvio attesa="Rimborso…" className="font-display text-xs font-bold text-[#C0392B] hover:underline">
                       Rimborsa davvero
                     </BottoneInvio>
