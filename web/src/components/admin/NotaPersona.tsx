@@ -29,10 +29,10 @@ export function NotaPersona({
   nota: string | null;
   back: string;
 }) {
-  // Tre righe, non una. Settanta caratteri in una colonna stretta mostravano
-  //  l'inizio della prima frase e basta: per sapere cosa ci si era detti
-  //  bisognava aprire ogni riga, una per una. Il testo pieno resta nel `title`.
-  const anteprima = anteprimaNota(nota, 180);
+  // Da quando la nota sta in un riquadro a tutta riga e non più in una colonna
+  // da 300px, ci sta quasi sempre tutta: 320 caratteri sono tre righe piene.
+  // Prima se ne vedevano settanta, cioè l'inizio della prima frase.
+  const anteprima = anteprimaNota(nota, 320);
   const tagliata = (nota ?? "").trim().length > anteprima.length;
   return (
     <details className="group">
@@ -43,7 +43,7 @@ export function NotaPersona({
             {tagliata && <span className="ml-1 font-display text-[10px] font-bold text-blue">tutta ↓</span>}
           </span>
         ) : (
-          <span className="font-display text-xs font-bold text-blue group-open:hidden">+ nota</span>
+          <span className="font-display text-xs font-bold text-blue group-open:hidden">+ scrivi una nota</span>
         )}
         <span className="hidden font-display text-xs font-bold text-muted group-open:inline">Nota</span>
       </summary>

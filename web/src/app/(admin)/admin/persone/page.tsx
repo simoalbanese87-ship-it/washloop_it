@@ -282,174 +282,156 @@ export default async function PersonePage({
         </form>
       </details>
 
-      <Card>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1120px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-line text-xs font-bold uppercase tracking-wide text-muted">
-                <th className="py-2">Persona</th>
-                <th className="py-2 pr-4">Codice</th>
-                <th className="py-2 pr-4">Zona</th>
-                <th className="py-2">Stadio</th>
-                <th className="py-2">Contatto</th>
-                <th className="py-2">Servizio</th>
-                <th className="py-2">Valore</th>
-                <th className="py-2">Ordini</th>
-                <th className="py-2">Da</th>
-                <th className="w-[300px] py-2">Note</th>
+      {/* Una scheda per persona, non una riga di tabella.
+          ------------------------------------------------
+          La tabella aveva undici colonne: su qualunque schermo scorreva in
+          orizzontale, e la colonna che serve davvero — la nota del telefono —
+          era l'ultima, cioè quella che restava fuori. Si leggeva «Inte… sol…
+          Con…» e per sapere cosa ci si era detti bisognava trascinare.
+          Le pastiglie, strette fra due colonne, si spezzavano a metà parola
+          («CONTATTO ha / l'accesso»).
 
-              </tr>
-            </thead>
-            <tbody>
-              {lista.map((p) => (
-                <tr key={p.id} className="border-b border-line/70 last:border-0">
-                  <td className="py-2.5">
-                    {/* Tutti i nomi si aprono. Chi ha l'accesso va alla sua
-                        scheda cliente, chi non ce l'ha alla scheda del
-                        contatto: prima metà delle righe era una scritta nera e
-                        sembrava un guasto. */}
-                    <Link
-                      href={p.profileId ? `/admin/abbonati/${p.profileId}` : `/admin/persone/${p.leadId}`}
-                      className="font-display font-bold text-navy hover:underline"
-                    >
-                      {p.nome}
-                    </Link>
-                    <div className="text-xs font-medium text-muted">
-                      {p.email ?? "—"}
-                      {p.telefono && ` · ${p.telefono}`}
-                      {p.provenienza && ` · da ${p.provenienza}`}
-                    </div>
-                    {/* I bottoni sotto il nome e non in una colonna in fondo:
-                        la tabella è larga e scorre, e l'ultima colonna finiva
-                        fuori dallo schermo — «Crea cliente» c'era e non si
-                        raggiungeva. Qui stanno dove si guarda la persona. */}
-                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                      {p.profileId ? (
-                        <>
-                          <Link href={`/admin/abbonati/${p.profileId}`} className="font-display text-xs font-bold text-blue hover:underline">
-                            Scheda →
-                          </Link>
-                          <form action={impersonate}>
-                            <input type="hidden" name="user_id" value={p.profileId} />
-                            <BottoneInvio attesa="Entro…" className="font-display text-xs font-bold text-blue hover:underline">
-                              Accedi come →
-                            </BottoneInvio>
-                          </form>
-                          <DeleteUserButton id={p.profileId} name={p.nome} back={qui} />
-                        </>
-                      ) : (
-                        <LeadActions leadId={p.leadId!} name={p.nome} back={qui} archiviato={p.archiviato} />
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-2.5 pr-4 font-mono text-xs font-bold text-navy">{p.clientCode ?? "—"}</td>
-                  {/* Il CAP, e se lo serviamo. Senza, un fuori zona si
-                      distingueva da un lead buono solo aprendo la scheda. Niente
-                      CAP = trattino e non badge: non sapere non e' «fuori». */}
-                  <td className="py-2.5 pr-4 whitespace-nowrap">
-                    {p.cap ? (
-                      <>
-                        {/* Il CAP in rosso fa il lavoro che faceva il badge
-                            «fuori zona», con un quarto dello spazio: in una
-                            tabella larga quello che si nota e' il colore, non
-                            una parola in piu' accanto a cinque cifre. */}
-                        <span
-                          className={`font-mono text-xs font-bold ${p.inZona === false ? "text-[#C0392B]" : "text-navy"}`}
-                          title={p.inZona === false ? "Fuori zona" : p.zona ?? undefined}
-                        >
-                          {p.cap}
-                        </span>
-                        <div className={`text-[11px] font-semibold ${p.inZona === false ? "text-[#C0392B]/70" : "text-muted"}`}>
-                          {p.inZona === false ? "fuori zona" : p.zona ?? ""}
-                        </div>
-                      </>
-                    ) : (
-                      <span className="text-xs font-medium text-muted">—</span>
-                    )}
-                  </td>
-                  <td className="py-2.5">
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${STADIO_TONO[p.stadio]}`}>
-                      {STADIO_LABEL[p.stadio]}
+          Qui ogni persona è un blocco che occupa la larghezza che ha:
+          chi è e come si contatta in alto a sinistra, stato e servizio a
+          destra, la nota sotto a tutta riga. Niente scorrimento laterale,
+          niente testo tagliato, e la riga resta scansionabile dall'alto
+          perché il nome e le pastiglie stanno sempre nello stesso punto. */}
+      <div className="space-y-3">
+        {lista.map((p) => (
+          <Card key={p.id} className="!p-4">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {/* Tutti i nomi si aprono: chi ha l'accesso sulla sua scheda
+                      cliente, chi non ce l'ha sulla scheda del contatto. */}
+                  <Link
+                    href={p.profileId ? `/admin/abbonati/${p.profileId}` : `/admin/persone/${p.leadId}`}
+                    className="font-display text-base font-extrabold text-navy hover:underline"
+                  >
+                    {p.nome}
+                  </Link>
+                  {/* `whitespace-nowrap` su tutte: una pastiglia che va a capo
+                      a metà parola si legge come due pastiglie rotte. */}
+                  <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${STADIO_TONO[p.stadio]}`}>
+                    {STADIO_LABEL[p.stadio]}
+                  </span>
+                  {p.stadio === "lead" && p.profileId && (
+                    <span className="whitespace-nowrap rounded-full bg-[#2b7fd4]/12 px-2 py-0.5 text-[10px] font-bold text-blue" title="Ha un accesso a WashLoop: può entrare in app, e tu puoi entrare come lui.">
+                      ha l’accesso
                     </span>
-                    {/* Da quando "Registrato" è dentro "Lead", questo è il segnale che
-                        distingue un contatto freddo da uno che si è già registrato. */}
-                    {p.stadio === "lead" && p.profileId && (
-                      <span className="ml-1 rounded-full bg-[#2b7fd4]/12 px-2 py-0.5 text-[10px] font-bold text-blue" title="Ha un accesso a WashLoop: può entrare in app, e tu puoi entrare come lui.">ha l’accesso</span>
-                    )}
-                    {/* «Convertito» senza account è una bugia: lo stato lo
-                        mette una persona a mano, l'account no. Finché manca,
-                        quella riga non si apre, non ha «Accedi come» e non le
-                        si può creare un ritiro — e nessuno capisce perché. */}
-                    {p.statoContatto === "convertito" && !p.profileId && (
-                      <span
-                        className="ml-1 rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[10px] font-extrabold text-[#C0392B]"
-                        title="Segnato come convertito, ma non ha un accesso a WashLoop: premi «Crea cliente» per aprirglielo."
-                      >
-                        senza accesso
-                      </span>
-                    )}
-                    {p.isTest && <span className="ml-1 rounded-full bg-navy/10 px-2 py-0.5 text-[10px] font-bold text-navy/60">prova</span>}
-                    {/* Scritto qui e non in una colonna sua: è una cosa che si
-                        deve notare leggendo la riga, non cercando. */}
-                    {p.disiscritto && (
-                      <span className="ml-1 rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[10px] font-extrabold text-[#C0392B]" title="Ha chiesto di non ricevere più email">
-                        disiscritto
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-2.5">
-                    <LeadStatusSelect
-                      leadId={p.leadId ?? undefined}
-                      profileId={p.profileId ?? undefined}
-                      value={isContactStatus(p.statoContatto ?? "") ? (p.statoContatto as ContactStatus) : "da_contattare"}
-                      back={qui}
-                    />
-                    {!isContactStatus(p.statoContatto ?? "") && (
-                      <div className="mt-0.5 text-[10px] font-medium text-muted">mai impostato</div>
-                    )}
-                  </td>
+                  )}
+                  {/* «Convertito» senza accesso è una bugia: lo stato lo mette
+                      una persona a mano, l'account no. */}
+                  {p.statoContatto === "convertito" && !p.profileId && (
+                    <span
+                      className="whitespace-nowrap rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[10px] font-extrabold text-[#C0392B]"
+                      title="Segnato come convertito, ma non ha un accesso a WashLoop: premi «Crea cliente» per aprirglielo."
+                    >
+                      senza accesso
+                    </span>
+                  )}
+                  {p.isTest && <span className="whitespace-nowrap rounded-full bg-navy/10 px-2 py-0.5 text-[10px] font-bold text-navy/60">prova</span>}
+                  {p.disiscritto && (
+                    <span className="whitespace-nowrap rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[10px] font-extrabold text-[#C0392B]" title="Ha chiesto di non ricevere più email">
+                      disiscritto
+                    </span>
+                  )}
+                  {p.archiviato && (
+                    <span className="whitespace-nowrap rounded-full bg-navy/10 px-2 py-0.5 text-[10px] font-bold text-navy/60">archiviato</span>
+                  )}
+                </div>
+
+                {/* Come lo si raggiunge: la riga che si copia per telefonare. */}
+                <div className="mt-1 truncate text-sm font-medium text-muted">
+                  {p.email ?? "—"}
+                  {p.telefono && ` · ${p.telefono}`}
+                </div>
+
+                {/* Il contorno, in una riga sola e in grigio: serve a decidere
+                    se chiamare, non a essere letto per primo. */}
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-medium text-muted">
+                  {p.clientCode && <span className="font-mono font-bold text-navy">{p.clientCode}</span>}
+                  {p.cap && (
+                    <span className={p.inZona === false ? "font-bold text-[#C0392B]" : ""}>
+                      {p.cap}
+                      {p.inZona === false ? " · fuori zona" : p.zona ? ` · ${p.zona}` : ""}
+                    </span>
+                  )}
+                  {p.provenienza && <span>da {p.provenienza}</span>}
+                  <span>dal {fmtDate(p.creatoIl)}</span>
+                  <span>
+                    {p.ordini} {p.ordini === 1 ? "ordine" : "ordini"}
+                    {p.ultimoOrdine ? ` · ultimo ${fmtDate(p.ultimoOrdine)}` : ""}
+                  </span>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {p.profileId ? (
+                    <>
+                      <Link href={`/admin/abbonati/${p.profileId}`} className="font-display text-xs font-bold text-blue hover:underline">
+                        Scheda →
+                      </Link>
+                      <form action={impersonate}>
+                        <input type="hidden" name="user_id" value={p.profileId} />
+                        <BottoneInvio attesa="Entro…" className="font-display text-xs font-bold text-blue hover:underline">
+                          Accedi come →
+                        </BottoneInvio>
+                      </form>
+                      <DeleteUserButton id={p.profileId} name={p.nome} back={qui} />
+                    </>
+                  ) : (
+                    <LeadActions leadId={p.leadId!} name={p.nome} back={qui} archiviato={p.archiviato} />
+                  )}
+                </div>
+              </div>
+
+              {/* Quello che si cambia: stato del contatto, servizio, e quanto
+                  vale. Su schermo largo sta a destra, su stretto va sotto. */}
+              <div className="flex flex-col gap-2 lg:items-end">
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <LeadStatusSelect
+                    leadId={p.leadId ?? undefined}
+                    profileId={p.profileId ?? undefined}
+                    value={isContactStatus(p.statoContatto ?? "") ? (p.statoContatto as ContactStatus) : "da_contattare"}
+                    back={qui}
+                  />
                   {/* Il tipo di servizio vive solo su chi ha un account: un
-                      lead non ha un servizio, ha una richiesta. */}
-                  <td className="py-2.5">
-                    {p.profileId ? (
-                      <TipoServizioSelect profileId={p.profileId} value={p.tipoServizio} back={qui} />
-                    ) : (
-                      <span className="text-xs font-medium text-muted">—</span>
-                    )}
-                  </td>
-                  {/* La cadenza accanto all'importo, e la parola giusta sotto.
-                      Una prova a pagamento da 40 EUR per una settimana si
-                      leggeva «40,00 EUR/mese · rinnovo 08/10»: sbagliato due
-                      volte, perche' non e' mensile e perche' non si rinnova. */}
-                  <td className="py-2.5 font-display font-extrabold text-navy">
-                    {p.valoreMensileCents > 0 ? `${eurCents(p.valoreMensileCents)}${cadenzaTesto(p.settimane)}` : "—"}
+                      contatto non ha un servizio, ha una richiesta. */}
+                  {p.profileId && <TipoServizioSelect profileId={p.profileId} value={p.tipoServizio} back={qui} />}
+                </div>
+                {!isContactStatus(p.statoContatto ?? "") && (
+                  <div className="text-[10px] font-medium text-muted lg:text-right">stato mai impostato</div>
+                )}
+                {/* La cadenza accanto all'importo: 40 € per una settimana non
+                    è «40 €/mese», ed è così che si leggeva. */}
+                {p.valoreMensileCents > 0 && (
+                  <div className="font-display text-sm font-extrabold text-navy lg:text-right">
+                    {eurCents(p.valoreMensileCents)}
+                    {cadenzaTesto(p.settimane)}
                     {p.rinnovo && p.stadio === "attivo" && (
-                      <div className={`text-[11px] font-medium ${p.disdetto ? "text-[#C9881F]" : "text-muted"}`}>
+                      <span className={`block text-[11px] font-medium ${p.disdetto ? "text-[#C9881F]" : "text-muted"}`}>
                         {p.disdetto ? "finisce" : "rinnovo"} {fmtDate(p.rinnovo)}
-                      </div>
+                      </span>
                     )}
-                  </td>
-                  <td className="py-2.5 text-muted">
-                    {p.ordini}
-                    {p.ultimoOrdine && <div className="text-[11px]">ultimo {fmtDate(p.ultimoOrdine)}</div>}
-                  </td>
-                  <td className="py-2.5 text-xs text-muted">{fmtDate(p.creatoIl)}</td>
-                  {/* Dove si telefona è anche dove si scrive cosa ci si è detti.
-                      Sui clienti è la stessa casella della scheda, non una
-                      seconda: se fossero due, nessuno saprebbe quale vale. */}
-                  {/* Ultima e larga: è la colonna che si legge davvero quando
-                      si cerca chi richiamare, e adesso che le azioni stanno
-                      sotto il nome non deve più stringersi per far posto. */}
-                  <td className="w-[300px] max-w-[300px] py-2.5 align-top">
-                    <NotaPersona profileId={p.profileId} leadId={p.leadId} nota={p.nota} back={qui} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {lista.length === 0 && <p className="py-3 text-sm font-medium text-muted">Nessuna persona con questi filtri.</p>}
-        </div>
-      </Card>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* La nota, a tutta riga. È la cosa che si viene a leggere qui
+                dentro: prima stava in una colonna da 300px in fondo a una
+                tabella che scorreva, cioè fuori dallo schermo. */}
+            <div className="mt-3 rounded-[12px] bg-ice/70 px-3 py-2">
+              <NotaPersona profileId={p.profileId} leadId={p.leadId} nota={p.nota} back={qui} />
+            </div>
+          </Card>
+        ))}
+        {lista.length === 0 && (
+          <Card>
+            <p className="text-sm font-medium text-muted">Nessuna persona con questi filtri.</p>
+          </Card>
+        )}
+      </div>
 
       <p className="mt-3 text-xs font-medium text-muted">
         <strong className="text-navy">Contatto</strong>{" "}vuol dire che ci ha lasciato i suoi dati e basta:
@@ -460,6 +442,7 @@ export default async function PersonePage({
         <br />
         Ogni nome si apre: chi ha l’accesso sulla sua scheda cliente, chi non ce l’ha sulla scheda del contatto.
         Una persona compare una volta sola: chi ha lasciato il contatto e poi si è registrato viene unito per email o telefono.
+        La nota in fondo a ogni scheda è la stessa che vedi dentro la scheda cliente: si scrive qui e si legge là.
         <br />
         Gli stadi seguono i soldi: <strong>Contatto</strong> non ha mai pagato · <strong>Cliente attivo</strong>{" "}paga
         · <strong>Pagamento fallito</strong> ha una fattura rimasta aperta · <strong>Cliente perso</strong> ha disdetto.
