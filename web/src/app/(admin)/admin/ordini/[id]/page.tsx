@@ -18,6 +18,8 @@ import { haAbbonamentoAttivoPerOrdine } from "@/lib/abbonamento-sacchi";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtDate, fmtFull, fmtSlot, toRomeInputValue } from "@/lib/format";
 import { deliveryCounts, pickupCounts } from "@/lib/slots";
+import { BottoneInvio } from "@/components/ui/BottoneInvio";
+import { creaOrdineCollegato } from "@/lib/actions/admin-customer";
 
 type Order = {
   id: string;
@@ -40,6 +42,9 @@ type Order = {
   pickup_slot: { starts_at: string; ends_at: string; archived_at: string | null } | null;
   customer: { full_name: string | null; phone: string | null } | null;
   addresses: { street: string; intercom: string | null; floor: string | null; zones: { name: string } | null } | null;
+  /** Il servizio a sacco di questo ritiro, se si paga a sacco. */
+  servizio_sacco_id: string | null;
+  servizi_sacco: { nome: string; price_cli_cents: number } | { nome: string; price_cli_cents: number }[] | null;
 };
 
 type Event = { id: string; status: OrderStatus; created_at: string; note: string | null };
@@ -122,7 +127,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }, { data: items }, { data: issues }] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, status, bags, bags_arrivati, bags_arrivati_at, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, pickup_slot_id, customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at, archived_at), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at, archived_at)")
+      .select("id, status, bags, bags_arrivati, bags_arrivati_at, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, pickup_slot_id, servizio_sacco_id, servizi_sacco(nome, price_cli_cents), customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at, archived_at), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at, archived_at)")
       .eq("id", id)
       .maybeSingle<Order>(),
     supabase.from("order_events").select("id, status, created_at, note").eq("order_id", id).order("created_at", { ascending: false }).returns<Event[]>(),
@@ -233,6 +238,9 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   }));
 
   if (!order) notFound();
+
+  const relSacco = order.servizi_sacco;
+  const servizioSacco = Array.isArray(relSacco) ? relSacco[0] ?? null : relSacco ?? null;
 
   const specialRows = specials ?? [];
   // I capi annullati non tornano fra quelli «da addebitare»: senza questo
@@ -427,6 +435,27 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
               </p>
             )}
           </Card>
+
+          {/* Il sacco misto non esiste: un ordine ha una lavanderia sola. Se
+              insieme allo stiro sono arrivati capi da lavare, quelli sono un
+              altro lavoro in un altro posto, e da qui diventano un altro
+              ordine — stesso indirizzo, stessa fascia, lavanderia generale. */}
+          {order.servizio_sacco_id && (
+            <Card>
+              <span className="font-display text-sm font-extrabold text-navy">Sacco di stiro</span>
+              <p className="mt-1 text-xs font-medium text-muted">
+                Questo ritiro si paga a sacco{servizioSacco ? ` (${servizioSacco.nome}, ${eur(servizioSacco.price_cli_cents)} a sacco)` : ""}, e
+                l&apos;addebito parte quando la stireria ha contato i sacchi. I capi da lavare arrivati insieme vanno
+                all&apos;altra lavanderia, a listino.
+              </p>
+              <form action={creaOrdineCollegato} className="mt-3">
+                <input type="hidden" name="order_id" value={order.id} />
+                <BottoneInvio attesa="Creo…" className="rounded-full border-2 border-line px-4 py-2 font-display text-sm font-extrabold text-navy">
+                  Crea l&apos;ordine per i capi da lavare →
+                </BottoneInvio>
+              </form>
+            </Card>
+          )}
 
           <Card>
             <span className="font-display text-sm font-extrabold text-navy">Avanza stato</span>

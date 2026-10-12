@@ -46,7 +46,7 @@ export async function lavanderiaPredefinita(client: SupabaseClient): Promise<str
 /** Le lavanderie generali attive: quelle che non sono dedicate a un servizio a
  *  sacco. La stireria di Arluno fa solo stiro, e contarla fra le candidate
  *  avrebbe spento il ripiego per tutti gli altri ordini. */
-async function lavanderieGenerali(client: SupabaseClient): Promise<string[]> {
+export async function lavanderieGenerali(client: SupabaseClient): Promise<string[]> {
   const [{ data: attive }, { data: dedicate }] = await Promise.all([
     client.from("laundries").select("id").eq("active", true).returns<{ id: string }[]>(),
     client.from("servizi_sacco").select("laundry_id").not("laundry_id", "is", null).returns<{ laundry_id: string }[]>(),

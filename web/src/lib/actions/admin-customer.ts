@@ -12,7 +12,8 @@ import { zoneIdForCap } from "@/lib/zones";
 import { geocodeAddress } from "@/lib/geo";
 import { ORDER_STATUS_LABEL, STATI_CHIUSI, type OrderStatus } from "@/lib/orders";
 import { slotFullMessage } from "@/lib/slots";
-import { destinazioneOrdine } from "@/lib/lavanderia";
+import { destinazioneOrdine, lavanderieGenerali } from "@/lib/lavanderia";
+import { scegliLavanderia } from "@/lib/lavanderia-scelta";
 import { inviaSollecito } from "@/lib/dunning";
 import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
 import { METODI_CHECKOUT, METODI_FATTURA } from "@/lib/metodi-accettati";
@@ -1345,4 +1346,59 @@ export async function addebitoTemporaneo(formData: FormData) {
 
   revalidatePath(back);
   redirect(`${back}?ok=${encodeURIComponent(`Addebito registrato: ${descrizione} — ${eur(importo)}. ${coda}`)}`);
+}
+
+/** L'ordine gemello per i capi da lavare, quando il sacco era di solo stiro.
+ *
+ *  Il sacco misto non esiste: un ordine ha una lavanderia sola, un conto solo e
+ *  una fattura sola, e la vista del partner gli mostra l'ordine intero. Se
+ *  insieme allo stiro arrivano capi da lavare, quelli sono un altro lavoro in
+ *  un altro posto — e qui diventano un altro ordine, con lo stesso indirizzo e
+ *  la stessa fascia, diretto alla lavanderia generale e addebitato a listino.
+ *
+ *  Niente servizio a sacco sul gemello: lì si paga capo per capo. */
+export async function creaOrdineCollegato(formData: FormData) {
+  await requireAdmin();
+  const orderId = String(formData.get("order_id") ?? "");
+  if (!orderId) throw new Error("Ordine mancante");
+
+  const svc = createServiceClient();
+  const { data: o } = await svc
+    .from("orders")
+    .select("id, customer_id, address_id, pickup_slot_id, delivery_slot_id, eta_ready_at, servizio_sacco_id")
+    .eq("id", orderId)
+    .maybeSingle<{
+      id: string; customer_id: string; address_id: string; pickup_slot_id: string;
+      delivery_slot_id: string | null; eta_ready_at: string | null; servizio_sacco_id: string | null;
+    }>();
+  const back = (params: Record<string, string>) => `/admin/ordini/${orderId}?${new URLSearchParams(params)}`;
+  if (!o) redirect(back({ warn: "Ordine non trovato." }));
+
+  // La lavanderia generale: `destinazioneOrdine` senza servizio a sacco
+  // risponde esattamente quella, e la regola resta scritta in un punto solo.
+  const { data: slot } = await svc.from("slots").select("laundry_id").eq("id", o!.pickup_slot_id).maybeSingle<{ laundry_id: string | null }>();
+  const generale = scegliLavanderia({
+    fascia: slot?.laundry_id ?? null,
+    generali: await lavanderieGenerali(svc),
+  });
+
+  const { data: nuovo, error } = await svc
+    .from("orders")
+    .insert({
+      customer_id: o!.customer_id,
+      address_id: o!.address_id,
+      pickup_slot_id: o!.pickup_slot_id,
+      delivery_slot_id: o!.delivery_slot_id,
+      laundry_id: generale,
+      eta_ready_at: o!.eta_ready_at,
+      bags: 1,
+      staff_notes: `Capi da lavare arrivati insieme al sacco di stiro dell'ordine ${orderId}.`,
+      status: "pickup_scheduled" as OrderStatus,
+    })
+    .select("id")
+    .single();
+  if (error) redirect(back({ warn: slotFullMessage(error) ?? `Ordine collegato non creato: ${error.message}` }));
+
+  revalidatePath("/admin/ordini");
+  redirect(`/admin/ordini/${nuovo!.id}?ok=${encodeURIComponent("Ordine per la lavanderia creato: i capi si addebitano a listino.")}`);
 }
