@@ -284,7 +284,7 @@ export default async function PersonePage({
 
       <Card>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1280px] text-left text-sm">
+          <table className="w-full min-w-[1120px] text-left text-sm">
             <thead>
               <tr className="border-b border-line text-xs font-bold uppercase tracking-wide text-muted">
                 <th className="py-2">Persona</th>
@@ -297,27 +297,49 @@ export default async function PersonePage({
                 <th className="py-2">Ordini</th>
                 <th className="py-2">Da</th>
                 <th className="w-[300px] py-2">Note</th>
-                {/* Incollata a destra: la tabella è larga e scorre, e le azioni
-                    finivano fuori dallo schermo — «Valeria non si può convertire»
-                    era questo, il bottone c'era e non si raggiungeva. */}
-                <th className="sticky right-0 z-10 bg-white py-2 pl-3 text-right shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]">Azioni</th>
+
               </tr>
             </thead>
             <tbody>
               {lista.map((p) => (
                 <tr key={p.id} className="border-b border-line/70 last:border-0">
                   <td className="py-2.5">
-                    {p.profileId ? (
-                      <Link href={`/admin/abbonati/${p.profileId}`} className="font-display font-bold text-navy hover:underline">
-                        {p.nome}
-                      </Link>
-                    ) : (
-                      <span className="font-display font-bold text-navy">{p.nome}</span>
-                    )}
+                    {/* Tutti i nomi si aprono. Chi ha l'accesso va alla sua
+                        scheda cliente, chi non ce l'ha alla scheda del
+                        contatto: prima metà delle righe era una scritta nera e
+                        sembrava un guasto. */}
+                    <Link
+                      href={p.profileId ? `/admin/abbonati/${p.profileId}` : `/admin/persone/${p.leadId}`}
+                      className="font-display font-bold text-navy hover:underline"
+                    >
+                      {p.nome}
+                    </Link>
                     <div className="text-xs font-medium text-muted">
                       {p.email ?? "—"}
                       {p.telefono && ` · ${p.telefono}`}
                       {p.provenienza && ` · da ${p.provenienza}`}
+                    </div>
+                    {/* I bottoni sotto il nome e non in una colonna in fondo:
+                        la tabella è larga e scorre, e l'ultima colonna finiva
+                        fuori dallo schermo — «Crea cliente» c'era e non si
+                        raggiungeva. Qui stanno dove si guarda la persona. */}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      {p.profileId ? (
+                        <>
+                          <Link href={`/admin/abbonati/${p.profileId}`} className="font-display text-xs font-bold text-blue hover:underline">
+                            Scheda →
+                          </Link>
+                          <form action={impersonate}>
+                            <input type="hidden" name="user_id" value={p.profileId} />
+                            <BottoneInvio attesa="Entro…" className="font-display text-xs font-bold text-blue hover:underline">
+                              Accedi come →
+                            </BottoneInvio>
+                          </form>
+                          <DeleteUserButton id={p.profileId} name={p.nome} back={qui} />
+                        </>
+                      ) : (
+                        <LeadActions leadId={p.leadId!} name={p.nome} back={qui} archiviato={p.archiviato} />
+                      )}
                     </div>
                   </td>
                   <td className="py-2.5 pr-4 font-mono text-xs font-bold text-navy">{p.clientCode ?? "—"}</td>
@@ -352,7 +374,7 @@ export default async function PersonePage({
                     {/* Da quando "Registrato" è dentro "Lead", questo è il segnale che
                         distingue un contatto freddo da uno che si è già registrato. */}
                     {p.stadio === "lead" && p.profileId && (
-                      <span className="ml-1 rounded-full bg-[#2b7fd4]/12 px-2 py-0.5 text-[10px] font-bold text-blue">ha account</span>
+                      <span className="ml-1 rounded-full bg-[#2b7fd4]/12 px-2 py-0.5 text-[10px] font-bold text-blue" title="Ha un accesso a WashLoop: può entrare in app, e tu puoi entrare come lui.">ha l’accesso</span>
                     )}
                     {/* «Convertito» senza account è una bugia: lo stato lo
                         mette una persona a mano, l'account no. Finché manca,
@@ -361,9 +383,9 @@ export default async function PersonePage({
                     {p.statoContatto === "convertito" && !p.profileId && (
                       <span
                         className="ml-1 rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[10px] font-extrabold text-[#C0392B]"
-                        title="Segnato come convertito, ma non ha un account: premi «Crea cliente» per aprirglielo."
+                        title="Segnato come convertito, ma non ha un accesso a WashLoop: premi «Crea cliente» per aprirglielo."
                       >
-                        senza account
+                        senza accesso
                       </span>
                     )}
                     {p.isTest && <span className="ml-1 rounded-full bg-navy/10 px-2 py-0.5 text-[10px] font-bold text-navy/60">prova</span>}
@@ -415,38 +437,11 @@ export default async function PersonePage({
                   {/* Dove si telefona è anche dove si scrive cosa ci si è detti.
                       Sui clienti è la stessa casella della scheda, non una
                       seconda: se fossero due, nessuno saprebbe quale vale. */}
-                  {/* Larghezza fissa: senza, una nota lunga allargava la colonna
-                      e spingeva «Azioni» oltre il bordo della tabella. */}
+                  {/* Ultima e larga: è la colonna che si legge davvero quando
+                      si cerca chi richiamare, e adesso che le azioni stanno
+                      sotto il nome non deve più stringersi per far posto. */}
                   <td className="w-[300px] max-w-[300px] py-2.5 align-top">
                     <NotaPersona profileId={p.profileId} leadId={p.leadId} nota={p.nota} back={qui} />
-                  </td>
-                  <td className="sticky right-0 z-10 bg-white py-2.5 pl-3 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]">
-                    <div className="flex items-center justify-end gap-3">
-                      {p.profileId ? (
-                        <>
-                          <Link href={`/admin/abbonati/${p.profileId}`} className="font-display text-xs font-bold text-blue hover:underline">
-                            Scheda →
-                          </Link>
-                          {/* Vedere l'app com'è per il cliente, senza passare
-                              dall'elenco abbonati: qui c'è chi ti ha appena
-                              scritto che qualcosa non gli funziona. */}
-                          <form action={impersonate}>
-                            <input type="hidden" name="user_id" value={p.profileId} />
-                            <BottoneInvio attesa="Entro…" className="font-display text-xs font-bold text-blue hover:underline">
-                              Accedi come →
-                            </BottoneInvio>
-                          </form>
-                          {/* Cancellare si poteva gia', ma solo dalla scheda:
-                              per togliere un doppione bisognava aprirlo,
-                              scorrere e tornare indietro. Le guardie vere —
-                              abbonamento in corso, ordini aperti — restano
-                              lato server e dicono perche' non si puo'. */}
-                          <DeleteUserButton id={p.profileId} name={p.nome} back={qui} />
-                        </>
-                      ) : (
-                        <LeadActions leadId={p.leadId!} name={p.nome} back={qui} archiviato={p.archiviato} />
-                      )}
-                    </div>
                   </td>
                 </tr>
               ))}
@@ -457,11 +452,16 @@ export default async function PersonePage({
       </Card>
 
       <p className="mt-3 text-xs font-medium text-muted">
-        Una persona compare una volta sola: chi ha lasciato il contatto e poi si è registrato viene unito per email o telefono.
-        I lead senza account non hanno codice cliente, perché il codice nasce con la registrazione: quelli che ce l’hanno
-        portano il segno «ha account», hanno aperto un profilo ma non hanno ancora pagato.
+        <strong className="text-navy">Contatto</strong>{" "}vuol dire che ci ha lasciato i suoi dati e basta:
+        nome, telefono, CAP. <strong className="text-navy">L’accesso</strong>{" "}è un’altra cosa — è il suo account
+        WashLoop, con email e password. Senza accesso non può entrare in app, non gli si può creare un ritiro e non gli
+        si può addebitare niente: tutto quello vive sull’account. Glielo apri con{" "}
+        <strong className="text-navy">Crea cliente</strong>, e da quel momento è una scheda cliente come le altre.
         <br />
-        Gli stadi seguono i soldi: <strong>Lead</strong> non ha mai pagato · <strong>Cliente attivo</strong>{" "}paga
+        Ogni nome si apre: chi ha l’accesso sulla sua scheda cliente, chi non ce l’ha sulla scheda del contatto.
+        Una persona compare una volta sola: chi ha lasciato il contatto e poi si è registrato viene unito per email o telefono.
+        <br />
+        Gli stadi seguono i soldi: <strong>Contatto</strong> non ha mai pagato · <strong>Cliente attivo</strong>{" "}paga
         · <strong>Pagamento fallito</strong> ha una fattura rimasta aperta · <strong>Cliente perso</strong> ha disdetto.
       </p>
     </>

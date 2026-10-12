@@ -27,7 +27,7 @@ const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFr
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
 
-type ServizioSacco = { id: string; nome: string; price_cli_cents: number; laundries: { name: string } | null };
+type ServizioSacco = { id: string; codice: string; nome: string; price_cli_cents: number; laundries: { name: string } | null };
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
@@ -96,11 +96,12 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     svc.from("subscription_offers").select("id, description, amount_cents, checkout_url, expires_at, created_at, settimane, sacchi").eq("user_id", id).order("created_at", { ascending: false }).limit(5).returns<Offerta[]>(),
     // I servizi a sacco disponibili: li legge il menu qui sotto, e il prezzo
     // mostrato è quello vero del listino, non uno scritto a mano nella pagina.
-    svc.from("servizi_sacco").select("id, nome, price_cli_cents, laundries(name)").eq("active", true).order("sort").returns<ServizioSacco[]>(),
+    svc.from("servizi_sacco").select("id, codice, nome, price_cli_cents, laundries(name)").eq("active", true).order("sort").returns<ServizioSacco[]>(),
   ]);
   const email = userRes?.user?.email ?? "—";
   const serviziSacco = servizi ?? [];
   const servizioDelCliente = serviziSacco.find((s) => s.id === profile.servizio_sacco_id) ?? null;
+  const prezzoStiro = serviziSacco.find((s) => s.codice === "stiro")?.price_cli_cents ?? null;
 
   // Verità da Stripe + tutto quello che la scheda non mostrava: incassi
   // registrati (ricevute e fatture) e capi fuori abbonamento.
@@ -866,10 +867,10 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                 quello attuale. Se il cliente paga senza che il vecchio sia stato disdetto, gli arrivano due
                 addebiti al mese.
               </p>
-              <CustomSubscriptionForm customerId={id} />
+              <CustomSubscriptionForm customerId={id} servizioAttuale={tipoServizio} prezzoStiroCents={prezzoStiro} />
             </details>
           ) : (
-            <CustomSubscriptionForm customerId={id} />
+            <CustomSubscriptionForm customerId={id} servizioAttuale={tipoServizio} prezzoStiroCents={prezzoStiro} />
           )}
 
           {/* Fuori dai due rami di proposito: un pagamento singolo si fa a

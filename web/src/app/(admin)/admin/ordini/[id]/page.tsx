@@ -18,6 +18,7 @@ import { haAbbonamentoAttivoPerOrdine } from "@/lib/abbonamento-sacchi";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, type OrderStatus } from "@/lib/orders";
 import { fmtDate, fmtFull, fmtSlot, toRomeInputValue } from "@/lib/format";
 import { deliveryCounts, pickupCounts } from "@/lib/slots";
+import { isTipoServizio, TIPO_SERVIZIO_LABEL, TIPO_SERVIZIO_TONO, type TipoServizio } from "@/lib/tipo-servizio";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { creaOrdineCollegato } from "@/lib/actions/admin-customer";
 
@@ -40,7 +41,7 @@ type Order = {
   delivery_slot: { starts_at: string; ends_at: string; archived_at: string | null } | null;
   pickup_slot_id: string | null;
   pickup_slot: { starts_at: string; ends_at: string; archived_at: string | null } | null;
-  customer: { full_name: string | null; phone: string | null } | null;
+  customer: { full_name: string | null; phone: string | null; tipo_servizio: string | null } | null;
   addresses: { street: string; intercom: string | null; floor: string | null; zones: { name: string } | null } | null;
   /** Il servizio a sacco di questo ritiro, se si paga a sacco. */
   servizio_sacco_id: string | null;
@@ -127,7 +128,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   const [{ data: order }, { data: events }, { data: couriers }, { data: laundries }, { data: items }, { data: issues }] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, status, bags, bags_arrivati, bags_arrivati_at, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, pickup_slot_id, servizio_sacco_id, servizi_sacco(nome, price_cli_cents), customer:profiles!orders_customer_id_fkey(full_name, phone), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at, archived_at), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at, archived_at)")
+      .select("id, status, bags, bags_arrivati, bags_arrivati_at, notes, staff_notes, created_at, courier_id, laundry_id, customer_id, eta_ready_at, delivery_slot_id, pickup_slot_id, servizio_sacco_id, servizi_sacco(nome, price_cli_cents), customer:profiles!orders_customer_id_fkey(full_name, phone, tipo_servizio), addresses(street, intercom, floor, zones(name)), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at, archived_at), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at, archived_at)")
       .eq("id", id)
       .maybeSingle<Order>(),
     supabase.from("order_events").select("id, status, created_at, note").eq("order_id", id).order("created_at", { ascending: false }).returns<Event[]>(),
@@ -273,7 +274,17 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
           <Card>
             <div className="flex items-center justify-between">
               <span className="font-display text-sm font-extrabold text-navy">Dettagli</span>
-              <StatusBadge status={order.status} />
+              <div className="flex items-center gap-2">
+                {/* Che lavoro è, scritto sull'ordine: un sacco di solo stiro va
+                    in un altro posto, e chi prende in carico il giro deve
+                    saperlo senza aprire la scheda del cliente. */}
+                {isTipoServizio(order.customer?.tipo_servizio) && (
+                  <span className={`rounded-full px-2.5 py-1 font-display text-[11px] font-extrabold ${TIPO_SERVIZIO_TONO[order.customer!.tipo_servizio as TipoServizio]}`}>
+                    {TIPO_SERVIZIO_LABEL[order.customer!.tipo_servizio as TipoServizio]}
+                  </span>
+                )}
+                <StatusBadge status={order.status} />
+              </div>
             </div>
             <div className="mt-4 space-y-1.5 text-sm font-medium text-muted">
               <div>Cliente: {order.customer?.full_name ?? "—"} {order.customer?.phone && `· ${order.customer.phone}`}</div>

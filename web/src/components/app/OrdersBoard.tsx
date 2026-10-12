@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/app/StatusBadge";
 import { ORDER_FLOW, ORDER_STATUS_LABEL, statusIndex, type OrderStatus } from "@/lib/orders";
 import { passaPeriodo, confrontaUrgenza, type Periodo } from "@/lib/board-periodo";
 import { fmtDateTime } from "@/lib/format";
+import { isTipoServizio, TIPO_SERVIZIO_LABEL, TIPO_SERVIZIO_TONO } from "@/lib/tipo-servizio";
 
 export type BoardOrder = {
   id: string;
@@ -27,6 +28,9 @@ export type BoardOrder = {
   courier_name: string | null;
   pickup_at: string | null;
   delivery_at: string | null;
+  /** Che lavoro è: un sacco di solo stiro va in un'altra lavanderia, e sul
+   *  board si deve vedere senza aprire la scheda del cliente. */
+  tipo_servizio?: string | null;
 };
 type Opt = { id: string; name: string };
 
@@ -498,6 +502,11 @@ function BoardCard({ o, couriers, late, selected, onToggle }: { o: BoardOrder; c
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
         <StatusBadge status={o.status} />
         {late && <span className="rounded-full bg-[#C0392B]/12 px-2 py-0.5 font-display text-[10px] font-extrabold uppercase text-[#C0392B]">In ritardo</span>}
+        {isTipoServizio(o.tipo_servizio) && (
+          <span className={`rounded-full px-2 py-0.5 font-display text-[10px] font-extrabold uppercase ${TIPO_SERVIZIO_TONO[o.tipo_servizio]}`}>
+            {TIPO_SERVIZIO_LABEL[o.tipo_servizio]}
+          </span>
+        )}
         {senzaFascia(o) && (
           <span className="rounded-full bg-[#C9881F]/15 px-2 py-0.5 font-display text-[10px] font-extrabold uppercase text-[#C9881F]" title="Pronto ma senza fascia di riconsegna: nessun giro lo prende.">
             senza riconsegna

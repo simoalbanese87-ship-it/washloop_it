@@ -4,17 +4,31 @@ import { useState } from "react";
 import { createCustomSubscriptionLink } from "@/lib/actions/admin-customer";
 import { paracadute, GIORNI_PER_PRENOTARE } from "@/lib/prova";
 import { DURATE, cadenzaTesto } from "@/lib/durata-abbonamento";
+import { TIPI_SERVIZIO, TIPO_SERVIZIO_LABEL, type TipoServizio } from "@/lib/tipo-servizio";
 import { fmtDate } from "@/lib/format";
 
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
 /** Form admin: crea un abbonamento personalizzato (prezzo custom, mensile) e
  *  mostra il link Stripe Checkout da inviare al cliente. */
-export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
+export function CustomSubscriptionForm({
+  customerId,
+  servizioAttuale,
+  prezzoStiroCents,
+}: {
+  customerId: string;
+  /** Quello già scritto sulla scheda, se c'è: il menu parte da lì invece che
+   *  da vuoto, così generare un secondo link non cancella il servizio. */
+  servizioAttuale?: TipoServizio | null;
+  /** Il prezzo del sacco di solo stiro, da listino: serve come promemoria
+   *  mentre si decide l'importo, non come valore imposto. */
+  prezzoStiroCents?: number | null;
+}) {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [settimane, setSettimane] = useState("");
   const [sacchi, setSacchi] = useState("");
+  const [servizio, setServizio] = useState<string>(servizioAttuale ?? "");
   const [prova, setProva] = useState(false);
   const [loading, setLoading] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
@@ -41,6 +55,7 @@ export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
       prova_settimana: prova && !aTermine,
       settimane,
       sacchi,
+      tipo_servizio: servizio,
     });
     setLoading(false);
     if ("error" in res) setError(res.error);
@@ -76,6 +91,24 @@ export function CustomSubscriptionForm({ customerId }: { customerId: string }) {
         {/* La durata e' un menu chiuso e non un campo libero: finisce dentro
             un prezzo Stripe, e un refuso li' il cliente lo scopre
             dall'estratto conto. */}
+        {/* Il servizio prima della durata: decide dove va il sacco, non è
+            un'etichetta. Finché si compilava dopo, a mano, l'abbonamento
+            nasceva senza dire che lavoro è e i ritiri partivano verso la
+            lavanderia sbagliata. */}
+        <label className="text-xs font-bold text-muted">Servizio
+          <select value={servizio} onChange={(e) => setServizio(e.target.value)} className={input}>
+            <option value="">Da compilare</option>
+            {TIPI_SERVIZIO.map((t) => (
+              <option key={t} value={t}>{TIPO_SERVIZIO_LABEL[t]}</option>
+            ))}
+          </select>
+        </label>
+        {servizio === "solo_stiro" && (
+          <p className="rounded-[10px] bg-[#7A4FBF]/10 px-2.5 py-1.5 text-[11px] font-semibold text-[#7A4FBF]">
+            Solo stiro: i ritiri andranno alla stireria di Arluno, non alla lavanderia.
+            {prezzoStiroCents ? ` A listino il sacco da 30 L è ${(prezzoStiroCents / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}.` : ""}
+          </p>
+        )}
         <label className="text-xs font-bold text-muted">Durata
           <select value={settimane} onChange={(e) => setSettimane(e.target.value)} className={input}>
             <option value="">Mensile, si rinnova da solo</option>

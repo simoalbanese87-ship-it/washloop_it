@@ -22,7 +22,7 @@ type Row = {
   eta_ready_at: string | null;
   courier_id: string | null;
   laundry_id: string | null;
-  customer: { full_name: string | null; phone: string | null; is_test: boolean } | null;
+  customer: { full_name: string | null; phone: string | null; is_test: boolean; tipo_servizio: string | null } | null;
   addresses: { zones: { name: string } | null } | null;
   laundries: { name: string } | null;
   courier: { full_name: string | null } | null;
@@ -79,7 +79,7 @@ export default async function AdminBoard({
       .from("orders")
       .select(
         "id, status, bags, created_at, eta_ready_at, courier_id, laundry_id, " +
-          "customer:profiles!orders_customer_id_fkey(full_name, phone, is_test), " +
+          "customer:profiles!orders_customer_id_fkey(full_name, phone, is_test, tipo_servizio), " +
           "addresses(zones(name)), laundries(name), " +
           "courier:profiles!orders_courier_id_fkey(full_name), " +
           "pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, archived_at), " +
@@ -107,6 +107,7 @@ export default async function AdminBoard({
     courier_id: r.courier_id,
     laundry_id: r.laundry_id,
     customer_name: r.customer?.full_name ?? null,
+    tipo_servizio: r.customer?.tipo_servizio ?? null,
     customer_phone: r.customer?.phone ?? null,
     zone_name: r.addresses?.zones?.name ?? null,
     laundry_name: r.laundries?.name ?? null,

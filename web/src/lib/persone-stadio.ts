@@ -13,7 +13,10 @@ export const STADI = ["lead", "attivo", "difficolta", "perso"] as const;
 export type Stadio = (typeof STADI)[number];
 
 export const STADIO_LABEL: Record<Stadio, string> = {
-  lead: "Lead",
+  // «Lead» è una parola da CRM e in pannello non la capiva nessuno: qui dentro
+  // è semplicemente una persona che ci ha lasciato i suoi dati e non ha ancora
+  // pagato — che abbia aperto un accesso o no.
+  lead: "Contatto",
   attivo: "Cliente attivo",
   difficolta: "Pagamento fallito",
   perso: "Cliente perso",

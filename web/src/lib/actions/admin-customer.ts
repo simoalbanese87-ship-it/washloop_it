@@ -14,6 +14,7 @@ import { ORDER_STATUS_LABEL, STATI_CHIUSI, type OrderStatus } from "@/lib/orders
 import { slotFullMessage } from "@/lib/slots";
 import { destinazioneOrdine, lavanderieGenerali } from "@/lib/lavanderia";
 import { haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
+import { tipoServizioDaForm, TIPO_SERVIZIO_LABEL } from "@/lib/tipo-servizio";
 import { scegliLavanderia } from "@/lib/lavanderia-scelta";
 import { inviaSollecito } from "@/lib/dunning";
 import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
@@ -114,6 +115,12 @@ export async function createCustomSubscriptionLink(
     prova_settimana?: boolean;
     settimane?: number | string;
     sacchi?: number | string;
+    /** Che servizio sta comprando: lava e stira, solo stiro, solo lavanderia.
+     *  Non è un'etichetta per il CRM — è la cosa che manda il sacco alla
+     *  stireria invece che alla lavanderia. Finché si compilava dopo, a mano,
+     *  l'abbonamento nasceva senza dire che lavoro è e i ritiri partivano
+     *  verso il posto sbagliato. */
+    tipo_servizio?: string;
   },
 ): Promise<{ url: string } | { error: string }> {
   try {
@@ -124,15 +131,21 @@ export async function createCustomSubscriptionLink(
     // Durata a termine: un ciclo solo, lungo N settimane. `null` = mensile che
     // si rinnova, cioè il comportamento storico di questo link.
     const settimane = settimaneValide(input.settimane);
+    const servizio = tipoServizioDaForm(input.tipo_servizio);
     // Il nome del prodotto è l'unica riga che il cliente legge in grande sul
     // checkout, e Stripe sotto ci scrive «alla settimana» perché non sa che
     // disdiciamo a fine ciclo. Senza dirlo qui, «0,50 € alla settimana» è
     // l'ultima cosa che vede prima di pagare.
+    // Il servizio finisce nel nome del prodotto: è la riga che il cliente legge
+    // in grande sul checkout, e «Abbonamento WashLoop personalizzato» su un
+    // solo stiro non dice cosa ha comprato. Lo stesso testo torna poi nella
+    // proposta sulla scheda, dove lo rilegge chi risponde al telefono.
+    const etichettaServizio = servizio ? ` · ${TIPO_SERVIZIO_LABEL[servizio]}` : "";
     const description =
       (input.description ?? "").trim() ||
       (settimane
-        ? `Prova WashLoop · ${settimane === 1 ? "1 settimana" : `${settimane} settimane`}, senza rinnovo`
-        : "Abbonamento WashLoop personalizzato");
+        ? `WashLoop${etichettaServizio} · ${settimane === 1 ? "1 settimana" : `${settimane} settimane`}, senza rinnovo`
+        : `Abbonamento WashLoop${etichettaServizio}`);
     const sacchi = sacchiValidi(input.sacchi);
     if (!customerId) return { error: "Cliente mancante" };
     if (!Number.isFinite(amount) || amount <= 0) return { error: "Importo non valido" };
@@ -227,6 +240,30 @@ export async function createCustomSubscriptionLink(
       },
     });
     if (!session.url) return { error: "Stripe non ha restituito un link" };
+
+    // Il servizio si scrive **adesso**, non quando il cliente pagherà: da
+    // questo dipende dove va il suo sacco, e il primo ritiro può essere
+    // prenotato prima che qualcuno torni sulla scheda a compilare un menu. Sul
+    // solo stiro si aggancia anche il servizio a sacco, che è la riga che manda
+    // il ritiro alla stireria invece che alla lavanderia.
+    if (servizio) {
+      const patch: Record<string, unknown> = { tipo_servizio: servizio };
+      if (servizio === "solo_stiro") {
+        const { data: stiro } = await svc
+          .from("servizi_sacco")
+          .select("id")
+          .eq("codice", "stiro")
+          .eq("active", true)
+          .maybeSingle<{ id: string }>();
+        if (stiro) patch.servizio_sacco_id = stiro.id;
+      } else {
+        // Cambiare servizio vuol dire cambiare lavanderia: lasciare agganciata
+        // la stireria a chi è tornato al lava-stira manderebbe i suoi sacchi
+        // ad Arluno per sempre.
+        patch.servizio_sacco_id = null;
+      }
+      await svc.from("profiles").update(patch).eq("id", customerId);
+    }
 
     // La proposta si registra: senza, il link viveva solo finché la pagina
     // restava aperta e la scheda del cliente non diceva più niente di lui.
