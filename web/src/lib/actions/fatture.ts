@@ -7,6 +7,8 @@ import { getCurrentProfile } from "@/lib/auth";
 import { registraIncasso } from "@/lib/fatturazione";
 import { ficMode } from "@/lib/fic";
 import { importaIncassiDaStripe } from "@/lib/incassi-import";
+import { origineDelPagamento } from "@/lib/pagamento-fattura";
+import { stripe } from "@/lib/stripe";
 
 const REV = "/admin/incassi";
 
@@ -81,4 +83,79 @@ export async function importaIncassi() {
       ? `Importati ${esito.scritte} incassi che mancavano, su ${esito.lette} fatture pagate trovate su Stripe (${euro(esito.totaleCents)} in tutto). Sono entrati come ricevute: nessun documento è stato emesso su Fatture in Cloud. Erano fuori dal registro, quindi controlla che sull'endpoint Stripe sia attivo l'evento invoice.payment_succeeded, altrimenti i prossimi si perderanno di nuovo.`
       : `Nessuna riga da aggiungere: le ${esito.lette} fatture pagate su Stripe (${euro(esito.totaleCents)}) erano già tutte registrate. Nessun documento emesso su Fatture in Cloud.`;
   redirect(`${REV}?ok=${encodeURIComponent(messaggio)}`);
+}
+
+/** Rimborsa un incasso, in tutto o in parte, dal pannello.
+ *
+ *  Finora i rimborsi sugli incassi si potevano fare solo dalla dashboard di
+ *  Stripe: il registro li registrava (il webhook `charge.refunded` scrive
+ *  `rimborsato_at`), ma iniziarli no. Il 12 ottobre 2026 serviva restituire
+ *  4,00 € a una cliente che passa a un altro servizio, e l'unica strada era
+ *  entrare in Stripe con la password.
+ *
+ *  Il resto lo fa il webhook: questa funzione chiede il rimborso e scrive
+ *  subito la riga, così il pannello non resta indietro se l'evento tarda. Le
+ *  due scritture sono la stessa e non si pestano i piedi — `rimborsato_at` si
+ *  scrive una volta sola. */
+export async function rimborsaIncasso(formData: FormData) {
+  const me = await getCurrentProfile();
+  if (!me || me.role !== "admin") throw new Error("Solo admin");
+
+  const id = String(formData.get("id") ?? "");
+  const motivo = String(formData.get("motivo") ?? "").trim();
+  const quanti = String(formData.get("importo_eur") ?? "").replace(",", ".").trim();
+  if (!id) redirect(`${REV}?warn=${encodeURIComponent("Incasso mancante.")}`);
+
+  const svc = createServiceClient();
+  const { data: riga } = await svc
+    .from("invoices")
+    .select("id, user_id, amount_cents, stripe_invoice_id, rimborsato_at, numero_ricevuta")
+    .eq("id", id)
+    .maybeSingle<{ id: string; user_id: string | null; amount_cents: number; stripe_invoice_id: string | null; rimborsato_at: string | null; numero_ricevuta: number | null }>();
+  if (!riga) redirect(`${REV}?warn=${encodeURIComponent("Incasso non trovato.")}`);
+  if (riga!.rimborsato_at) redirect(`${REV}?warn=${encodeURIComponent("Questo incasso risulta già rimborsato.")}`);
+  if (!riga!.stripe_invoice_id) redirect(`${REV}?warn=${encodeURIComponent("Incasso senza fattura Stripe: va rimborsato a mano.")}`);
+
+  // Importo vuoto = tutto. Un importo scritto vale solo se sta dentro l'incasso:
+  // un rimborso più grande dell'incasso Stripe lo rifiuta, ma è meglio dirlo qui.
+  const parziale = quanti ? Math.round(parseFloat(quanti) * 100) : riga!.amount_cents;
+  if (!Number.isFinite(parziale) || parziale <= 0 || parziale > riga!.amount_cents) {
+    redirect(`${REV}?warn=${encodeURIComponent(`Importo non valido: dev'essere fra 0,01 € e ${(riga!.amount_cents / 100).toFixed(2)} €.`)}`);
+  }
+
+  const origine = await origineDelPagamento(riga!.stripe_invoice_id!);
+  if (!origine) {
+    redirect(`${REV}?warn=${encodeURIComponent(`Non trovo il pagamento della fattura ${riga!.stripe_invoice_id}: nessun rimborso è stato fatto.`)}`);
+  }
+
+  let refundId: string;
+  try {
+    const refund = await stripe().refunds.create(
+      origine!.tipo === "payment_intent"
+        ? { payment_intent: origine!.id, amount: parziale }
+        : { charge: origine!.id, amount: parziale },
+    );
+    refundId = refund.id;
+  } catch (err) {
+    redirect(`${REV}?warn=${encodeURIComponent(`Rimborso rifiutato da Stripe: ${err instanceof Error ? err.message : "errore"}`)}`);
+  }
+
+  await svc.from("invoices").update({ rimborsato_at: new Date().toISOString(), rimborsato_cents: parziale }).eq("id", id);
+
+  // Anche nella scheda del cliente, dove si legge la storia dei suoi soldi.
+  if (riga!.user_id) {
+    await svc.from("customer_charges").insert({
+      customer_id: riga!.user_id,
+      description: `Rimborso ricevuta n. ${riga!.numero_ricevuta ?? "—"}${motivo ? ` · ${motivo}` : ""}`,
+      amount_cents: parziale,
+      kind: "refund",
+      status: "settled",
+      stripe_ref: refundId!,
+      created_by: me.id,
+    });
+    revalidatePath(`/admin/abbonati/${riga!.user_id}`);
+  }
+
+  revalidatePath(REV);
+  redirect(`${REV}?ok=${encodeURIComponent(`Rimborsati ${(parziale / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}.`)}`);
 }

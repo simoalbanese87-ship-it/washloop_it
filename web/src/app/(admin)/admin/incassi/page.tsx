@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { createServiceClient } from "@/lib/supabase/server";
 import { ficMode } from "@/lib/fic";
-import { riemettiFattura, importaIncassi } from "@/lib/actions/fatture";
+import { riemettiFattura, importaIncassi, rimborsaIncasso } from "@/lib/actions/fatture";
 import { fmtFull } from "@/lib/format";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 
@@ -312,6 +312,35 @@ export default async function IncassiPage({
                   <a href={r.fic_url} target="_blank" rel="noreferrer" className="font-display text-[11px] font-bold text-blue hover:underline">
                     Apri su FIC
                   </a>
+                )}
+                {/* Il rimborso parte da qui e non più solo dalla dashboard di
+                    Stripe. Importo vuoto = tutto; si scrive una cifra per
+                    restituire una parte, come i giorni non usati di un
+                    abbonamento che si chiude a metà. */}
+                {!r.rimborsato_at && r.stripe_invoice_id && (
+                  <details className="flex-none">
+                    <summary className="cursor-pointer font-display text-[11px] font-bold text-[#C0392B] hover:underline">Rimborsa</summary>
+                    <form action={rimborsaIncasso} className="mt-2 flex flex-wrap items-center gap-2 rounded-[12px] border border-line bg-white p-2">
+                      <input type="hidden" name="id" value={r.id} />
+                      <input
+                        name="importo_eur"
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        max={(r.amount_cents / 100).toFixed(2)}
+                        placeholder={(r.amount_cents / 100).toFixed(2)}
+                        className="h-9 w-24 rounded-[10px] border border-line px-2 text-sm font-bold text-navy outline-none focus:border-blue"
+                      />
+                      <input
+                        name="motivo"
+                        placeholder="motivo (facoltativo)"
+                        className="h-9 w-48 rounded-[10px] border border-line px-2 text-sm font-medium text-navy outline-none focus:border-blue"
+                      />
+                      <BottoneInvio attesa="Rimborso…" className="rounded-full bg-[#C0392B] px-3 py-1.5 font-display text-[11px] font-extrabold text-white">
+                        Rimborsa
+                      </BottoneInvio>
+                    </form>
+                  </details>
                 )}
                 {(r.stato === "da_emettere" || r.stato === "errore") && mode !== "off" && (
                   <form action={riemettiFattura}>
