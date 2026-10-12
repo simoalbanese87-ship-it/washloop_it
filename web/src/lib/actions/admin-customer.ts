@@ -13,6 +13,7 @@ import { geocodeAddress } from "@/lib/geo";
 import { ORDER_STATUS_LABEL, STATI_CHIUSI, type OrderStatus } from "@/lib/orders";
 import { slotFullMessage } from "@/lib/slots";
 import { destinazioneOrdine, lavanderieGenerali } from "@/lib/lavanderia";
+import { haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
 import { scegliLavanderia } from "@/lib/lavanderia-scelta";
 import { inviaSollecito } from "@/lib/dunning";
 import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
@@ -357,10 +358,13 @@ export async function impostaAConsumo(formData: FormData) {
  *  la stireria di Arluno — e si pagano a sacco, quando la stireria li ha
  *  contati. Niente canone, niente rinnovo, niente capi compresi.
  *
- *  Attivarlo accende anche `a_consumo`: senza, la prenotazione chiederebbe un
- *  abbonamento attivo e il cliente non potrebbe prenotare niente. Sono due
- *  facce dello stesso accordo e sbagliarne una vorrebbe dire un cliente
- *  concordato che non riesce a usare il servizio.
+ *  Il solo stiro si vende **come gli altri: un abbonamento**, con un servizio
+ *  diverso — anche di una settimana sola, dal link su misura qui sopra. In quel
+ *  caso qui si dice soltanto *dove va il ritiro* e *che lavoro è*: il prezzo lo
+ *  fa l'abbonamento, e il sacco non si addebita una seconda volta.
+ *
+ *  Su chi un abbonamento non ce l'ha, invece, si accende anche `a_consumo` —
+ *  senza, la prenotazione lo fermerebbe — e lì il sacco si paga a sacco.
  *
  *  Toglierlo **non** spegne `a_consumo`: quello è un permesso che può essere
  *  stato dato per altri motivi, e revocarlo di straforo chiuderebbe fuori una
@@ -373,7 +377,9 @@ export async function impostaServizioSacco(formData: FormData) {
 
   const svc = createServiceClient();
   const patch: Record<string, unknown> = { servizio_sacco_id: scelta || null };
-  if (scelta) patch.a_consumo = true;
+  // `a_consumo` solo a chi non ha un abbonamento: su un abbonato sarebbe
+  // un'etichetta falsa, e questa pagina la legge chi deve capire come paga.
+  if (scelta && !(await haAbbonamentoAttivo(svc, customerId))) patch.a_consumo = true;
   await svc.from("profiles").update(patch).eq("id", customerId);
 
   revalidatePath(`/admin/abbonati/${customerId}`);

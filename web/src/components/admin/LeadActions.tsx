@@ -19,7 +19,10 @@ export function LeadActions({ leadId, name, back, archiviato = false }: { leadId
       >
         <input type="hidden" name="lead_id" value={leadId} />
         <input type="hidden" name="back" value={back} />
-        <button type="submit" className="font-display text-xs font-bold text-blue hover:underline">
+        {/* Un bottone e non un link: su un lead questo è IL gesto — gli apre
+            l'account, e senza account la riga non si apre, non ha «Accedi
+            come» e non le si può creare un ritiro. */}
+        <button type="submit" className="whitespace-nowrap rounded-full bg-gradient-to-br from-blue to-cyan px-3 py-1.5 font-display text-xs font-extrabold text-white">
           Crea cliente →
         </button>
       </form>

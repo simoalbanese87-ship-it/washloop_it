@@ -113,8 +113,12 @@ from public.laundries l
 where l.name = 'Stireria Cristina Antonini (Arluno)'
   and not exists (select 1 from public.servizi_sacco where codice = 'stiro');
 
-insert into public.servizi_sacco (codice, nome, laundry_id, price_cli_cents, comp_lav_cents, sort)
-select 'lavaggio', 'Lavaggio · sacco 30 L', l.id, 4000, 1475, 2
+-- Il lavaggio a sacco esiste nel listino della stireria, ma da noi **non si
+-- usa**: il lavaggio lo fa già la lavanderia storica e quel pezzo funziona.
+-- Nasce quindi spento, come promemoria del prezzo e non come opzione da
+-- scegliere per sbaglio su un cliente.
+insert into public.servizi_sacco (codice, nome, laundry_id, price_cli_cents, comp_lav_cents, sort, active)
+select 'lavaggio', 'Lavaggio · sacco 30 L', l.id, 4000, 1475, 2, false
 from public.laundries l
 where l.name = 'Stireria Cristina Antonini (Arluno)'
   and not exists (select 1 from public.servizi_sacco where codice = 'lavaggio');

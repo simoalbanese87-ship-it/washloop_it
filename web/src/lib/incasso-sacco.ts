@@ -1,8 +1,20 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { incassaSubito } from "@/lib/incasso-subito";
+import { haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
 
 /** L'addebito di un ritiro a sacco: tanti sacchi, un prezzo per sacco.
+ *
+ *  Quando NON parte
+ *  ----------------
+ *  **Se il cliente ha un abbonamento attivo.** Il solo stiro si vende come gli
+ *  altri — un abbonamento, con un servizio diverso: la settimana o il mese li
+ *  ha già pagati con quello, e un secondo addebito a sacco glieli farebbe
+ *  pagare due volte. Il servizio a sacco sulla scheda dice allora *dove va il
+ *  ritiro* e *che lavoro è*; il prezzo lo fa l'abbonamento.
+ *
+ *  Il prezzo a sacco resta per chi un abbonamento non ce l'ha: il cliente a
+ *  consumo che ogni tanto manda un sacco da stirare.
  *
  *  Quando parte
  *  ------------
@@ -50,6 +62,10 @@ export async function incassaSaccoDelRitiro(svc: SupabaseClient, orderId: string
   // vorrebbe dire mandare una fattura a indovinare.
   const sacchi = ordine.bags_arrivati ?? 0;
   if (sacchi <= 0) return { esito: "niente", motivo: "Nessun sacco contato: niente da addebitare." };
+
+  if (await haAbbonamentoAttivo(svc, ordine.customer_id)) {
+    return { esito: "niente", motivo: "Ha un abbonamento attivo: il sacco è già pagato da quello." };
+  }
 
   const { data: gia } = await svc
     .from("customer_charges")

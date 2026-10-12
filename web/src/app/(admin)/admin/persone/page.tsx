@@ -284,7 +284,7 @@ export default async function PersonePage({
 
       <Card>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1340px] text-left text-sm">
+          <table className="w-full min-w-[1280px] text-left text-sm">
             <thead>
               <tr className="border-b border-line text-xs font-bold uppercase tracking-wide text-muted">
                 <th className="py-2">Persona</th>
@@ -297,7 +297,10 @@ export default async function PersonePage({
                 <th className="py-2">Ordini</th>
                 <th className="py-2">Da</th>
                 <th className="w-[300px] py-2">Note</th>
-                <th className="py-2 text-right">Azioni</th>
+                {/* Incollata a destra: la tabella è larga e scorre, e le azioni
+                    finivano fuori dallo schermo — «Valeria non si può convertire»
+                    era questo, il bottone c'era e non si raggiungeva. */}
+                <th className="sticky right-0 z-10 bg-white py-2 pl-3 text-right shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]">Azioni</th>
               </tr>
             </thead>
             <tbody>
@@ -417,7 +420,7 @@ export default async function PersonePage({
                   <td className="w-[300px] max-w-[300px] py-2.5 align-top">
                     <NotaPersona profileId={p.profileId} leadId={p.leadId} nota={p.nota} back={qui} />
                   </td>
-                  <td className="py-2.5">
+                  <td className="sticky right-0 z-10 bg-white py-2.5 pl-3 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]">
                     <div className="flex items-center justify-end gap-3">
                       {p.profileId ? (
                         <>

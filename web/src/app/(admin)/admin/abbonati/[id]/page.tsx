@@ -917,9 +917,10 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           <div className="mt-4 rounded-[16px] border border-line bg-ice/60 p-4">
             <h3 className="font-display text-sm font-extrabold text-navy">Servizio a sacco</h3>
             <p className="mt-1 text-xs font-medium text-muted">
-              Si paga <strong className="text-navy">a sacco, non al mese</strong>: nessun limite di capi, nessun rinnovo,
-              nessun capo compreso. I ritiri vanno alla lavanderia che fa quel servizio, e l&apos;addebito parte quando lei
-              ha contato i sacchi. Attivarlo accende anche il cliente a consumo, altrimenti non potrebbe prenotare.
+              Dice <strong className="text-navy">dove va il ritiro e che lavoro è</strong>: il solo stiro va alla
+              stireria, non alla lavanderia. Se il cliente ha un abbonamento — anche di una settimana sola, dal link su
+              misura qui sopra — il prezzo lo fa quello e il sacco non si addebita due volte. Se non ce l&apos;ha, paga
+              a sacco quando la stireria li ha contati, e si attiva anche il cliente a consumo.
             </p>
             {servizioDelCliente && (
               <p className="mt-2 rounded-[10px] bg-[#7A4FBF]/10 px-3 py-2 text-xs font-bold text-[#7A4FBF]">
