@@ -20,6 +20,8 @@ type Riga = {
   tags_qty: number | null;
   is_test: boolean | null;
   created_at: string;
+  /** Il servizio concordato: sull'etichetta diventa il bollo STIRO. */
+  tipo_servizio: string | null;
   subscriptions:
     | {
         status: string;
@@ -69,7 +71,7 @@ export default async function EtichettePage({
   const svc = createServiceClient();
   const { data: righe } = await svc
     .from("profiles")
-    .select("id, full_name, client_code, tags_delivered_at, tags_qty, is_test, created_at, subscriptions(status, current_period_end, created_at, manual, custom_price_cents, plans(name))")
+    .select("id, full_name, client_code, tags_delivered_at, tags_qty, is_test, created_at, tipo_servizio, subscriptions(status, current_period_end, created_at, manual, custom_price_cents, plans(name))")
     .eq("role", "customer")
     .not("client_code", "is", null)
     .order("created_at", { ascending: false })
@@ -113,7 +115,7 @@ export default async function EtichettePage({
   // il sacco a casa del cliente — la seconda senza, ed è quella che può
   // arrivare al banco della lavanderia, che non deve sapere di chi sia il
   // bucato. Con il default di 2 copie ne esce una per tipo.
-  const tags: { code: string; qr: string; nome: string; abbonamento: string; conNome: boolean }[] = [];
+  const tags: { code: string; qr: string; nome: string; abbonamento: string; conNome: boolean; soloStiro: boolean }[] = [];
   for (const cl of scelti) {
     if (!cl.client_code) continue;
     const qr = await QRCode.toDataURL(cl.client_code, { margin: 1, width: 600 });
@@ -124,6 +126,7 @@ export default async function EtichettePage({
         nome: cl.full_name ?? "—",
         abbonamento: cl.abbonamento,
         conNome: i % 2 === 0,
+        soloStiro: cl.tipo_servizio === "solo_stiro",
       });
     }
   }
@@ -176,6 +179,7 @@ export default async function EtichettePage({
               nome={t.nome}
               abbonamento={t.abbonamento}
               conNome={t.conNome}
+              soloStiro={t.soloStiro}
             />
           ))}
         </div>

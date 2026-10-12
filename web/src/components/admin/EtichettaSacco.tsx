@@ -21,6 +21,7 @@ export function EtichettaSacco({
   nome,
   abbonamento,
   conNome = true,
+  soloStiro = false,
 }: {
   clientCode: string;
   qrDataUrl: string;
@@ -28,6 +29,11 @@ export function EtichettaSacco({
   abbonamento: string;
   /** `false` = copia per la lavanderia: niente nome, niente abbonamento. */
   conNome?: boolean;
+  /** Il sacco è di solo stiro. Si scrive **su tutte e due le copie**, anche su
+   *  quella che va al banco: non dice chi è il cliente, dice che lavoro è — e
+   *  da quando le lavanderie sono due è la cosa che evita di lavare un sacco
+   *  che andava solo stirato. */
+  soloStiro?: boolean;
 }) {
   return (
     <div
@@ -43,7 +49,16 @@ export function EtichettaSacco({
       <div className="flex min-w-0 flex-1 flex-col justify-between py-[1mm]">
         <div className="flex items-start justify-between gap-[3mm]">
           <Logo size={22} />
-          <span className="font-display text-[3.6mm] font-bold text-navy/55">washloop.it</span>
+          {soloStiro ? (
+            <span
+              className="rounded-[2mm] px-[4mm] py-[1mm] font-display text-[7mm] font-black leading-none tracking-[0.06em] text-white"
+              style={{ backgroundColor: "#2b7fd4" }}
+            >
+              STIRO
+            </span>
+          ) : (
+            <span className="font-display text-[3.6mm] font-bold text-navy/55">washloop.it</span>
+          )}
         </div>
 
         <div className="min-w-0">

@@ -116,6 +116,10 @@ export function OrdersBoard({
   // sono rimasti: in Home comparivano come «in ritardo sull'ora di pronto»,
   // che è vero e non dice il problema.
   const [onlySenzaFascia, setOnlySenzaFascia] = useState(filtroIniziale === "senza_fascia");
+  // Il giorno scelto dalla striscia. Era una fila di numeri da guardare e
+  // basta: si leggeva «MER 14 · 1» e per sapere **chi** bisognava scorrere
+  // tutte le colonne. Premendolo, il board resta su quel giorno.
+  const [giornoScelto, setGiornoScelto] = useState<string | null>(null);
   // Oggi di default: il board caricava TUTTI gli ordini di sempre, e per capire
   // cosa fare adesso bisognava leggerli tutti.
   // Chi arriva dalla home ha cliccato un numero ("1 ordine in ritardo") e deve
@@ -178,6 +182,7 @@ export function OrdersBoard({
       if (onlyUnassigned && o.courier_id) return false;
       if (onlyLate && !lateOf(o)) return false;
       if (onlySenzaFascia && !senzaFascia(o)) return false;
+      if (giornoScelto && giornoRoma(dataRilevante(o)) !== giornoScelto) return false;
       // Regola in `board-periodo.ts`, collaudata: è quella che aveva fatto
       // sparire un ordine vero per tre giorni.
       if (!passaPeriodo({ status: o.status, giorno: giornoRoma(dataRilevante(o)) }, periodo, oggi, fineSettimana)) return false;
@@ -188,7 +193,7 @@ export function OrdersBoard({
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders, q, zone, laundry, onlyUnassigned, onlyLate, onlySenzaFascia, periodo, oggi, fineSettimana, now]);
+  }, [orders, q, zone, laundry, onlyUnassigned, onlyLate, onlySenzaFascia, giornoScelto, periodo, oggi, fineSettimana, now]);
 
   // I contatori si calcolano su ciò che è VISIBILE, non su tutti gli ordini.
   // Prima ignoravano il filtro di periodo: con la vista "Oggi" si leggeva
@@ -330,18 +335,50 @@ export function OrdersBoard({
 
       {/* Carico dei prossimi giorni: serve a vedere i buchi prima che arrivino */}
       {periodo === "settimana" && oggi && (
-        <div className="mb-5 grid grid-cols-7 gap-2">
-          {settimana.map((g) => (
-            <div key={g.giorno} className={`rounded-[14px] border p-2.5 text-center ${g.giorno === oggi ? "border-navy/30 bg-white" : "border-line bg-white/60"}`}>
-              <div className="font-display text-[11px] font-extrabold uppercase text-muted">{g.etichetta}</div>
-              <div className="font-display text-xl font-black text-navy">{g.totale}</div>
-              <div className="text-[10px] font-semibold text-muted">{g.ritiri}R · {g.consegne}C</div>
-              {g.senzaRider > 0 && (
-                <div className="mt-1 rounded-full bg-[#C0392B]/12 px-1.5 py-0.5 text-[10px] font-bold text-[#C0392B]">{g.senzaRider} senza rider</div>
-              )}
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="mb-2 grid grid-cols-7 gap-2">
+            {settimana.map((g) => {
+              const scelto = giornoScelto === g.giorno;
+              return (
+                <button
+                  key={g.giorno}
+                  type="button"
+                  // Si preme per vedere chi c'è quel giorno, si ripreme per
+                  // tornare alla settimana intera. I giorni vuoti non si
+                  // possono premere: aprirebbero un board vuoto.
+                  onClick={() => g.totale > 0 && setGiornoScelto(scelto ? null : g.giorno)}
+                  disabled={g.totale === 0}
+                  className={`rounded-[14px] border p-2.5 text-center transition-colors ${
+                    scelto
+                      ? "border-navy bg-navy text-white"
+                      : g.totale === 0
+                        ? "cursor-default border-line bg-white/60"
+                        : `cursor-pointer hover:border-navy/40 ${g.giorno === oggi ? "border-navy/30 bg-white" : "border-line bg-white/60"}`
+                  }`}
+                >
+                  <div className={`font-display text-[11px] font-extrabold uppercase ${scelto ? "text-white/70" : "text-muted"}`}>{g.etichetta}</div>
+                  <div className={`font-display text-xl font-black ${scelto ? "text-white" : "text-navy"}`}>{g.totale}</div>
+                  <div className={`text-[10px] font-semibold ${scelto ? "text-white/70" : "text-muted"}`}>{g.ritiri}R · {g.consegne}C</div>
+                  {g.senzaRider > 0 && (
+                    <div className="mt-1 rounded-full bg-[#C0392B]/12 px-1.5 py-0.5 text-[10px] font-bold text-[#C0392B]">{g.senzaRider} senza rider</div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mb-5 text-xs font-medium text-muted">
+            {giornoScelto ? (
+              <>
+                Stai guardando <strong className="text-navy">{settimana.find((g) => g.giorno === giornoScelto)?.etichetta}</strong>.{" "}
+                <button type="button" onClick={() => setGiornoScelto(null)} className="font-display font-bold text-blue hover:underline">
+                  Torna a tutta la settimana
+                </button>
+              </>
+            ) : (
+              "Premi un giorno per vedere chi c'è."
+            )}
+          </p>
+        </>
       )}
 
       {/* Filtri */}
