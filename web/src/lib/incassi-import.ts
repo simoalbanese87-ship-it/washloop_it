@@ -173,17 +173,17 @@ export async function sincronizzaRimborsiDaStripe(): Promise<EsitoRimborsi> {
       .update({ rimborsato_at: new Date().toISOString(), rimborsato_cents: resoSuStripe })
       .eq("id", r.id);
 
-    // Nella scheda del cliente, dove si legge la storia dei suoi soldi. Solo la
-    // differenza: se una parte era già registrata, quella c'è già.
-    if (r.user_id) {
-      await svc.from("customer_charges").insert({
-        customer_id: r.user_id,
-        description: `Rimborso ricevuta n. ${r.numero_ricevuta ?? "—"} · fatto su Stripe`,
-        amount_cents: differenza,
-        kind: "refund",
-        status: "settled",
-      });
-    }
+    // **Qui non si scrive nessuno storno nella scheda del cliente**, ed è una
+    // scelta: un rimborso può essere già stato registrato per un'altra strada
+    // — lo storno di un capo extra scrive la sua riga, e `rimborsato_at` sulla
+    // ricevuta può essere rimasto indietro lo stesso. È successo il 12 ottobre
+    // 2026: allineando i 14,00 € di Elvira è comparso un secondo «−14,00 €»
+    // nei suoi addebiti, sopra quello vero del 9 ottobre.
+    //
+    // Il rimborso si vede dove deve: sulla ricevuta, in «Incassi e ricevute»,
+    // marcata rimborsata. Riconoscere a colpo sicuro se una riga per quei soldi
+    // esiste già non si può fare senza indovinare, e indovinare sui soldi di un
+    // cliente è peggio di una riga in meno.
 
     esito.allineate++;
     esito.totaleCents += differenza;
