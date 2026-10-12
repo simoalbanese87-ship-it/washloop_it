@@ -790,12 +790,14 @@ export async function deleteCustomer(formData: FormData) {
   const daDove = String(formData.get("back") ?? "").trim();
   const interno = /^\/admin\/[A-Za-z0-9/_-]*(\?[A-Za-z0-9_=&-]*)?$/.test(daDove);
   const backTo = interno ? daDove : `/admin/abbonati/${customerId}`;
-  const dopo = interno ? daDove : "/admin/abbonati";
+  // Dopo l'eliminazione non c'è più una scheda dove tornare: si va all'elenco,
+  // che da oggi è Persone — l'elenco abbonati rimanda lì.
+  const dopo = interno ? daDove : "/admin/persone";
 
   // Le condizioni che impediscono l'eliminazione NON sono errori di sistema:
   // vengono mostrate come banner nella pagina cliente, senza pagina d'errore.
   const { data: prof } = await svc.from("profiles").select("role").eq("id", customerId).maybeSingle<{ role: string }>();
-  if (!prof) redirect(`/admin/abbonati?warn=${encodeURIComponent("Cliente non trovato.")}`);
+  if (!prof) redirect(`/admin/persone?warn=${encodeURIComponent("Cliente non trovato.")}`);
 
   let block: string | null = null;
   if (prof!.role !== "customer") {

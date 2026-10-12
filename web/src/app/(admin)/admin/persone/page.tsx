@@ -9,7 +9,10 @@ import { NotaPersona } from "@/components/admin/NotaPersona";
 import { LeadActions } from "@/components/admin/LeadActions";
 import { DeleteUserButton } from "@/components/admin/DeleteUserButton";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
-import { impersonate } from "@/lib/actions/impersonate";
+import { impersonate, createDemoCustomer } from "@/lib/actions/impersonate";
+import { createCustomer } from "@/lib/actions/admin-customer";
+import { Button } from "@/components/ui/Button";
+import { createServiceClient } from "@/lib/supabase/server";
 import { CONTACT_STATUS, CONTACT_STATUS_LABEL, isContactStatus, type ContactStatus } from "@/lib/lead-status";
 import { cadenzaTesto } from "@/lib/durata-abbonamento";
 
@@ -21,6 +24,8 @@ export const dynamic = "force-dynamic";
  *  continuano a contare giusto. */
 const uno = (v: string | string[] | undefined): string | undefined =>
   (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
+
+const campo = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
 /** Persone: lead e clienti nella stessa lista, ognuno con il suo stadio.
  *
@@ -65,7 +70,10 @@ export default async function PersonePage({
   // Prima di leggere, tira dentro i lead del funnel: chi lascia il contatto
   // deve trovarsi qui, non domani mattina.
   await importaFunnelSeServe();
-  const tutte = await elencoPersone(includiProva, archiviatiSolo);
+  const [tutte, { data: piani }] = await Promise.all([
+    elencoPersone(includiProva, archiviatiSolo),
+    createServiceClient().from("plans").select("id, name").eq("active", true).order("sort").returns<{ id: string; name: string }[]>(),
+  ]);
 
   // Un predicato solo per i chip e per la tabella. Erano due: `conta()`
   // guardava solo lo stadio mentre la tabella filtrava anche per testo, e i
@@ -147,9 +155,11 @@ export default async function PersonePage({
             >
               Scarica CSV ↓
             </a>
-            <Link href="/admin/abbonati" className="font-display text-xs font-bold text-blue hover:underline">
-              Crea cliente o accedi come cliente →
-            </Link>
+            <form action={createDemoCustomer}>
+              <BottoneInvio attesa="Creo…" className="font-display text-xs font-bold text-navy/55 hover:text-navy">
+                Cliente demo e simula →
+              </BottoneInvio>
+            </form>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -246,6 +256,32 @@ export default async function PersonePage({
         )}
       </Card>
 
+      {/* Creare un cliente stava nell'elenco abbonati, che non esiste più.
+          Chiuso in un `details` perché è il gesto raro: questa pagina si apre
+          cento volte per guardare e una per creare. */}
+      <details className="mb-4 rounded-[18px] border border-line bg-white px-4 py-3">
+        <summary className="cursor-pointer list-none font-display text-sm font-extrabold text-navy">
+          + Crea un cliente
+        </summary>
+        <p className="mt-1 text-xs font-medium text-muted">
+          Crea un cliente con abbonamento attivo. Lascia vuoto il prezzo per usare quello del piano; inseriscilo per un
+          prezzo concordato (es. sotto lo Small) — fatturazione manuale.
+        </p>
+        <form action={createCustomer} className="mt-3 grid gap-2 sm:grid-cols-[1.4fr_1.4fr_1fr_1fr_0.8fr_auto] sm:items-end">
+          <label className="text-xs font-bold text-muted">Nome e cognome<input name="full_name" required className={campo} /></label>
+          <label className="text-xs font-bold text-muted">Email<input name="email" required type="email" className={campo} /></label>
+          <label className="text-xs font-bold text-muted">Telefono<input name="phone" className={campo} /></label>
+          <label className="text-xs font-bold text-muted">Piano
+            <select name="plan_id" className={campo} defaultValue="">
+              <option value="">—</option>
+              {(piani ?? []).map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+            </select>
+          </label>
+          <label className="text-xs font-bold text-muted">Prezzo €<input name="price_eur" type="number" step="0.01" min="0" placeholder="custom" className={campo} /></label>
+          <Button type="submit" size="md">Crea →</Button>
+        </form>
+      </details>
+
       <Card>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1340px] text-left text-sm">
@@ -260,7 +296,7 @@ export default async function PersonePage({
                 <th className="py-2">Valore</th>
                 <th className="py-2">Ordini</th>
                 <th className="py-2">Da</th>
-                <th className="w-[230px] py-2">Note</th>
+                <th className="w-[300px] py-2">Note</th>
                 <th className="py-2 text-right">Azioni</th>
               </tr>
             </thead>
@@ -378,7 +414,7 @@ export default async function PersonePage({
                       seconda: se fossero due, nessuno saprebbe quale vale. */}
                   {/* Larghezza fissa: senza, una nota lunga allargava la colonna
                       e spingeva «Azioni» oltre il bordo della tabella. */}
-                  <td className="w-[230px] max-w-[230px] py-2.5 align-top">
+                  <td className="w-[300px] max-w-[300px] py-2.5 align-top">
                     <NotaPersona profileId={p.profileId} leadId={p.leadId} nota={p.nota} back={qui} />
                   </td>
                   <td className="py-2.5">

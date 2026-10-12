@@ -209,7 +209,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   return (
     <>
-      <Link href="/admin/abbonati" className="font-display text-sm font-bold text-blue hover:underline">← Abbonati</Link>
+      <Link href="/admin/persone" className="font-display text-sm font-bold text-blue hover:underline">← Persone</Link>
       <PageTitle kicker="Cliente" title={profile.full_name ?? "Cliente"} sub={`${email}${profile.client_code ? ` · ${profile.client_code}` : ""} · ${profile.phone ?? "SENZA TELEFONO"} · Iscritto il ${fmtDate(profile.created_at)}`} />
 
       {/* Il pagamento fallito si vede appena si apre la scheda.

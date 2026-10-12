@@ -29,13 +29,18 @@ export function NotaPersona({
   nota: string | null;
   back: string;
 }) {
-  const anteprima = anteprimaNota(nota, 70);
+  // Tre righe, non una. Settanta caratteri in una colonna stretta mostravano
+  //  l'inizio della prima frase e basta: per sapere cosa ci si era detti
+  //  bisognava aprire ogni riga, una per una. Il testo pieno resta nel `title`.
+  const anteprima = anteprimaNota(nota, 180);
+  const tagliata = (nota ?? "").trim().length > anteprima.length;
   return (
     <details className="group">
       <summary className="cursor-pointer list-none">
         {anteprima ? (
           <span className="block w-full text-xs font-medium leading-snug text-navy/80 group-open:hidden" title={nota ?? undefined}>
             {anteprima}
+            {tagliata && <span className="ml-1 font-display text-[10px] font-bold text-blue">tutta ↓</span>}
           </span>
         ) : (
           <span className="font-display text-xs font-bold text-blue group-open:hidden">+ nota</span>
