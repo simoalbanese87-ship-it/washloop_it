@@ -240,7 +240,15 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
           <NumeroCliccabile href={`/admin/numeri/nuovi-abbonati${includiProva ? "?prova=1" : ""}`} label="Nuovi · mese" value={String(subs.newSubsMonth)} sub={`${subs.newSubsYear} nell'anno`} />
           <NumeroCliccabile href={`/admin/numeri/interrotti${includiProva ? "?prova=1" : ""}`} label="Interrotti · mese" value={String(subs.canceledMonth)} sub={`${subs.canceledYear} nell'anno`} />
           <StatTile label="Attivi ora" value={String(subs.currentActive)} />
-          <StatTile label="Disdetti ora" value={String(subs.currentCanceled)} />
+          {/* Un numero che non si può aprire è un numero di cui ci si deve
+              fidare: «Disdetti ora: 3» e poi tocca cercarseli a mano in due
+              liste. Lo stadio «perso» di Persone è esattamente questo insieme. */}
+          <NumeroCliccabile
+            href={`/admin/persone?stadio=perso${includiProva ? "&prova=1" : ""}`}
+            label="Disdetti ora"
+            value={String(subs.currentCanceled)}
+            sub="Chi sono"
+          />
           <StatTile label="In pausa ora" value={String(subs.currentPaused)} />
         </div>
       </Card>

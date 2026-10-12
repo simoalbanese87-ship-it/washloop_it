@@ -2,7 +2,7 @@
  *  Sta in un modulo suo e non in `actions/leads.ts` perché un file "use server"
  *  può esportare solo funzioni async: le costanti vanno tenute fuori.
  *  I valori devono restare allineati ai check su `leads` e su `profiles`,
- *  l'ultimo dei quali sta in `supabase/migrations/0079_contattato_in_attesa.sql`.
+ *  l'ultimo dei quali sta in `supabase/migrations/0089_contatto_fuori_zona.sql`.
  *
  *  L'ordine è quello del percorso, non alfabetico: si parte da «da contattare»,
  *  si chiama, si aspetta, e si finisce in uno dei tre esiti. Un menu ordinato
@@ -12,6 +12,7 @@ export const CONTACT_STATUS = [
   "da_contattare",
   "in_corso",
   "in_attesa",
+  "fuori_zona",
   "non_interessato",
   "non_esiste",
   "convertito",
@@ -26,6 +27,11 @@ export const CONTACT_STATUS_LABEL: Record<ContactStatus, string> = {
   // chi è in trattativa vera, e le due cose chiedono gesti diversi: una si
   // aspetta, l'altra si porta avanti.
   in_attesa: "Contattato, in attesa di risposta",
+  // Interessato davvero, ma il suo CAP non lo serviamo. Teneva compagnia a
+  // «non interessato», che è falso e per giunta dannoso: quella persona ci
+  // vuole, siamo noi a non arrivarci, e il giorno che la zona si apre è la
+  // prima lista da richiamare.
+  fuori_zona: "Contattato, interessato ma fuori zona",
   non_interessato: "Contattato, non interessato",
   non_esiste: "Non esiste",
   convertito: "Convertito",
@@ -38,6 +44,9 @@ export const CONTACT_STATUS_TONE: Record<ContactStatus, string> = {
   da_contattare: "bg-[#C9881F]/15 text-[#C9881F]",
   in_corso: "bg-[#2b7fd4]/12 text-[#2b7fd4]",
   in_attesa: "bg-[#2b7fd4]/12 text-[#2b7fd4]",
+  // Petrolio, un colore che non ha nessun altro: non è un sì né un no, è un
+  // «non adesso» e si deve distinguere da tutti e due di sfuggita.
+  fuori_zona: "bg-[#0F7B8A]/12 text-[#0F7B8A]",
   convertito: "bg-[#1F8A5B]/15 text-[#1F8A5B]",
   non_interessato: "bg-navy/10 text-navy",
   non_esiste: "bg-[#C0392B]/12 text-[#C0392B]",

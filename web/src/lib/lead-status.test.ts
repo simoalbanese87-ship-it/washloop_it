@@ -27,3 +27,11 @@ test("uno stato inventato non passa la validazione", () => {
   assert.equal(isContactStatus("richiamato_forse"), false);
   assert.equal(isContactStatus(""), false);
 });
+
+test("«fuori zona» è un esito suo, non un rifiuto", () => {
+  // Chi è interessato ma sta fuori copertura finiva in «non interessato»: è
+  // falso, e cancella la lista da richiamare il giorno che la zona si apre.
+  assert.ok(isContactStatus("fuori_zona"));
+  assert.notEqual(CONTACT_STATUS_LABEL.fuori_zona, CONTACT_STATUS_LABEL.non_interessato);
+  assert.notEqual(CONTACT_STATUS_TONE.fuori_zona, CONTACT_STATUS_TONE.non_interessato);
+});

@@ -30,7 +30,7 @@ const uno = (v: string | string[] | undefined): string | undefined =>
 export default async function PersonePage({
   searchParams,
 }: {
-  searchParams: Promise<{ stadio?: string | string[]; contatto?: string | string[]; zona?: string | string[]; q?: string | string[]; prova?: string | string[]; disiscritti?: string | string[]; ok?: string | string[]; warn?: string | string[] }>;
+  searchParams: Promise<{ stadio?: string | string[]; contatto?: string | string[]; zona?: string | string[]; q?: string | string[]; prova?: string | string[]; disiscritti?: string | string[]; archiviati?: string | string[]; ok?: string | string[]; warn?: string | string[] }>;
 }) {
   const sp = await searchParams;
   const q = uno(sp.q);
@@ -55,13 +55,17 @@ export default async function PersonePage({
   // non si vedeva da nessuna parte: senza questo filtro, per sapere a chi non
   // scrivere bisognava aprire Brevo.
   const disiscrittiSolo = uno(sp.disiscritti) === "1";
+  // Gli archiviati stanno fuori dall'elenco di lavoro, e si rivedono solo
+  // chiedendolo: è il senso dell'archivio. Il chip li mostra da soli, perché
+  // mescolati agli altri non si distinguerebbero da chi è ancora da chiamare.
+  const archiviatiSolo = uno(sp.archiviati) === "1";
   const includiProva = prova === "1";
   const needle = (q ?? "").toLowerCase();
 
   // Prima di leggere, tira dentro i lead del funnel: chi lascia il contatto
   // deve trovarsi qui, non domani mattina.
   await importaFunnelSeServe();
-  const tutte = await elencoPersone(includiProva);
+  const tutte = await elencoPersone(includiProva, archiviatiSolo);
 
   // Un predicato solo per i chip e per la tabella. Erano due: `conta()`
   // guardava solo lo stadio mentre la tabella filtrava anche per testo, e i
@@ -76,7 +80,7 @@ export default async function PersonePage({
   // due filtri, altrimenti «fuori zona» diventerebbe un cestino.
   const inZonaDi = (p: (typeof tutte)[number]) => (zona === "in" ? p.inZona === true : p.inZona === false);
   const base = tutte.filter(
-    (p) => cerca(p) && (!contatto || statoDi(p) === contatto) && (!zona || inZonaDi(p)) && (!disiscrittiSolo || p.disiscritto),
+    (p) => cerca(p) && (!contatto || statoDi(p) === contatto) && (!zona || inZonaDi(p)) && (!disiscrittiSolo || p.disiscritto) && (archiviatiSolo ? p.archiviato : true),
   );
   const lista = stadio ? base.filter((p) => p.stadio === stadio) : base;
 
@@ -89,14 +93,18 @@ export default async function PersonePage({
   // «Ricorrente» vuol dire che torna ogni mese: un pacchetto a termine, o un
   // abbonamento gia' disdetto, il mese prossimo non c'e' piu'.
   const ricorrente = base.reduce((t, p) => t + (p.settimane || p.disdetto ? 0 : p.valoreMensileCents), 0);
-  const qui = `/admin/persone${stadio || contatto || zona || q || prova ? `?${new URLSearchParams(Object.entries({ stadio, contatto, zona, q, prova }).filter(([, v]) => v) as [string, string][])}` : ""}`;
-
   const qs = (patch: Record<string, string | undefined>) => {
     const u = new URLSearchParams();
-    const correnti = { stadio, contatto, zona, q, prova, disiscritti: disiscrittiSolo ? "1" : undefined };
+    const correnti = { stadio, contatto, zona, q, prova, disiscritti: disiscrittiSolo ? "1" : undefined, archiviati: archiviatiSolo ? "1" : undefined };
     for (const [k, v] of Object.entries({ ...correnti, ...patch })) if (v) u.set(k, v);
     return u.toString() ? `?${u}` : "";
   };
+
+  // Dove si torna dopo un'azione: esattamente la vista che si stava guardando,
+  // filtri compresi. Prima era una seconda costruzione dell'URL che si era
+  // dimenticata «disiscritti» — si premeva «Salva la nota» dentro un filtro e
+  // si tornava a un elenco diverso da quello di partenza.
+  const qui = `/admin/persone${qs({})}`;
 
   const pill = (attivo: boolean) =>
     `rounded-full px-4 py-2 font-display text-sm font-bold ${attivo ? "bg-navy text-white" : "border border-line bg-white text-navy"}`;
@@ -191,6 +199,12 @@ export default async function PersonePage({
           >
             Disiscritti ({tutte.filter((p) => p.disiscritto).length})
           </Link>
+          <Link
+            href={`/admin/persone${qs({ archiviati: archiviatiSolo ? undefined : "1" })}`}
+            className={pill(archiviatiSolo)}
+          >
+            Archiviati
+          </Link>
         </div>
 
         <form className="mt-3 flex flex-wrap items-center gap-2">
@@ -199,6 +213,7 @@ export default async function PersonePage({
           {contatto && <input type="hidden" name="contatto" value={contatto} />}
           {prova && <input type="hidden" name="prova" value={prova} />}
           {disiscrittiSolo && <input type="hidden" name="disiscritti" value="1" />}
+          {archiviatiSolo && <input type="hidden" name="archiviati" value="1" />}
           <input
             name="q"
             defaultValue={q ?? ""}
@@ -300,6 +315,18 @@ export default async function PersonePage({
                     {p.stadio === "lead" && p.profileId && (
                       <span className="ml-1 rounded-full bg-[#2b7fd4]/12 px-2 py-0.5 text-[10px] font-bold text-blue">ha account</span>
                     )}
+                    {/* «Convertito» senza account è una bugia: lo stato lo
+                        mette una persona a mano, l'account no. Finché manca,
+                        quella riga non si apre, non ha «Accedi come» e non le
+                        si può creare un ritiro — e nessuno capisce perché. */}
+                    {p.statoContatto === "convertito" && !p.profileId && (
+                      <span
+                        className="ml-1 rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[10px] font-extrabold text-[#C0392B]"
+                        title="Segnato come convertito, ma non ha un account: premi «Crea cliente» per aprirglielo."
+                      >
+                        senza account
+                      </span>
+                    )}
                     {p.isTest && <span className="ml-1 rounded-full bg-navy/10 px-2 py-0.5 text-[10px] font-bold text-navy/60">prova</span>}
                     {/* Scritto qui e non in una colonna sua: è una cosa che si
                         deve notare leggendo la riga, non cercando. */}
@@ -378,7 +405,7 @@ export default async function PersonePage({
                           <DeleteUserButton id={p.profileId} name={p.nome} back={qui} />
                         </>
                       ) : (
-                        <LeadActions leadId={p.leadId!} name={p.nome} back={qui} />
+                        <LeadActions leadId={p.leadId!} name={p.nome} back={qui} archiviato={p.archiviato} />
                       )}
                     </div>
                   </td>

@@ -227,6 +227,32 @@ export async function setLeadContactStatus(formData: FormData) {
   redirect(backWith(formData, { ok: `Stato aggiornato: ${CONTACT_STATUS_LABEL[status as ContactStatus]}.` }));
 }
 
+/** Toglie la richiesta dall'elenco di lavoro senza buttarla.
+ *
+ *  Prima il solo gesto possibile era «Elimina», che cancella la riga e con lei
+ *  il CAP, la provenienza e quello che ci si è detti al telefono. Per un
+ *  doppione va bene; per chi è interessato ma sta fuori zona no — quella riga
+ *  serve esattamente il giorno che la zona si apre. Archiviare la mette da
+ *  parte e la lascia ritrovabile.
+ *
+ *  Vale solo sui lead: un cliente non si archivia, si disdice. */
+export async function archiviaLead(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("lead_id") ?? "");
+  if (!id) redirect(backWith(formData, { warn: "Contatto non trovato." }));
+
+  const riattiva = String(formData.get("riattiva") ?? "") === "1";
+  const { error } = await createServiceClient()
+    .from("leads")
+    .update({ archiviato_at: riattiva ? null : new Date().toISOString() })
+    .eq("id", id);
+  if (error) redirect(backWith(formData, { warn: `Non salvato: ${error.message}` }));
+
+  revalidatePath("/admin/persone");
+  revalidatePath("/admin");
+  redirect(backWith(formData, { ok: riattiva ? "Contatto rimesso in lavorazione." : "Contatto archiviato: lo ritrovi col filtro «Archiviati»." }));
+}
+
 /** Elimina la richiesta. Tocca solo la tabella `leads`: nessun cliente, nessun
  *  ordine, e la copia eventualmente finita sul foglio resta dov'è. */
 export async function deleteLead(formData: FormData) {

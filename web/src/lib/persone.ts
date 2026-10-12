@@ -72,6 +72,10 @@ export type Persona = {
   /** Il servizio concordato: lo compila l'ops dal pannello, non si deduce da
    *  nessun dato. `null` = ancora da decidere. Solo per chi ha un account. */
   tipoServizio: TipoServizio | null;
+  /** Tolto dall'elenco di lavoro, ma non buttato: la riga resta e si rivede
+   *  col filtro «Archiviati». Vale solo sui lead — un cliente non si archivia,
+   *  si disdice. */
+  archiviato: boolean;
   /** Ha chiesto di non ricevere più email. Il dato stava in due tabelle e non
    *  si vedeva da nessuna parte: scriverlo qui è il motivo per cui ora in
    *  elenco c'è una pastiglia e un filtro. */
@@ -85,7 +89,7 @@ const normTel = (p: string | null | undefined) => {
   return d.length > 10 ? d.slice(-10) : d;
 };
 
-export async function elencoPersone(includiProva = false): Promise<Persona[]> {
+export async function elencoPersone(includiProva = false, includiArchiviati = false): Promise<Persona[]> {
   const svc = createServiceClient();
 
   const [{ data: profili }, { data: subs }, { data: leads }, { data: ordini }, { data: note }, { data: indirizzi }, { data: mappaCap }, { data: optout }] =
@@ -95,11 +99,11 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
     svc.from("subscriptions").select("user_id, status, custom_price_cents, current_period_end, created_at, cancel_at_period_end, termina_dopo_settimane, plans(name, price_month_cents)")
       .order("created_at", { ascending: false })
       .returns<{ user_id: string; status: string; custom_price_cents: number | null; current_period_end: string | null; created_at: string; cancel_at_period_end: boolean | null; termina_dopo_settimane: number | null; plans: { name: string; price_month_cents: number } | null }[]>(),
-    svc.from("leads").select("id, full_name, email, phone, created_at, source, contact_status, covered, nota_interna, cap, unsubscribed_at")
+    svc.from("leads").select("id, full_name, email, phone, created_at, source, contact_status, covered, nota_interna, cap, unsubscribed_at, archiviato_at")
       // `full_name` è nullable: tipizzarlo `string` non lo rende tale, rende
       // solo cieco chi legge. Senza il ripiego qui sotto, un lead senza nome
       // finiva in tabella come riga vuota e nella ricerca come «null».
-      .returns<{ id: string; full_name: string | null; email: string; phone: string | null; created_at: string; source: string | null; contact_status: string; covered: boolean; nota_interna: string | null; cap: string | null; unsubscribed_at: string | null }[]>(),
+      .returns<{ id: string; full_name: string | null; email: string; phone: string | null; created_at: string; source: string | null; contact_status: string; covered: boolean; nota_interna: string | null; cap: string | null; unsubscribed_at: string | null; archiviato_at: string | null }[]>(),
     svc.from("orders").select("customer_id, created_at").neq("status", "cancelled")
       .returns<{ customer_id: string | null; created_at: string }[]>(),
     // Dentro la stessa Promise.all e non dopo: in fila sarebbe un viaggio in
@@ -207,6 +211,7 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       ultimoOrdine: ord?.ultimo ?? null,
       creatoIl: p.created_at,
       isTest: p.is_test,
+      archiviato: false,
       nota: notaDi.get(p.id) ?? null,
       tipoServizio: isTipoServizio(p.tipo_servizio) ? p.tipo_servizio : null,
       disiscritto: email ? disiscritte.has(norm(email)) : false,
@@ -221,6 +226,9 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
   const emailRegistrate = new Set([...emailDi.values()].map(norm));
 
   for (const l of leads ?? []) {
+    // Archiviato = fuori dall'elenco di lavoro. Non si cancella niente: la
+    // riga c'è ancora e torna a vedersi col filtro apposta.
+    if (l.archiviato_at && !includiArchiviati) continue;
     if (emailViste.has(norm(l.email)) || emailRegistrate.has(norm(l.email))) continue;
     if (l.phone && normTel(l.phone) && telViste.has(normTel(l.phone))) continue;
     // Anche fra loro: la stessa persona può aver compilato il modulo due volte
@@ -248,6 +256,7 @@ export async function elencoPersone(includiProva = false): Promise<Persona[]> {
       ultimoOrdine: null,
       creatoIl: l.created_at,
       isTest: false,
+      archiviato: l.archiviato_at != null,
       nota: l.nota_interna,
       tipoServizio: null,
       disiscritto: l.unsubscribed_at != null || disiscritte.has(norm(l.email)),
