@@ -21,6 +21,8 @@ type Row = {
   addresses: { street: string; lat: number | null; lng: number | null; zones: { name: string } | null; access_mode: string | null; access_note: string | null } | null;
   pickup_slot: { starts_at: string; ends_at: string } | null;
   delivery_slot: { starts_at: string; ends_at: string } | null;
+  laundry_id: string | null;
+  laundries: { name: string; lat: number | null; lng: number | null } | null;
 };
 
 function fmt(s: { starts_at: string; ends_at: string } | null): string | null {
@@ -44,8 +46,15 @@ function toJob(r: Row, kind: "pickup" | "delivery"): Job {
     when: fmt(kind === "pickup" ? r.pickup_slot : r.delivery_slot),
     accessMode: (r.addresses?.access_mode ?? "door") as AccessMode,
     accessNote: r.addresses?.access_note ?? null,
+    // Solo sui ritiri: su una consegna il sacco torna al cliente, e da dove
+    // viene non gli serve.
+    laundry: kind === "pickup" ? uno(r.laundries)?.name ?? null : null,
   };
 }
+
+/** Un embed uno-a-uno torna oggetto o array a seconda di come lo tipizza il
+ *  client: si legge da un posto solo. */
+const uno = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);
 
 export default async function CourierToday() {
   const profile = await getCurrentProfile();
@@ -55,7 +64,7 @@ export default async function CourierToday() {
     supabase
       .from("orders")
       .select(
-        "id, status, bags, customer:profiles!orders_customer_id_fkey(full_name, phone, client_code, tags_delivered_at), addresses(street, lat, lng, zones(name), access_mode, access_note), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
+        "id, status, bags, laundry_id, laundries(name, lat, lng), customer:profiles!orders_customer_id_fkey(full_name, phone, client_code, tags_delivered_at), addresses(street, lat, lng, zones(name), access_mode, access_note), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
       )
       .eq("courier_id", profile?.id ?? "")
       // Anche gli stati in cui il sacco è dentro la lavanderia: da li' nasce
@@ -65,15 +74,6 @@ export default async function CourierToday() {
     supabase.from("depots").select("lat, lng").eq("active", true).limit(1).maybeSingle<{ lat: number | null; lng: number | null }>(),
   ]);
 
-  // I sacchi puliti si caricano in lavanderia, non in deposito: se il giro
-  // comincia con una consegna, il punto di partenza è quello.
-  const { data: lavRow } = await supabase
-    .from("laundries")
-    .select("name, lat, lng")
-    .eq("active", true)
-    .not("lat", "is", null)
-    .limit(1)
-    .maybeSingle<{ name: string; lat: number | null; lng: number | null }>();
 
   const tutte = data ?? [];
   const kindOf = (r: Row): "pickup" | "delivery" => (r.status === "pickup_scheduled" ? "pickup" : "delivery");
@@ -104,7 +104,15 @@ export default async function CourierToday() {
 
   // Deposito = hub logistico interno (tabella depots). Solo lato rider, mai al cliente.
   const depot: Depot = depotRow?.lat != null && depotRow?.lng != null ? { lat: depotRow.lat, lng: depotRow.lng } : null;
-  const lavanderia: Depot = lavRow?.lat != null && lavRow?.lng != null ? { lat: lavRow.lat, lng: lavRow.lng } : null;
+  // I sacchi puliti si caricano **nella lavanderia di quell'ordine**, non in
+  // una lavanderia qualsiasi. Finché ce n'era una sola bastava pescarla con un
+  // `limit(1)`; con la stireria di Arluno quella riga manderebbe il rider a
+  // cinquanta chilometri dai sacchi che deve caricare.
+  const primaConsegna = [...rows]
+    .filter((r) => kindOf(r) === "delivery")
+    .sort((a, b) => (slotOf(a)?.starts_at ?? "").localeCompare(slotOf(b)?.starts_at ?? ""))[0];
+  const lavPrima = uno(primaConsegna?.laundries ?? null);
+  const lavanderia: Depot = lavPrima?.lat != null && lavPrima?.lng != null ? { lat: lavPrima.lat, lng: lavPrima.lng } : null;
 
   // Fermate con coordinate → ottimizzazione; senza coord → in coda per orario.
   const geo = rows.filter((r) => r.addresses?.lat != null && r.addresses?.lng != null);
@@ -134,6 +142,30 @@ export default async function CourierToday() {
     name: r.customer?.full_name ?? "Cliente",
     address: r.addresses?.street ?? "—",
     when: fmt(slotOf(r)),
+  }));
+
+  // Gli scarichi: una fermata per ogni lavanderia dove finiscono i sacchi
+  // ritirati oggi. Senza, il giro si fermava all'ultimo cliente e il rider
+  // doveva sapersi da sé che quei due sacchi vanno ad Arluno e gli altri a
+  // Zanica.
+  const scarichi = new Map<string, { nome: string; lat: number; lng: number; sacchi: number }>();
+  for (const r of rows) {
+    if (kindOf(r) !== "pickup" || !r.laundry_id) continue;
+    const lav = uno(r.laundries);
+    if (lav?.lat == null || lav?.lng == null) continue;
+    const gia = scarichi.get(r.laundry_id);
+    if (gia) gia.sacchi += r.bags ?? 0;
+    else scarichi.set(r.laundry_id, { nome: lav.name, lat: lav.lat, lng: lav.lng, sacchi: r.bags ?? 0 });
+  }
+  const fermateScarico: Stop[] = [...scarichi.values()].map((s, i) => ({
+    id: `scarico-${i}`,
+    kind: "laundry" as const,
+    n: stops.length + i + 1,
+    lat: s.lat,
+    lng: s.lng,
+    name: s.nome,
+    address: `${s.sacchi} ${s.sacchi === 1 ? "sacco" : "sacchi"} da scaricare`,
+    when: null,
   }));
 
   const pickups = rows.filter((r) => r.status === "pickup_scheduled");
@@ -191,7 +223,24 @@ export default async function CourierToday() {
 
       {stops.length > 0 && (
         <Card className="mb-6 overflow-hidden !p-0">
-          <RiderMapLoader stops={stops} depot={partenza} />
+          <RiderMapLoader stops={[...stops, ...fermateScarico]} depot={partenza} />
+        </Card>
+      )}
+
+      {/* Dove finiscono i sacchi di oggi. Si scrive solo quando i posti sono
+          più d'uno: con una lavanderia sola sarebbe una riga che dice una cosa
+          che il rider sa già. */}
+      {fermateScarico.length > 1 && (
+        <Card className="mb-6">
+          <h2 className="font-display text-base font-extrabold text-navy">A fine giro, scarica così</h2>
+          <ul className="mt-2 space-y-1.5">
+            {fermateScarico.map((f) => (
+              <li key={f.id} className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="font-display font-bold text-navy">{f.name}</span>
+                <span className="font-medium text-muted">{f.address}</span>
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
 
@@ -231,7 +280,7 @@ export default async function CourierToday() {
         <p className="mt-3 text-[11px] font-medium text-muted">
           {partenza
             ? siParteConUnaConsegna
-              ? `Percorso calcolato partendo dalla lavanderia${lavRow?.name ? ` (${lavRow.name})` : ""}, dove carichi i sacchi puliti.`
+              ? `Percorso calcolato partendo dalla lavanderia${lavPrima?.name ? ` (${lavPrima.name})` : ""}, dove carichi i sacchi puliti.`
               : "Percorso calcolato partendo dal deposito."
             : "Nessun punto di partenza impostato: l'ordine delle fermate segue solo gli orari. L'admin lo configura nel Catalogo."}
         </p>

@@ -49,6 +49,8 @@ type Riga = {
   addresses: { street: string; lat: number | null; lng: number | null; zones: { name: string } | null } | null;
   pickup_slot: { starts_at: string; ends_at: string } | null;
   delivery_slot: { starts_at: string; ends_at: string } | null;
+  laundry_id: string | null;
+  laundries: { name: string; lat: number | null; lng: number | null } | null;
 };
 
 const uno = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);
@@ -72,16 +74,20 @@ export default async function PlanningRider({
   const supabase = await createClient();
 
   // Il punto di partenza del giro, come in «Oggi»: il deposito è l'hub interno,
-  // la lavanderia serve solo quando la giornata apre con una riconsegna.
-  const [{ data: depotRow }, { data: lavRow }] = await Promise.all([
-    supabase.from("depots").select("lat, lng").eq("active", true).limit(1).maybeSingle<{ lat: number | null; lng: number | null }>(),
-    supabase.from("laundries").select("lat, lng").eq("active", true).not("lat", "is", null).limit(1).maybeSingle<{ lat: number | null; lng: number | null }>(),
-  ]);
+  // la lavanderia serve solo quando la giornata apre con una riconsegna — e da
+  // quando le lavanderie sono due è **quella di quell'ordine**, non una presa
+  // a caso fra le attive.
+  const { data: depotRow } = await supabase
+    .from("depots")
+    .select("lat, lng")
+    .eq("active", true)
+    .limit(1)
+    .maybeSingle<{ lat: number | null; lng: number | null }>();
 
   const { data } = await supabase
     .from("orders")
     .select(
-      "id, status, bags, eta_ready_at, customer:profiles!orders_customer_id_fkey(full_name, client_code), addresses(street, lat, lng, zones(name)), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
+      "id, status, bags, eta_ready_at, laundry_id, laundries(name, lat, lng), customer:profiles!orders_customer_id_fkey(full_name, client_code), addresses(street, lat, lng, zones(name)), pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at, ends_at), delivery_slot:slots!orders_delivery_slot_id_fkey(starts_at, ends_at)",
     )
     .eq("courier_id", profile?.id ?? "")
     .returns<Riga[]>();
@@ -137,8 +143,9 @@ export default async function PlanningRider({
   const senzaGeo = fermate.filter((v) => !(v.riga.addresses?.lat != null && v.riga.addresses?.lng != null));
 
   const depot: Depot = depotRow?.lat != null && depotRow?.lng != null ? { lat: depotRow.lat, lng: depotRow.lng } : null;
-  const lavanderia: Depot = lavRow?.lat != null && lavRow?.lng != null ? { lat: lavRow.lat, lng: lavRow.lng } : null;
   const primaPerOrario = [...fermate].sort((a, b) => a.quando.localeCompare(b.quando))[0];
+  const lavPrima = uno(primaPerOrario?.riga.laundries ?? null);
+  const lavanderia: Depot = lavPrima?.lat != null && lavPrima?.lng != null ? { lat: lavPrima.lat, lng: lavPrima.lng } : null;
   const partenza = partenzaDelGiro(!!primaPerOrario && primaPerOrario.tipo === "riconsegna", lavanderia, depot);
 
   const ordine = optimizeOrder(
@@ -156,6 +163,29 @@ export default async function PlanningRider({
     address: v.riga.addresses?.street ?? "—",
     when: ora(v.quando),
   }));
+  // Gli scarichi della giornata: una fermata per ogni lavanderia dove finiscono
+  // i sacchi ritirati. Con due lavanderie il giro non finisce all'ultimo
+  // cliente, e la mappa deve dirlo.
+  const scarichi = new Map<string, { nome: string; lat: number; lng: number; sacchi: number }>();
+  for (const v of fermate) {
+    if (v.tipo !== "ritiro" || !v.riga.laundry_id) continue;
+    const lav = uno(v.riga.laundries);
+    if (lav?.lat == null || lav?.lng == null) continue;
+    const gia = scarichi.get(v.riga.laundry_id);
+    if (gia) gia.sacchi += v.riga.bags ?? 0;
+    else scarichi.set(v.riga.laundry_id, { nome: lav.name, lat: lav.lat, lng: lav.lng, sacchi: v.riga.bags ?? 0 });
+  }
+  const fermateScarico: Stop[] = [...scarichi.values()].map((x, i) => ({
+    id: `scarico-${i}`,
+    kind: "laundry" as const,
+    n: stops.length + i + 1,
+    lat: x.lat,
+    lng: x.lng,
+    name: x.nome,
+    address: `${x.sacchi} ${x.sacchi === 1 ? "sacco" : "sacchi"} da scaricare`,
+    when: null,
+  }));
+
   const ritiriDelGiro = fermate.filter((v) => v.tipo === "ritiro").length;
 
   const nRitiri = voci.filter((v) => v.tipo === "ritiro").length;
@@ -185,7 +215,7 @@ export default async function PlanningRider({
 
           {stops.length > 0 && (
             <div className="mt-3">
-              <RiderMapLoader stops={stops} depot={partenza} />
+              <RiderMapLoader stops={[...stops, ...fermateScarico]} depot={partenza} />
             </div>
           )}
 
@@ -203,6 +233,24 @@ export default async function PlanningRider({
                 </span>
                 <span className="font-display text-sm font-bold text-navy">{v.riga.customer?.full_name ?? "Cliente"}</span>
                 <span className="text-sm font-medium text-muted">{v.riga.addresses?.street ?? "—"}</span>
+                {/* Dove va quel sacco. Serve mentre si ritira, non alla fine:
+                    con due lavanderie un sacco caricato senza saperlo torna
+                    indietro. */}
+                {v.tipo === "ritiro" && uno(v.riga.laundries)?.name && (
+                  <span className="rounded-full bg-[#7A4FBF]/12 px-2 py-0.5 font-display text-[11px] font-extrabold text-[#7A4FBF]">
+                    → {uno(v.riga.laundries)!.name}
+                  </span>
+                )}
+              </li>
+            ))}
+            {fermateScarico.map((f) => (
+              <li key={f.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
+                <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-[#7A4FBF] font-display text-[11px] font-extrabold text-white">{f.n}</span>
+                <span className="rounded-full bg-[#7A4FBF]/12 px-2.5 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-wide text-[#7A4FBF]">
+                  scarico
+                </span>
+                <span className="font-display text-sm font-bold text-navy">{f.name}</span>
+                <span className="text-sm font-medium text-muted">{f.address}</span>
               </li>
             ))}
             {/* Senza coordinate non si può disegnare, ma la fermata esiste lo

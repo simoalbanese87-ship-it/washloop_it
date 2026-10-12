@@ -10,7 +10,10 @@ import L from "leaflet";
 
 export type Stop = {
   id: string;
-  kind: "pickup" | "delivery";
+  /** `laundry` = lo scarico dei sacchi: non è una porta di un cliente, è il
+   *  posto dove finisce il giro. Da quando le lavanderie sono due, in una
+   *  giornata ce ne può essere più d'uno. */
+  kind: "pickup" | "delivery" | "laundry";
   n: number;
   name: string;
   address: string;
@@ -21,8 +24,8 @@ export type Stop = {
 
 export type Depot = { lat: number; lng: number } | null;
 
-const COLOR = { pickup: "#2b7fd4", delivery: "#1F8A5B" } as const;
-const KIND_LABEL = { pickup: "Ritiro", delivery: "Consegna" } as const;
+const COLOR = { pickup: "#2b7fd4", delivery: "#1F8A5B", laundry: "#7A4FBF" } as const;
+const KIND_LABEL = { pickup: "Ritiro", delivery: "Consegna", laundry: "Scarico" } as const;
 
 function pinIcon(n: number, kind: Stop["kind"]) {
   const c = COLOR[kind];

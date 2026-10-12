@@ -24,6 +24,10 @@ export type Job = {
   when: string | null;
   accessMode: AccessMode;
   accessNote: string | null;
+  /** Dove va questo sacco. Da quando le lavanderie sono due — la storica e la
+   *  stireria di Arluno — il rider deve saperlo **mentre ritira**, non quando
+   *  arriva allo scarico e si accorge di avere il sacco sbagliato. */
+  laundry?: string | null;
 };
 
 type Action = { label: string; to: OrderStatus; variant?: "primary" | "ghost-navy" };
@@ -108,6 +112,11 @@ export function CourierJobCard({ job, n, kind }: { job: Job; n?: number; kind?: 
             {job.address} · {job.zone}
           </div>
           {job.when && <div className="mt-0.5 text-xs font-semibold text-blue">{job.when}</div>}
+          {job.laundry && (
+            <div className="mt-1 inline-flex rounded-full bg-[#7A4FBF]/12 px-2 py-0.5 font-display text-[11px] font-extrabold text-[#7A4FBF]">
+              → {job.laundry}
+            </div>
+          )}
           </div>
         </div>
         <StatusBadge status={job.status} />
