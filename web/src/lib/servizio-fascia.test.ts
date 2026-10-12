@@ -8,11 +8,12 @@ test("una fascia senza servizio è di tutti: le riconsegne e quelle vecchie", ()
   assert.equal(fasciaPermessa(null, null), true);
 });
 
-test("il mercoledì dello stiro è di chi lo stiro ce l'ha", () => {
+test("il mercoledì della stireria è solo di chi fa solo stiro", () => {
   assert.equal(fasciaPermessa("stiro", "solo_stiro"), true);
-  // Il lava e stira usa tutti e due i giorni: martedì il bucato, mercoledì le
-  // camicie. È il caso per cui questa regola guarda la fascia e non il cliente.
-  assert.equal(fasciaPermessa("stiro", "lava_stira"), true);
+  // La lavanderia stira anche: il lava e stira sta tutto nel martedì, un sacco
+  // solo lavato e stirato dallo stesso banco. Mandarlo anche al mercoledì
+  // vorrebbe dire spaccare in due un servizio che è uno.
+  assert.equal(fasciaPermessa("stiro", "lava_stira"), false);
   assert.equal(fasciaPermessa("stiro", "solo_lavanderia"), false);
 });
 

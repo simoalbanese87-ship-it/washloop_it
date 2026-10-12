@@ -7,10 +7,10 @@ import type { TipoServizio } from "@/lib/tipo-servizio";
  *  vincolo: nel giorno dello stiro non si prenota un sacco da lavare, perché
  *  quel sacco finirebbe ad Arluno dove non c'è una lavatrice.
  *
- *  Il caso che tiene insieme tutto è il **lava e stira**: quel cliente usa
- *  tutti e due i giorni — il martedì manda il bucato, il mercoledì le camicie.
- *  Per questo non basta guardare il cliente: conta la fascia che ha scelto, ed
- *  è lei a dire dove va quel sacco.
+ *  I due giorni sono **due servizi separati, non due metà dello stesso**: la
+ *  lavanderia stira anche, quindi il lava e stira sta tutto nel martedì — un
+ *  sacco solo, lavato e stirato dallo stesso banco. Il mercoledì è della
+ *  stireria, e ci sale solo chi fa **solo** stiro.
  *
  *  Modulo puro, senza database: è la regola che si sbaglia in silenzio, e i
  *  test la tengono ferma. */
@@ -38,9 +38,9 @@ export const SERVIZIO_FASCIA_TONO: Record<ServizioFascia, string> = {
  *
  *  - fascia senza servizio → sì, è una fascia buona per tutti (le riconsegne,
  *    e quelle nate prima che esistesse la stireria);
- *  - fascia **stiro** → solo chi lo stiro ce l'ha: `solo_stiro` e `lava_stira`;
- *  - fascia **lavanderia** → chi ha del bucato da lavare: `solo_lavanderia` e
- *    `lava_stira`.
+ *  - fascia **stiro** → solo `solo_stiro`: è il giorno della stireria;
+ *  - fascia **lavanderia** → `lava_stira` e `solo_lavanderia`, perché la
+ *    lavanderia lava e stira, e quei due sacchi vanno allo stesso banco.
  *
  *  **Il cliente senza servizio compilato conta come lavanderia.** Sono i
  *  clienti storici, quelli che il servizio ce l'hanno da prima che il campo
@@ -54,7 +54,7 @@ export function fasciaPermessa(
 ): boolean {
   if (!isServizioFascia(servizioFascia)) return true;
   const cliente = tipoServizioCliente ?? "solo_lavanderia";
-  if (servizioFascia === "stiro") return cliente === "solo_stiro" || cliente === "lava_stira";
+  if (servizioFascia === "stiro") return cliente === "solo_stiro";
   return cliente === "solo_lavanderia" || cliente === "lava_stira";
 }
 

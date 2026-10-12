@@ -6,7 +6,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { registraIncasso } from "@/lib/fatturazione";
 import { ficMode } from "@/lib/fic";
-import { importaIncassiDaStripe } from "@/lib/incassi-import";
+import { importaIncassiDaStripe, sincronizzaRimborsiDaStripe } from "@/lib/incassi-import";
 import { origineDelPagamento } from "@/lib/pagamento-fattura";
 import { stripe } from "@/lib/stripe";
 
@@ -68,8 +68,13 @@ export async function importaIncassi() {
   if (!me || me.role !== "admin") throw new Error("Solo admin");
 
   const esito = await importaIncassiDaStripe();
+  // Nello stesso giro si allineano anche i rimborsi fatti a mano su Stripe:
+  // sono la stessa domanda — «cosa dice Stripe che non sappiamo?» — e tenerli
+  // su due bottoni vorrebbe dire premerne sempre uno solo.
+  const rimborsi = await sincronizzaRimborsiDaStripe();
   revalidatePath(REV);
   revalidatePath("/admin");
+  revalidatePath("/admin/competenza");
 
   if (esito.errore) {
     redirect(`${REV}?warn=${encodeURIComponent(`Importazione non riuscita: ${esito.errore}`)}`);
@@ -78,11 +83,15 @@ export async function importaIncassi() {
     redirect(`${REV}?warn=${encodeURIComponent("Su Stripe non risulta nessuna fattura pagata. Il registro è a zero perché non è ancora entrato niente, non perché si è perso qualcosa.")}`);
   }
   const euro = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const suiRimborsi =
+    rimborsi.allineate > 0
+      ? ` Allineati anche ${rimborsi.allineate} rimborsi fatti su Stripe (${euro(rimborsi.totaleCents)}): erano soldi già tornati al cliente che il registro contava ancora come incassati.`
+      : "";
   const messaggio =
     esito.scritte > 0
       ? `Importati ${esito.scritte} incassi che mancavano, su ${esito.lette} fatture pagate trovate su Stripe (${euro(esito.totaleCents)} in tutto). Sono entrati come ricevute: nessun documento è stato emesso su Fatture in Cloud. Erano fuori dal registro, quindi controlla che sull'endpoint Stripe sia attivo l'evento invoice.payment_succeeded, altrimenti i prossimi si perderanno di nuovo.`
       : `Nessuna riga da aggiungere: le ${esito.lette} fatture pagate su Stripe (${euro(esito.totaleCents)}) erano già tutte registrate. Nessun documento emesso su Fatture in Cloud.`;
-  redirect(`${REV}?ok=${encodeURIComponent(messaggio)}`);
+  redirect(`${REV}?ok=${encodeURIComponent(messaggio + suiRimborsi)}`);
 }
 
 /** Rimborsa un incasso, in tutto o in parte, dal pannello.

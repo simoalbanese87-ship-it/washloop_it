@@ -1,6 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { stripe } from "@/lib/stripe";
+import { origineDelPagamento } from "@/lib/pagamento-fattura";
 
 /** Riempie il registro incassi con lo storico vero, letto da Stripe.
  *
@@ -104,5 +105,89 @@ export async function importaIncassiDaStripe(): Promise<EsitoImport> {
     if (error) return { ...esito, errore: error.message };
     esito.scritte = daScrivere.length;
   }
+  return esito;
+}
+
+/** Allinea i rimborsi fatti **dalla dashboard di Stripe**.
+ *
+ *  Perché serve
+ *  ------------
+ *  Un rimborso iniziato da noi scrive la sua riga da sé. Ma un rimborso fatto a
+ *  mano su Stripe arriva solo con il webhook `charge.refunded`, e se quell'evento
+ *  non è attivo sull'endpoint — si scelgono uno per uno — i soldi tornano al
+ *  cliente e il nostro registro continua a contarli come incassati. Il 12 ottobre
+ *  2026 i 160,00 € di un cliente erano stati restituiti su Stripe e in pannello
+ *  risultavano ancora lì, dentro il totale e dentro Competenza.
+ *
+ *  Come
+ *  ----
+ *  Per ogni ricevuta non ancora rimborsata del tutto si chiede a Stripe quanto
+ *  risulta restituito su quel pagamento. Se è più di quello che sappiamo noi, si
+ *  scrive la differenza: `invoices.rimborsato_*` e una riga di storno nella
+ *  scheda del cliente. Si può rilanciare quante volte si vuole — confronta
+ *  sempre con quello che è già registrato. */
+export type EsitoRimborsi = { controllate: number; allineate: number; totaleCents: number };
+
+export async function sincronizzaRimborsiDaStripe(): Promise<EsitoRimborsi> {
+  const svc = createServiceClient();
+  const esito: EsitoRimborsi = { controllate: 0, allineate: 0, totaleCents: 0 };
+
+  const { data: righe } = await svc
+    .from("invoices")
+    .select("id, user_id, amount_cents, stripe_invoice_id, rimborsato_cents, numero_ricevuta")
+    .not("stripe_invoice_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(300)
+    .returns<{ id: string; user_id: string | null; amount_cents: number; stripe_invoice_id: string; rimborsato_cents: number | null; numero_ricevuta: number | null }[]>();
+
+  const sk = stripe();
+  for (const r of righe ?? []) {
+    const giaReso = r.rimborsato_cents ?? 0;
+    if (giaReso >= r.amount_cents) continue; // già tutta indietro: niente da chiedere
+    esito.controllate++;
+
+    // Quanto risulta restituito su Stripe. Si legge dal charge, che è dove
+    // Stripe tiene il totale rimborsato — i refund possono essere più d'uno.
+    let resoSuStripe = 0;
+    try {
+      const origine = await origineDelPagamento(r.stripe_invoice_id);
+      if (!origine) continue;
+      if (origine.tipo === "charge") {
+        const ch = await sk.charges.retrieve(origine.id);
+        resoSuStripe = ch.amount_refunded ?? 0;
+      } else {
+        const pi = await sk.paymentIntents.retrieve(origine.id, { expand: ["latest_charge"] });
+        const ch = pi.latest_charge;
+        resoSuStripe = ch && typeof ch !== "string" ? ch.amount_refunded ?? 0 : 0;
+      }
+    } catch (err) {
+      console.error(`[rimborsi] ${r.stripe_invoice_id} non leggibile:`, err);
+      continue;
+    }
+
+    const differenza = resoSuStripe - giaReso;
+    if (differenza <= 0) continue;
+
+    await svc
+      .from("invoices")
+      .update({ rimborsato_at: new Date().toISOString(), rimborsato_cents: resoSuStripe })
+      .eq("id", r.id);
+
+    // Nella scheda del cliente, dove si legge la storia dei suoi soldi. Solo la
+    // differenza: se una parte era già registrata, quella c'è già.
+    if (r.user_id) {
+      await svc.from("customer_charges").insert({
+        customer_id: r.user_id,
+        description: `Rimborso ricevuta n. ${r.numero_ricevuta ?? "—"} · fatto su Stripe`,
+        amount_cents: differenza,
+        kind: "refund",
+        status: "settled",
+      });
+    }
+
+    esito.allineate++;
+    esito.totaleCents += differenza;
+  }
+
   return esito;
 }
