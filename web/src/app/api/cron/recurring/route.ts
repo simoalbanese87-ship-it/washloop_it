@@ -40,7 +40,7 @@ export async function GET(req: Request) {
 
     const [{ data: recs }, { data: slots }, { data: deliverySlots }] = await Promise.all([
       sb.from("recurring_pickups").select("id, customer_id, address_id, weekday, hhmm, delivery_hhmm, bags, notes").eq("active", true),
-      sb.from("slots").select("id, starts_at, laundry_id, capacity").eq("kind", "pickup").is("archived_at", null).gte("starts_at", now.toISOString()).lte("starts_at", until.toISOString()),
+      sb.from("slots").select("id, starts_at, laundry_id, capacity, servizio").eq("kind", "pickup").is("archived_at", null).gte("starts_at", now.toISOString()).lte("starts_at", until.toISOString()),
       // Fasce di riconsegna: si guarda più avanti dei ritiri, perché la
       // riconsegna cade dopo la lavorazione (48h, o 24h sui piani veloci).
       sb.from("slots").select("id, starts_at, laundry_id, capacity").eq("kind", "delivery").is("archived_at", null).gte("starts_at", now.toISOString()).lte("starts_at", new Date(until.getTime() + 4 * 86_400_000).toISOString()),
@@ -51,13 +51,14 @@ export async function GET(req: Request) {
     // destinazione si chiede per cliente, perché chi fa solo stiro va alla
     // stireria anche quando il ritiro lo crea il cron di notte.
     const destinazioni = new Map<string, { laundryId: string | null; servizioSaccoId: string | null }>();
-    const destinazioneDi = async (customerId: string, fascia: string | null) => {
-      // La chiave comprende la fascia: la stessa persona può avere ricorrenze
-      // su fasce diverse, e la fascia è il secondo criterio di instradamento.
-      const chiave = `${customerId}|${fascia ?? ""}`;
+    const destinazioneDi = async (customerId: string, fascia: string | null, servizioFascia: string | null) => {
+      // La chiave comprende la fascia e il suo servizio: la stessa persona può
+      // avere ricorrenze su giorni diversi — martedì il bucato, mercoledì le
+      // camicie — e sono due destinazioni diverse.
+      const chiave = `${customerId}|${fascia ?? ""}|${servizioFascia ?? ""}`;
       const gia = destinazioni.get(chiave);
       if (gia) return gia;
-      const d = await destinazioneOrdine(sb, customerId, fascia);
+      const d = await destinazioneOrdine(sb, customerId, fascia, servizioFascia);
       destinazioni.set(chiave, d);
       return d;
     };
@@ -146,7 +147,7 @@ export async function GET(req: Request) {
           }
         }
 
-        const destinazione = await destinazioneDi(rec.customer_id, slot.laundry_id);
+        const destinazione = await destinazioneDi(rec.customer_id, slot.laundry_id, slot.servizio ?? null);
         const { data: ins, error } = await sb.from("orders").insert({
           customer_id: rec.customer_id,
           address_id: rec.address_id,
