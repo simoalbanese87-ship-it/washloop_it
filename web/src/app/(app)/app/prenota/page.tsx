@@ -4,10 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/auth";
 import { pickupCounts, deliveryCounts } from "@/lib/slots";
 import { TURNAROUND_ORE } from "@/lib/planning-rider";
+import { fasciaPermessa } from "@/lib/servizio-fascia";
+import { isTipoServizio } from "@/lib/tipo-servizio";
 
 type Cat = { id: string; name: string; emoji: string; sort: number };
 type Item = { category_id: string; name: string; price_cli_cents: number; sort: number };
-type RawSlot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null; capacity: number | null };
+type RawSlot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null; capacity: number | null; servizio: string | null };
 
 export default async function PrenotaPage() {
   const supabase = await createClient();
@@ -18,10 +20,10 @@ export default async function PrenotaPage() {
     // le fasce di riconsegna prima di quel momento non hanno senso mostrarle.
     supabase.from("subscriptions").select("status, plans(turnaround_hours)").order("created_at", { ascending: false }).limit(1).maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>(),
     // Il cliente a consumo prenota come gli altri: niente canone, paga i capi.
-    supabase.from("profiles").select("a_consumo").eq("id", (await supabase.auth.getUser()).data.user?.id ?? "").maybeSingle<{ a_consumo: boolean | null }>(),
+    supabase.from("profiles").select("a_consumo, tipo_servizio").eq("id", (await supabase.auth.getUser()).data.user?.id ?? "").maybeSingle<{ a_consumo: boolean | null; tipo_servizio: string | null }>(),
     supabase.from("addresses").select("id, label, street, zone_id, access_mode, access_note").order("created_at", { ascending: false }).returns<Address[]>(),
-    supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity").eq("kind", "pickup").is("archived_at", null).gte("starts_at", nowIso).order("starts_at").limit(80).returns<RawSlot[]>(),
-    supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity").eq("kind", "delivery").is("archived_at", null).gte("starts_at", nowIso).order("starts_at").limit(120).returns<RawSlot[]>(),
+    supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity, servizio").eq("kind", "pickup").is("archived_at", null).gte("starts_at", nowIso).order("starts_at").limit(80).returns<RawSlot[]>(),
+    supabase.from("slots").select("id, starts_at, ends_at, laundry_id, capacity, servizio").eq("kind", "delivery").is("archived_at", null).gte("starts_at", nowIso).order("starts_at").limit(120).returns<RawSlot[]>(),
     supabase.from("special_categories").select("id, name, emoji, sort").order("sort").returns<Cat[]>(),
     // Vista e non tabella: `special_items` contiene anche il compenso pagato
     // alla lavanderia, che al cliente non deve arrivare nemmeno via API.
@@ -35,7 +37,12 @@ export default async function PrenotaPage() {
   ]);
   const residuo = (s: RawSlot, m: Map<string, number>) =>
     s.capacity == null ? null : Math.max(0, s.capacity - (m.get(s.id) ?? 0));
-  const slots: Slot[] = (rawSlots ?? []).map((s) => ({
+  // Il giorno giusto per il lavoro giusto: il martedì è della lavanderia, il
+  // mercoledì dello stiro. Chi fa solo stiro non deve nemmeno vedere il
+  // martedì — vedere una data che non può usare è un errore che si scopre
+  // dopo averla scelta. La regola, con i test, sta in `servizio-fascia.ts`.
+  const mioServizio = isTipoServizio(io?.tipo_servizio) ? io.tipo_servizio : null;
+  const slots: Slot[] = (rawSlots ?? []).filter((s) => fasciaPermessa(s.servizio, mioServizio)).map((s) => ({
     id: s.id, starts_at: s.starts_at, ends_at: s.ends_at, laundry_id: s.laundry_id, remaining: residuo(s, counts),
   }));
   const deliverySlots: Slot[] = (rawDelivery ?? []).map((s) => ({

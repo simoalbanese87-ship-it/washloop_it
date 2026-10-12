@@ -13,6 +13,7 @@ import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { impersonate } from "@/lib/actions/impersonate";
 import { TipoServizioSelect } from "@/components/admin/TipoServizioSelect";
 import { isTipoServizio } from "@/lib/tipo-servizio";
+import { isServizioFascia, SERVIZIO_FASCIA_LABEL } from "@/lib/servizio-fascia";
 import { cancelOrder } from "@/lib/actions/orders";
 import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
 import { ACCESS_MODE_LABEL, ORDER_STATUS_LABEL, ordineAperto, type AccessMode, type OrderStatus } from "@/lib/orders";
@@ -45,7 +46,7 @@ type Offerta = {
 };
 type Ord = { id: string; status: OrderStatus; created_at: string; bags: number; pickup_slot: { starts_at: string } | null };
 type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; stripe_ref: string | null; created_at: string };
-type Slot = { id: string; starts_at: string; ends_at: string; kind: string };
+type Slot = { id: string; starts_at: string; ends_at: string; kind: string; servizio: string | null };
 
 /** Gli stati degli addebiti erano mostrati grezzi ("pending", "invoiced"):
  *  parole tecniche in inglese in una schermata che si legge di fretta. */
@@ -89,7 +90,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, stripe_ref, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
     svc.from("recurring_pickups").select("id, weekday, hhmm, bags, active, needs_confirmation, delivery_hhmm, address_id, addresses(label), pending_weekday, pending_hhmm, pending_bags, pending_delivery_hhmm").eq("customer_id", id).order("created_at", { ascending: false }).returns<Rec[]>(),
-    svc.from("slots").select("id, starts_at, ends_at, kind").is("archived_at", null).gte("starts_at", new Date().toISOString()).order("starts_at").limit(60).returns<Slot[]>(),
+    svc.from("slots").select("id, starts_at, ends_at, kind, servizio").is("archived_at", null).gte("starts_at", new Date().toISOString()).order("starts_at").limit(60).returns<Slot[]>(),
     // Le ultime proposte, non solo l'ultima: se la più recente è scaduta ma
     // una di prima è ancora valida, il link buono esiste e va mostrato. Con
     // `limit(1)` si leggeva «scaduto» avendo in casa un link funzionante.
@@ -1073,7 +1074,15 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             <label className="text-xs font-bold text-muted">Ritiro
               <select name="pickup_slot_id" required className={input} defaultValue="">
                 <option value="" disabled>Scegli…</option>
-                {slotRitiro.map((sl) => (<option key={sl.id} value={sl.id}>{fmtDateTime(sl.starts_at)}</option>))}
+                {/* Il servizio accanto alla data: il martedì è lavanderia, il
+                    mercoledì stiro, e al telefono si sbaglia giorno in un
+                    attimo se il menu dice solo «mer 14 ott · 08:30». */}
+                {slotRitiro.map((sl) => (
+                  <option key={sl.id} value={sl.id}>
+                    {fmtDateTime(sl.starts_at)}
+                    {isServizioFascia(sl.servizio) ? ` · ${SERVIZIO_FASCIA_LABEL[sl.servizio]}` : ""}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="text-xs font-bold text-muted">Riconsegna

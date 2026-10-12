@@ -6,6 +6,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { romeLocalToISO } from "@/lib/format";
 import { geocodeAddress } from "@/lib/geo";
+import { isServizioFascia } from "@/lib/servizio-fascia";
 import { zoneIdForCap } from "@/lib/zones";
 import { TURNAROUND_ORE } from "@/lib/planning-rider";
 
@@ -391,6 +392,10 @@ export async function generateSlots(formData: FormData) {
   const date_from = String(formData.get("date_from") ?? "");
   const date_to = String(formData.get("date_to") ?? "");
   const capacity = Number(formData.get("capacity") ?? 10) || 10;
+  // Che lavoro si ritira in questa fascia. Vuoto = per tutti, che è il caso
+  // delle riconsegne (il giro è uno solo) e di com'era prima della stireria.
+  const servizioGrezzo = String(formData.get("servizio") ?? "").trim();
+  const servizio = isServizioFascia(servizioGrezzo) ? servizioGrezzo : null;
   const days = formData.getAll("days").map(String);
   const windows = [
     [String(formData.get("w1_from") ?? ""), String(formData.get("w1_to") ?? "")],
@@ -419,7 +424,7 @@ export async function generateSlots(formData: FormData) {
     if (!days.includes(String(d.getUTCDay()))) continue;
     const ds = d.toISOString().slice(0, 10);
     for (const [from, to] of windows) {
-      rows.push({ laundry_id, zone_id, kind, starts_at: romeLocalToISO(`${ds}T${from}`), ends_at: romeLocalToISO(`${ds}T${to}`), capacity });
+      rows.push({ laundry_id, zone_id, kind, servizio, starts_at: romeLocalToISO(`${ds}T${from}`), ends_at: romeLocalToISO(`${ds}T${to}`), capacity });
     }
   }
   if (rows.length === 0) throw new Error("Nessuno slot da creare con questi criteri");

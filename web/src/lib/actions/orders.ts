@@ -14,6 +14,8 @@ import { registraSacchiLavanderia } from "@/lib/laundry-payout";
 import { deliveryCounts, slotFullMessage } from "@/lib/slots";
 import { riconsegnaDopoSpostamento } from "@/lib/riconsegna";
 import { destinazioneOrdine } from "@/lib/lavanderia";
+import { fasciaPermessa } from "@/lib/servizio-fascia";
+import { isTipoServizio } from "@/lib/tipo-servizio";
 import { assegnaRiderIniziale } from "@/lib/assegna-rider";
 import { allineaProva } from "@/lib/prova-stripe";
 // Il ripiego quando il piano manca. Era 48, mentre i tre piani in database
@@ -47,26 +49,32 @@ export async function createPickup(formData: FormData) {
   // lavanderia, il portale filtra per lavanderia, e quel sacco non lo vede
   // nessuno: è successo il 14 settembre a due ritiri, arrivati sul banco senza
   // comparire in nessuna lista.
-  // Dove va e con quale servizio: una domanda sola. Chi fa solo stiro ha un
-  // servizio a sacco sul profilo, e il suo ritiro nasce già con quel servizio e
-  // diretto alla stireria — senza, sarebbe un sacco di stiro in lavanderia, o
-  // un sacco a sacco senza prezzo.
-  const destinazione = await destinazioneOrdine(createServiceClient(), user.id);
-  const laundry_id = String(formData.get("laundry_id") ?? "") || destinazione.laundryId;
   const bags = Number(formData.get("bags") ?? 1);
   if (!address_id || !pickup_slot_id) throw new Error("Indirizzo e slot obbligatori");
 
   // ETA = inizio slot ritiro + turnaround del piano attivo (default 48h)
   const [{ data: slot }, { data: sub }, { data: io }] = await Promise.all([
-    supabase.from("slots").select("starts_at").eq("id", pickup_slot_id).maybeSingle<{ starts_at: string }>(),
+    supabase.from("slots").select("starts_at, servizio, laundry_id").eq("id", pickup_slot_id).maybeSingle<{ starts_at: string; servizio: string | null; laundry_id: string | null }>(),
     supabase
       .from("subscriptions")
       .select("status, plans(turnaround_hours)")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>(),
-    supabase.from("profiles").select("a_consumo").eq("id", user.id).maybeSingle<{ a_consumo: boolean | null }>(),
+    supabase.from("profiles").select("a_consumo, tipo_servizio").eq("id", user.id).maybeSingle<{ a_consumo: boolean | null; tipo_servizio: string | null }>(),
   ]);
+
+  // Il giorno giusto per il lavoro giusto: nel mercoledì dello stiro non si
+  // prenota un sacco da lavare. Il controllo sta qui e non solo nel menu —
+  // una fascia nascosta si può comunque spedire a mano.
+  if (!fasciaPermessa(slot?.servizio, isTipoServizio(io?.tipo_servizio) ? io.tipo_servizio : null)) {
+    redirect(`/app/prenota?err=${encodeURIComponent("Questa fascia è di un altro servizio: scegline una del tuo.")}`);
+  }
+
+  // Dove va e con quale servizio. Decide prima la fascia — un sacco sulla
+  // fascia dello stiro è di stiro — e poi il servizio scritto in anagrafica.
+  const destinazione = await destinazioneOrdine(createServiceClient(), user.id, slot?.laundry_id, slot?.servizio);
+  const laundry_id = String(formData.get("laundry_id") ?? "") || destinazione.laundryId;
 
   // Gate: serve un abbonamento attivo, oppure l'accordo a consumo (difesa lato
   // server). La regola sta in `puo-prenotare.ts` con i suoi test.
@@ -125,23 +133,30 @@ export async function bookPickup(input: {
 
   const { address_id, pickup_slot_id } = input;
   const delivery_slot_id = input.delivery_slot_id || null;
-  // Stesso motivo di `createPickup`: la lavanderia di ripiego non è un dato del
-  // cliente, e chiederla con la sua sessione dà sempre «nessuna».
-  const destinazione = await destinazioneOrdine(createServiceClient(), user.id);
-  const laundry_id = input.laundry_id || destinazione.laundryId;
   const bags = Number.isFinite(input.bags) && input.bags > 0 ? input.bags : 1;
   if (!address_id || !pickup_slot_id) return { ok: false, error: "Indirizzo e slot obbligatori" };
 
   const [{ data: slot }, { data: sub }, { data: io }] = await Promise.all([
-    supabase.from("slots").select("starts_at").eq("id", pickup_slot_id).maybeSingle<{ starts_at: string }>(),
+    supabase.from("slots").select("starts_at, servizio, laundry_id").eq("id", pickup_slot_id).maybeSingle<{ starts_at: string; servizio: string | null; laundry_id: string | null }>(),
     supabase
       .from("subscriptions")
       .select("status, plans(turnaround_hours)")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>(),
-    supabase.from("profiles").select("a_consumo").eq("id", user.id).maybeSingle<{ a_consumo: boolean | null }>(),
+    supabase.from("profiles").select("a_consumo, tipo_servizio").eq("id", user.id).maybeSingle<{ a_consumo: boolean | null; tipo_servizio: string | null }>(),
   ]);
+
+  // Stessa guardia: la fascia dello stiro è dello stiro, e un menu filtrato non
+  // basta — una fascia nascosta si può comunque spedire a mano.
+  if (!fasciaPermessa(slot?.servizio, isTipoServizio(io?.tipo_servizio) ? io.tipo_servizio : null)) {
+    return { ok: false, error: "Questa fascia è di un altro servizio: scegline una del tuo." };
+  }
+
+  // Dove va e con quale servizio. Decide prima la fascia — un sacco sulla
+  // fascia dello stiro è di stiro — e poi il servizio scritto in anagrafica.
+  const destinazione = await destinazioneOrdine(createServiceClient(), user.id, slot?.laundry_id, slot?.servizio);
+  const laundry_id = input.laundry_id || destinazione.laundryId;
 
   if (!puoPrenotare({ statoAbbonamento: sub?.status, aConsumo: io?.a_consumo })) {
     return { ok: false, error: perchePuoNonPrenotare({ statoAbbonamento: sub?.status, aConsumo: io?.a_consumo }) ?? "Serve un abbonamento attivo." };

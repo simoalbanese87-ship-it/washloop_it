@@ -68,23 +68,38 @@ export async function destinazioneOrdine(
   client: SupabaseClient,
   customerId: string,
   fasciaLaundryId?: string | null,
+  /** Che lavoro è la fascia scelta: `stiro` manda il sacco alla stireria anche
+   *  se il cliente, sulla carta, fa lava e stira. È il caso normale di chi usa
+   *  tutti e due i giorni — il martedì il bucato, il mercoledì le camicie — e
+   *  guardare solo il cliente manderebbe le camicie in lavanderia. */
+  servizioFascia?: string | null,
 ): Promise<{ laundryId: string | null; servizioSaccoId: string | null }> {
-  const { data: prof } = await client
-    .from("profiles")
-    .select("servizio_sacco_id, servizi_sacco(id, laundry_id, active)")
-    .eq("id", customerId)
-    .maybeSingle<{ servizio_sacco_id: string | null; servizi_sacco: { id: string; laundry_id: string | null; active: boolean } | { id: string; laundry_id: string | null; active: boolean }[] | null }>();
+  const [{ data: prof }, { data: delloStiro }] = await Promise.all([
+    client
+      .from("profiles")
+      .select("servizio_sacco_id, servizi_sacco(id, laundry_id, active)")
+      .eq("id", customerId)
+      .maybeSingle<{ servizio_sacco_id: string | null; servizi_sacco: { id: string; laundry_id: string | null; active: boolean } | { id: string; laundry_id: string | null; active: boolean }[] | null }>(),
+    servizioFascia === "stiro"
+      ? client.from("servizi_sacco").select("id, laundry_id").eq("codice", "stiro").eq("active", true).maybeSingle<{ id: string; laundry_id: string | null }>()
+      : Promise.resolve({ data: null }),
+  ]);
 
   const rel = prof?.servizi_sacco;
-  const servizio = Array.isArray(rel) ? rel[0] ?? null : rel ?? null;
-  const attivo = servizio?.active ? servizio : null;
+  const suo = Array.isArray(rel) ? rel[0] ?? null : rel ?? null;
+  const servizio = suo?.active ? suo : null;
+
+  // La fascia dello stiro vince sul servizio scritto in anagrafica: il sacco
+  // che sale su quella fascia è di stiro, qualunque cosa faccia di solito chi
+  // lo manda.
+  const daFascia = delloStiro ?? null;
 
   return {
     laundryId: scegliLavanderia({
-      servizio: attivo?.laundry_id ?? null,
+      servizio: daFascia?.laundry_id ?? servizio?.laundry_id ?? null,
       fascia: fasciaLaundryId ?? null,
       generali: await lavanderieGenerali(client),
     }),
-    servizioSaccoId: attivo?.id ?? null,
+    servizioSaccoId: daFascia?.id ?? servizio?.id ?? null,
   };
 }

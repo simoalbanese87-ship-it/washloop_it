@@ -275,7 +275,7 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
             </button>
           </form>
           <form action={generateSlots} className="mt-4 space-y-3">
-            <div className="grid gap-3 sm:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-5">
               <label className="text-xs font-bold text-muted">Lavanderia
                 <select name="laundry_id" className={input} defaultValue="">
                   <option value="">Lavanderia (facoltativa)</option>
@@ -286,6 +286,17 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
                 <select name="kind" className={input} defaultValue="pickup">
                   <option value="pickup">Ritiro</option>
                   <option value="delivery">Consegna</option>
+                </select>
+              </label>
+              {/* Che lavoro si ritira: il martedì è lavanderia, il mercoledì
+                  stiro. Non è un'etichetta — decide chi può prenotare quella
+                  fascia e dove va il sacco. Vuoto = per tutti, com'è giusto
+                  per le riconsegne, che sono un giro solo. */}
+              <label className="text-xs font-bold text-muted">Servizio
+                <select name="servizio" className={input} defaultValue="">
+                  <option value="">Per tutti</option>
+                  <option value="lavanderia">Lavanderia</option>
+                  <option value="stiro">Stiro</option>
                 </select>
               </label>
               <label className="text-xs font-bold text-muted">Dal<input name="date_from" type="date" required className={input} /></label>

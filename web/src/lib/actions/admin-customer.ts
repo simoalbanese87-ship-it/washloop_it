@@ -1094,7 +1094,7 @@ export async function adminCreatePickup(formData: FormData) {
 
   const svc = createServiceClient();
   const [{ data: slot }, { data: sub }] = await Promise.all([
-    svc.from("slots").select("starts_at, laundry_id").eq("id", pickupSlotId).maybeSingle<{ starts_at: string; laundry_id: string | null }>(),
+    svc.from("slots").select("starts_at, laundry_id, servizio").eq("id", pickupSlotId).maybeSingle<{ starts_at: string; laundry_id: string | null; servizio: string | null }>(),
     svc.from("subscriptions").select("plans(turnaround_hours)").eq("user_id", customerId)
       .order("created_at", { ascending: false }).limit(1)
       .maybeSingle<{ plans: { turnaround_hours: number } | null }>(),
@@ -1103,7 +1103,11 @@ export async function adminCreatePickup(formData: FormData) {
 
   const turnaround = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
   const eta = new Date(new Date(slot!.starts_at).getTime() + turnaround * 3600_000).toISOString();
-  const destinazione = await destinazioneOrdine(svc, customerId, slot!.laundry_id);
+  // Come in app: decide prima la fascia — un sacco sulla fascia dello stiro è
+  // di stiro — e poi il servizio scritto in anagrafica. Qui però non si blocca
+  // nessuno: al telefono si prenota anche quello che l'app non lascerebbe fare,
+  // ed è il motivo per cui questa azione esiste.
+  const destinazione = await destinazioneOrdine(svc, customerId, slot!.laundry_id, slot!.servizio);
 
   const { data, error } = await svc
     .from("orders")
