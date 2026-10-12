@@ -228,7 +228,21 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <NumeroCliccabile href={`/admin/numeri/sacchi-mese${includiProva ? "?prova=1" : ""}`} label="Sacchi · mese" value={String(laundry.bagsMonth)} sub="Ritirati questo mese" />
           <StatTile label="Sacchi · anno" value={String(laundry.bagsYear)} sub="Da inizio anno" />
-          <NumeroCliccabile href={`/admin/numeri/da-dare${includiProva ? "?prova=1" : ""}`} label="Da dare · mese" value={eurCents(laundry.laundryOwedMonthCents)} sub="Dal registro compensi (IVA escl.)" />
+          {/* Il registro nasce alla riconsegna, il ricavo matura al ritiro: nel
+              mezzo c'è il lavoro in corso. Senza dirlo, questo riquadro e
+              Competenza si contraddicevano a vista — 9,02 € qui con sei sacchi
+              in lavanderia. Ora la cifra in lavorazione sta accanto, e si legge
+              per quello che è: dovuta, ma non ancora maturata. */}
+          <NumeroCliccabile
+            href={`/admin/numeri/da-dare${includiProva ? "?prova=1" : ""}`}
+            label="Da dare · mese"
+            value={eurCents(laundry.laundryOwedMonthCents)}
+            sub={
+              laundry.inLavorazioneCents > 0
+                ? `Maturato alla riconsegna · + ${eurCents(laundry.inLavorazioneCents)} in lavorazione`
+                : "Dal registro compensi (IVA escl.)"
+            }
+          />
           <StatTile label="Da dare · anno" value={eurCents(laundry.laundryOwedYearCents)} sub="Totale maturato" tone="text-[#C9881F]" />
         </div>
       </Card>

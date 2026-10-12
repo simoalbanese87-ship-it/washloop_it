@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { sacchiInLavorazione } from "@/lib/sacchi-in-lavorazione";
 import { incassiStripePerMese, rimborsiPerMese } from "@/lib/incassi-stripe";
 import { waitlistLeads } from "@/lib/waitlist";
 
@@ -201,7 +202,17 @@ export async function revenueMetrics(includiProva = false): Promise<RevenueMetri
 
 // ---------------- Lavanderia (sacchi + compenso dovuto) ----------------
 
-export type LaundryMetrics = { bagsMonth: number; bagsYear: number; laundryOwedMonthCents: number; laundryOwedYearCents: number };
+export type LaundryMetrics = {
+  bagsMonth: number;
+  bagsYear: number;
+  laundryOwedMonthCents: number;
+  laundryOwedYearCents: number;
+  /** Quello che dovremo per i sacchi già in lavanderia e non ancora
+   *  riconsegnati. Non è ancora dovuto — la riga nasce alla riconsegna — ma
+   *  senza questo numero la Home e Competenza si contraddicevano a vista: una
+   *  diceva 9,02 € mentre in lavanderia c'erano sei sacchi. */
+  inLavorazioneCents: number;
+};
 
 export async function laundryMetrics(includiProva = false): Promise<LaundryMetrics> {
   const svc = createServiceClient();
@@ -238,7 +249,12 @@ export async function laundryMetrics(includiProva = false): Promise<LaundryMetri
     if (o.created_at >= monthStart) bagsMonth += o.bags ?? 0;
   }
 
-  return { bagsMonth, bagsYear, laundryOwedMonthCents: owedMonth, laundryOwedYearCents: owedYear };
+  // Lo stesso calcolo di Competenza, dalla stessa funzione: due numeri che
+  // devono raccontare la stessa cosa non possono stare in due posti.
+  const previsti = await sacchiInLavorazione(svc, { includiProva });
+  const inLavorazioneCents = previsti.reduce((t, p) => t + p.cents, 0);
+
+  return { bagsMonth, bagsYear, laundryOwedMonthCents: owedMonth, laundryOwedYearCents: owedYear, inLavorazioneCents };
 }
 
 // ---------------- Abbonati (nuovi / interrotti / snapshot) ----------------

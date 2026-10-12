@@ -3,8 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Fisarmonica } from "@/components/ui/Fisarmonica";
 import { createServiceClient } from "@/lib/supabase/server";
 import { scorpora } from "@/lib/iva";
-import { sacchiOsservati } from "@/lib/franchigia";
-import { haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
+import { sacchiInLavorazione } from "@/lib/sacchi-in-lavorazione";
 import {
   lunediDi,
   meseDi,
@@ -184,54 +183,17 @@ export default async function Competenza({
 
   // ---- Il costo dei sacchi ritirati e non ancora riconsegnati --------------
   //
-  // La riga vera in `laundry_payouts` nasce alla riconsegna. Il ricavo invece
-  // matura alla presa in carico: finché i sacchi sono in lavanderia, la
-  // settimana in corso si leggeva tutta margine — 222,90 € di ricavi e 9,02 €
-  // di costo, il 7 ottobre, con sei sacchi già ritirati.
+  // La riga vera in `laundry_payouts` nasce alla riconsegna, il ricavo matura
+  // alla presa in carico: finché i sacchi sono in lavanderia la settimana in
+  // corso si leggeva tutta margine — 222,90 € di ricavi e 9,02 € di costo, il 7
+  // ottobre, con sei sacchi già ritirati.
   //
-  // Qui si imputa lo stesso costo che verrà registrato, con le stesse regole di
-  // `registraSacchiLavanderia`: i sacchi contati dalla lavanderia, poi quelli
-  // scansionati dal rider, poi quelli dichiarati — si paga quello che risulta,
-  // anche sopra i sacchi dell'abbonamento — e zero per chi un abbonamento non
-  // ce l'ha, perché il compenso a sacco è la contropartita del canone.
-  const ordiniDelMese = (ordini ?? []).filter(
-    (o) => o.customer_id && (includiProva || !uno(o.profiles)?.is_test) && meseDi(giornoOrdine(o)) === mese,
-  );
-  const conPayoutSacco = new Set(
-    (payouts ?? []).filter((p) => p.kind === "bag" && p.order_id).map((p) => p.order_id as string),
-  );
-  // Un ritiro ancora da fare non è un costo: si contano solo gli ordini presi
-  // in carico, cioè tutto quello che è uscito da «ritiro programmato».
-  const daImputare = ordiniDelMese.filter(
-    (o) => o.laundry_id && o.status !== "pickup_scheduled" && o.status !== "requested" && !conPayoutSacco.has(o.id),
-  );
-
-  const scansioniPerOrdine = new Map<string, number>();
-  if (daImputare.length > 0) {
-    const { data: tag } = await svc
-      .from("order_bags")
-      .select("order_id")
-      .in("order_id", daImputare.map((o) => o.id))
-      .not("pickup_scanned_at", "is", null)
-      .returns<{ order_id: string }[]>();
-    for (const t of tag ?? []) scansioniPerOrdine.set(t.order_id, (scansioniPerOrdine.get(t.order_id) ?? 0) + 1);
-  }
-
-  const clientiDaImputare = [...new Set(daImputare.map((o) => o.customer_id!))];
-  const conAbbonamento = new Map<string, boolean>();
-  await Promise.all(
-    clientiDaImputare.map(async (id) => conAbbonamento.set(id, await haAbbonamentoAttivo(svc, id))),
-  );
-
-  const previsti: PrevistoConto[] = [];
-  for (const o of daImputare) {
-    if (!conAbbonamento.get(o.customer_id!)) continue;
-    const lav = uno(o.laundries);
-    const compenso = lav?.bag_comp_cents ?? 1500;
-    const sacchi = sacchiOsservati(o.bags_arrivati, scansioniPerOrdine.get(o.id) ?? 0, o.bags);
-    if (sacchi <= 0) continue;
-    previsti.push({ clienteId: o.customer_id!, settimana: lunediDi(giornoOrdine(o)), cents: compenso * sacchi });
-  }
+  // Il calcolo sta in `sacchi-in-lavorazione.ts` e lo usa anche la Home: erano
+  // due pagine che rispondevano alla stessa domanda con numeri diversi, e
+  // finché la funzione è una sola non possono più divergere.
+  const previsti: PrevistoConto[] = (await sacchiInLavorazione(svc, { includiProva }))
+    .filter((p) => meseDi(p.giorno) === mese)
+    .map((p) => ({ clienteId: p.clienteId, settimana: lunediDi(p.giorno), cents: p.cents }));
 
   const addebitiConto: AddebitoConto[] = (addebiti ?? [])
     .filter((a) => nomi.has(a.customer_id))

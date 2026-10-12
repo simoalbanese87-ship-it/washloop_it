@@ -23,9 +23,15 @@ export const TIPO_SERVIZIO_LABEL: Record<TipoServizio, string> = {
  *  mentre un trattino sembrerebbe un dato che non esiste. */
 export const TIPO_SERVIZIO_VUOTO = "Da compilare";
 
+/** Un colore per servizio, e nessuno in comune con gli altri chip della stessa
+ *  riga. «Solo stiro» era ambra come «Da contattare» (`lead-status.ts`), e in
+ *  tabella i due stanno a due colonne di distanza: si leggevano come la stessa
+ *  cosa. Ora è viola, che non ha nessun altro — e il solo stiro è il servizio
+ *  che va in una lavanderia diversa, quindi è proprio quello da riconoscere
+ *  senza leggere. */
 export const TIPO_SERVIZIO_TONO: Record<TipoServizio, string> = {
   lava_stira: "bg-blue/10 text-blue",
-  solo_stiro: "bg-[#C9881F]/12 text-[#C9881F]",
+  solo_stiro: "bg-[#7A4FBF]/12 text-[#7A4FBF]",
   solo_lavanderia: "bg-[#1F8A5B]/12 text-[#1F8A5B]",
 };
 

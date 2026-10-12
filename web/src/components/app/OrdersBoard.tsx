@@ -507,6 +507,11 @@ function BoardCard({ o, couriers, late, selected, onToggle }: { o: BoardOrder; c
           <form action={advanceStatus}>
             <input type="hidden" name="order_id" value={o.id} />
             <input type="hidden" name="status" value={next} />
+            {/* Qui si avvisa sempre: il board segue la vita reale dell'ordine,
+                e ogni passaggio è una notizia che il cliente aspetta. Dove
+                invece si correggono gli stati rimasti indietro — la scheda
+                dell'ordine — la spunta è spenta e la si accende apposta. */}
+            <input type="hidden" name="avvisa" value="1" />
             {/* `BottoneInvio` e non un <button> semplice: mentre lavora si
                 blocca e mostra la rotellina. Senza, premendo non succedeva
                 niente di visibile e si finiva per premere tre volte chiedendosi

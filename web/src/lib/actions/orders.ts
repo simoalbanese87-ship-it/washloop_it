@@ -359,12 +359,25 @@ export async function advanceStatus(formData: FormData) {
   const status = String(formData.get("status") ?? "") as OrderStatus;
   if (!id || !status) throw new Error("Parametri mancanti");
 
+  // Avvisare o no è una decisione, non un automatismo.
+  //
+  // Finora ogni spostamento a mano mandava email e push. Ma spostare uno stato
+  // dalla scheda dell'ordine quasi sempre vuol dire **rimettere a posto una
+  // cosa nostra** — un ordine rimasto in «pronto in consegna» che era già a
+  // casa del cliente, uno stato saltato dallo scanner — e lì un «il tuo bucato
+  // è pronto» a distanza di giorni confonde e basta.
+  //
+  // Quindi la scheda chiede, con la spunta spenta; il board degli ordini, che è
+  // il flusso vero di tutti i giorni, manda la spunta accesa nel form e
+  // continua ad avvisare come prima.
+  const avvisa = String(formData.get("avvisa") ?? "") === "1";
+
   const { error } = await supabase.from("orders").update({ status }).eq("id", id);
   if (error) throw new Error(error.message);
   // Alla consegna matura il compenso della lavanderia per i sacchi: prima di
   // adesso quella riga non veniva scritta da nessuna parte.
   if (status === "delivered") await registraSacchiLavanderia(id);
-  await notifyOrderStatus(id, status);
+  if (avvisa) await notifyOrderStatus(id, status);
   revalidatePath(`/admin/ordini/${id}`);
   revalidatePath("/admin/ordini");
   revalidatePath("/courier");

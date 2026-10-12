@@ -430,16 +430,26 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
 
           <Card>
             <span className="font-display text-sm font-extrabold text-navy">Avanza stato</span>
-            <form action={advanceStatus} className="mt-3 flex gap-3">
-              <input type="hidden" name="order_id" value={order.id} />
-              <select name="status" className={input} defaultValue={order.status}>
-                {STATUSES.map((s) => (
-                  <option key={s} value={s}>{ORDER_STATUS_LABEL[s]}</option>
-                ))}
-              </select>
-              <Button type="submit" size="md">
-                Aggiorna
-              </Button>
+            <form action={advanceStatus} className="mt-3">
+              <div className="flex gap-3">
+                <input type="hidden" name="order_id" value={order.id} />
+                <select name="status" className={input} defaultValue={order.status}>
+                  {STATUSES.map((s) => (
+                    <option key={s} value={s}>{ORDER_STATUS_LABEL[s]}</option>
+                  ))}
+                </select>
+                <Button type="submit" size="md">
+                  Aggiorna
+                </Button>
+              </div>
+              {/* Spenta di partenza: da qui si sistemano gli ordini rimasti
+                  indietro, e un «il tuo bucato è pronto» tre giorni dopo che il
+                  cliente l'ha già ricevuto fa solo danno. Quando invece lo
+                  spostamento è una notizia vera, si spunta. */}
+              <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-muted">
+                <input type="checkbox" name="avvisa" value="1" className="h-4 w-4 accent-[#2b7fd4]" />
+                Avvisa il cliente (email e notifica)
+              </label>
             </form>
           </Card>
 
