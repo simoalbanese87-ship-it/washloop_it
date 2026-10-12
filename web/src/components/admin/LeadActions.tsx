@@ -6,7 +6,21 @@ import { archiviaLead, convertLeadToCustomer, deleteLead } from "@/lib/actions/l
  *  Gemello di DeleteUserButton: stessa conferma nativa, stessi colori. La
  *  conferma sulla conversione c'è perché crea un account vero e manda una mail
  *  con le credenziali — non è un'azione silenziosa. */
-export function LeadActions({ leadId, name, back, archiviato = false }: { leadId: string; name: string; back: string; archiviato?: boolean }) {
+export function LeadActions({
+  leadId,
+  name,
+  back,
+  archiviato = false,
+  backDopoElimina,
+}: {
+  leadId: string;
+  name: string;
+  back: string;
+  archiviato?: boolean;
+  /** Dove si torna dopo l'eliminazione. Sulla scheda del contatto non può
+   *  essere `back`: quella pagina, un attimo dopo, non esiste più. */
+  backDopoElimina?: string;
+}) {
   return (
     <div className="flex flex-none items-center gap-3">
       <form
@@ -46,7 +60,7 @@ export function LeadActions({ leadId, name, back, archiviato = false }: { leadId
         }}
       >
         <input type="hidden" name="lead_id" value={leadId} />
-        <input type="hidden" name="back" value={back} />
+        <input type="hidden" name="back" value={backDopoElimina ?? back} />
         <button type="submit" className="font-display text-xs font-bold text-[#C0392B] hover:underline">
           Elimina
         </button>

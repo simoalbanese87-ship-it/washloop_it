@@ -95,7 +95,7 @@ export default async function SchedaContatto({
             con «Accedi come», il ritiro al telefono e l&apos;abbonamento.
           </p>
           <div className="mt-3">
-            <LeadActions leadId={lead.id} name={lead.full_name ?? lead.email} back={`/admin/persone/${lead.id}`} archiviato={lead.archiviato_at != null} />
+            <LeadActions leadId={lead.id} name={lead.full_name ?? lead.email} back={`/admin/persone/${lead.id}`} archiviato={lead.archiviato_at != null} backDopoElimina="/admin/persone" />
           </div>
         </Card>
       )}
