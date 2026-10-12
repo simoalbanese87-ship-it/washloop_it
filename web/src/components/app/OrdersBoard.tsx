@@ -39,6 +39,12 @@ const COLUMNS: { key: string; label: string; statuses: OrderStatus[] }[] = [
 
 const NEEDS_RIDER: OrderStatus[] = ["requested", "pickup_scheduled", "ready", "delivery_scheduled"];
 
+/** Pronto, e nessuno gli ha dato un giorno per tornare a casa. Lo stato dice
+ *  «consegna programmata» ma la fascia non c'è: senza, non lo prende nessun
+ *  giro e il sacco resta in lavanderia finché non telefona il cliente. */
+const senzaFascia = (o: { status: OrderStatus; delivery_at: string | null }) =>
+  ["ready", "delivery_scheduled", "out_for_delivery"].includes(o.status) && !o.delivery_at;
+
 
 
 /** La data che conta per un ordine è quella del passaggio previsto: il ritiro
@@ -85,7 +91,7 @@ export function OrdersBoard({
   laundries: Opt[];
   zones: Opt[];
   /** Arriva dai riquadri della Home: apre il board già filtrato. */
-  filtroIniziale?: "ritardo" | "da_assegnare";
+  filtroIniziale?: "ritardo" | "da_assegnare" | "senza_fascia";
   /** L'istante del render lato server. Serve perché il primo disegno del board
    *  sia già filtrato: partendo da zero si vedeva per un attimo il board senza
    *  filtro di periodo — «5 da ritirare» che un istante dopo diventavano 0 —
@@ -100,6 +106,12 @@ export function OrdersBoard({
   const [laundry, setLaundry] = useState("");
   const [onlyUnassigned, setOnlyUnassigned] = useState(filtroIniziale === "da_assegnare");
   const [onlyLate, setOnlyLate] = useState(filtroIniziale === "ritardo");
+  // Pronto ma senza una fascia di riconsegna: è il modo in cui un ordine si
+  // ferma per giorni senza che nessuno se ne accorga. Il 10 ottobre due sacchi
+  // di clienti veri sono passati a «consegna programmata» senza fascia, e lì
+  // sono rimasti: in Home comparivano come «in ritardo sull'ora di pronto»,
+  // che è vero e non dice il problema.
+  const [onlySenzaFascia, setOnlySenzaFascia] = useState(filtroIniziale === "senza_fascia");
   // Oggi di default: il board caricava TUTTI gli ordini di sempre, e per capire
   // cosa fare adesso bisognava leggerli tutti.
   // Chi arriva dalla home ha cliccato un numero ("1 ordine in ritardo") e deve
@@ -161,6 +173,7 @@ export function OrdersBoard({
       if (laundry && o.laundry_id !== laundry) return false;
       if (onlyUnassigned && o.courier_id) return false;
       if (onlyLate && !lateOf(o)) return false;
+      if (onlySenzaFascia && !senzaFascia(o)) return false;
       // Regola in `board-periodo.ts`, collaudata: è quella che aveva fatto
       // sparire un ordine vero per tre giorni.
       if (!passaPeriodo({ status: o.status, giorno: giornoRoma(dataRilevante(o)) }, periodo, oggi, fineSettimana)) return false;
@@ -171,7 +184,7 @@ export function OrdersBoard({
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders, q, zone, laundry, onlyUnassigned, onlyLate, periodo, oggi, fineSettimana, now]);
+  }, [orders, q, zone, laundry, onlyUnassigned, onlyLate, onlySenzaFascia, periodo, oggi, fineSettimana, now]);
 
   // I contatori si calcolano su ciò che è VISIBILE, non su tutti gli ordini.
   // Prima ignoravano il filtro di periodo: con la vista "Oggi" si leggeva
@@ -350,6 +363,10 @@ export function OrdersBoard({
           <input type="checkbox" checked={onlyLate} onChange={(e) => setOnlyLate(e.target.checked)} className="accent-[#C0392B]" />
           Solo in ritardo
         </label>
+        <label className="flex h-10 cursor-pointer items-center gap-2 rounded-[12px] border border-line bg-white px-3 text-sm font-semibold text-navy">
+          <input type="checkbox" checked={onlySenzaFascia} onChange={(e) => setOnlySenzaFascia(e.target.checked)} className="accent-[#C9881F]" />
+          Senza riconsegna
+        </label>
       </div>
 
       {/* Board */}
@@ -481,6 +498,11 @@ function BoardCard({ o, couriers, late, selected, onToggle }: { o: BoardOrder; c
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
         <StatusBadge status={o.status} />
         {late && <span className="rounded-full bg-[#C0392B]/12 px-2 py-0.5 font-display text-[10px] font-extrabold uppercase text-[#C0392B]">In ritardo</span>}
+        {senzaFascia(o) && (
+          <span className="rounded-full bg-[#C9881F]/15 px-2 py-0.5 font-display text-[10px] font-extrabold uppercase text-[#C9881F]" title="Pronto ma senza fascia di riconsegna: nessun giro lo prende.">
+            senza riconsegna
+          </span>
+        )}
         {needsRider && <span className="rounded-full bg-blue/15 px-2 py-0.5 font-display text-[10px] font-extrabold uppercase text-blue">Da assegnare</span>}
       </div>
 

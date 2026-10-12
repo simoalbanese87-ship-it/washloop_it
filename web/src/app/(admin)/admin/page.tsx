@@ -57,7 +57,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     return includiProva ? q : q.eq("orders.profiles.is_test", false);
   };
 
-  const [daRichiamare, inRitardo, senzaRider, senzaLavanderia, pagamentiKo, segnalazioni, extraInAttesa, rev, laundry, subs, customers, mesiIncassi, automazioni, guasti] = await Promise.all([
+  const [daRichiamare, inRitardo, senzaRider, senzaLavanderia, senzaFascia, pagamentiKo, segnalazioni, extraInAttesa, rev, laundry, subs, customers, mesiIncassi, automazioni, guasti] = await Promise.all([
     // Non una query sui soli `leads`: quella contava anche chi nel frattempo è
     // diventato cliente. `daContattare` passa dalla stessa deduplica di Persone,
     // così il numero e la pagina che apre dicono la stessa cosa.
@@ -73,6 +73,12 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
     // in `/admin/sicurezza`, che però si apre una volta al mese: qui sta dove
     // si guarda ogni giorno.
     ordiniVeri().is("laundry_id", null),
+    // Pronti, e senza un giorno per tornare a casa. È il modo in cui un ordine
+    // si ferma per giorni senza che nessuno se ne accorga: il 10 ottobre due
+    // sacchi di clienti veri sono passati a «consegna programmata» senza
+    // fascia e lì sono rimasti. In questo riquadro comparivano come «in
+    // ritardo sull'ora di pronto» — vero, e non il problema.
+    ordiniVeri().is("delivery_slot_id", null).in("status", ["ready", "delivery_scheduled", "out_for_delivery"]),
     abbonamentiVeri(),
     segnalazioniAperte(),
     // Capi il cui prelievo è stato rifiutato. La fattura resta aperta e il
@@ -143,6 +149,13 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
       sub: "oltre l'ora prevista di pronto",
       href: "/admin/ordini?filtro=ritardo",
       tono: "text-[#C0392B]",
+    },
+    {
+      label: "Senza riconsegna",
+      n: senzaFascia.count ?? 0,
+      sub: "pronti, ma senza un giorno per tornare",
+      href: "/admin/ordini?filtro=senza_fascia",
+      tono: "text-[#C9881F]",
     },
     {
       label: "Senza rider",
