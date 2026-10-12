@@ -109,18 +109,35 @@ export async function rimborsaIncasso(formData: FormData) {
   const svc = createServiceClient();
   const { data: riga } = await svc
     .from("invoices")
-    .select("id, user_id, amount_cents, stripe_invoice_id, rimborsato_at, numero_ricevuta")
+    .select("id, user_id, amount_cents, stripe_invoice_id, rimborsato_at, rimborsato_cents, numero_ricevuta")
     .eq("id", id)
-    .maybeSingle<{ id: string; user_id: string | null; amount_cents: number; stripe_invoice_id: string | null; rimborsato_at: string | null; numero_ricevuta: number | null }>();
+    .maybeSingle<{ id: string; user_id: string | null; amount_cents: number; stripe_invoice_id: string | null; rimborsato_at: string | null; rimborsato_cents: number | null; numero_ricevuta: number | null }>();
   if (!riga) redirect(`${REV}?warn=${encodeURIComponent("Incasso non trovato.")}`);
-  if (riga!.rimborsato_at) redirect(`${REV}?warn=${encodeURIComponent("Questo incasso risulta già rimborsato.")}`);
+  // Un rimborso parziale non chiude la ricevuta.
+  //
+  // Prima bastava `rimborsato_at` per dichiararla chiusa: resi 4,00 € su 60,00
+  // e gli altri 56,00 € non si potevano più toccare dal pannello. Succede
+  // davvero — prima si rende la quota dei giorni non usati, poi salta anche un
+  // ritiro e va reso pure quello. Quello che conta è quanto resta.
+  const giaReso = riga!.rimborsato_cents ?? 0;
+  const residuo = riga!.amount_cents - giaReso;
+  if (residuo <= 0) {
+    redirect(`${REV}?warn=${encodeURIComponent("Questo incasso è già stato rimborsato per intero.")}`);
+  }
   if (!riga!.stripe_invoice_id) redirect(`${REV}?warn=${encodeURIComponent("Incasso senza fattura Stripe: va rimborsato a mano.")}`);
 
   // Importo vuoto = tutto. Un importo scritto vale solo se sta dentro l'incasso:
   // un rimborso più grande dell'incasso Stripe lo rifiuta, ma è meglio dirlo qui.
-  const parziale = quanti ? Math.round(parseFloat(quanti) * 100) : riga!.amount_cents;
-  if (!Number.isFinite(parziale) || parziale <= 0 || parziale > riga!.amount_cents) {
-    redirect(`${REV}?warn=${encodeURIComponent(`Importo non valido: dev'essere fra 0,01 € e ${(riga!.amount_cents / 100).toFixed(2)} €.`)}`);
+  const parziale = quanti ? Math.round(parseFloat(quanti) * 100) : residuo;
+  if (!Number.isFinite(parziale) || parziale <= 0 || parziale > residuo) {
+    redirect(
+      `${REV}?warn=` +
+        encodeURIComponent(
+          giaReso > 0
+            ? `Importo non valido: su questa ricevuta restano ${(residuo / 100).toFixed(2)} € (già resi ${(giaReso / 100).toFixed(2)} €).`
+            : `Importo non valido: dev'essere fra 0,01 € e ${(residuo / 100).toFixed(2)} €.`,
+        ),
+    );
   }
 
   const origine = await origineDelPagamento(riga!.stripe_invoice_id!);
@@ -140,7 +157,12 @@ export async function rimborsaIncasso(formData: FormData) {
     redirect(`${REV}?warn=${encodeURIComponent(`Rimborso rifiutato da Stripe: ${err instanceof Error ? err.message : "errore"}`)}`);
   }
 
-  await svc.from("invoices").update({ rimborsato_at: new Date().toISOString(), rimborsato_cents: parziale }).eq("id", id);
+  // Il totale reso si somma: due rimborsi su una ricevuta sono due gesti, ma
+  // una cifra sola — ed è quella che poi si legge in contabilità.
+  await svc
+    .from("invoices")
+    .update({ rimborsato_at: new Date().toISOString(), rimborsato_cents: giaReso + parziale })
+    .eq("id", id);
 
   // Anche nella scheda del cliente, dove si legge la storia dei suoi soldi.
   if (riga!.user_id) {

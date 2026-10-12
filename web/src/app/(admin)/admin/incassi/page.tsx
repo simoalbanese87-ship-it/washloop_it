@@ -84,7 +84,10 @@ export default async function IncassiPage({
     .order("created_at", { ascending: false })
     .limit(500);
 
-  if (!mostraRimborsate) q = q.is("rimborsato_at", null);
+  // Le righe rimborsate si nascondono dopo, non qui: «rimborsata» vuol dire
+  // **del tutto**, e una ricevuta da 60 € con 4 € resi è ancora viva. Filtrarla
+  // nella query la faceva sparire dall'elenco, e con lei il bottone per
+  // restituire il resto.
   if (da) q = q.gte("created_at", da);
   if (a) q = q.lt("created_at", a);
   // Il tipo di documento è lo stato della riga: "saltata" = solo ricevuta.
@@ -93,12 +96,13 @@ export default async function IncassiPage({
   if (tipo === "richiesta") q = q.in("stato", ["da_emettere", "errore"]);
 
   const { data } = await q.returns<Riga[]>();
-  const righe = data ?? [];
+  const resaPerIntero = (r: Riga) => (r.rimborsato_cents ?? 0) >= r.amount_cents;
+  const righe = (data ?? []).filter((r) => mostraRimborsate || !resaPerIntero(r));
 
   // Il totale toglie quello che è tornato indietro anche quando le righe sono a
   // schermo: un rimborso parziale lascia la ricevuta valida per il resto.
   const totale = righe.reduce((t, r) => t + r.amount_cents - (r.rimborsato_cents ?? 0), 0);
-  const quanteRimborsate = righe.filter((r) => r.rimborsato_at).length;
+  const quanteRimborsate = righe.filter((r) => resaPerIntero(r)).length;
   const ricevute = righe.filter((r) => r.stato === "saltata").length;
   const fatture = righe.filter((r) => r.stato === "emessa").length;
   const daEmettere = righe.filter((r) => r.stato === "da_emettere").length;
@@ -291,7 +295,7 @@ export default async function IncassiPage({
                   </span>
                   {r.rimborsato_at && (
                     <span className="rounded-full bg-[#C0392B]/12 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#C0392B]">
-                      rimborsata
+                      {resaPerIntero(r) ? "rimborsata" : "rimborsata in parte"}
                     </span>
                   )}
                   {r.ei_status && (
@@ -299,7 +303,7 @@ export default async function IncassiPage({
                   )}
                 </div>
                 <div className="text-xs font-medium text-muted">
-                  <span className={r.rimborsato_at ? "line-through" : ""}>{eur(r.amount_cents)}</span>
+                  <span className={resaPerIntero(r) ? "line-through" : ""}>{eur(r.amount_cents)}</span>
                   {r.rimborsato_at && <> · {eur(r.rimborsato_cents ?? 0)} resi il {fmtFull(r.rimborsato_at)}</>} · {fmtFull(r.created_at)}
                   {r.fic_number && <> · fattura n. {r.fic_number}</>}
                   {r.profiles?.client_code && <> · {r.profiles.client_code}</>}
@@ -317,7 +321,7 @@ export default async function IncassiPage({
                     Stripe. Importo vuoto = tutto; si scrive una cifra per
                     restituire una parte, come i giorni non usati di un
                     abbonamento che si chiude a metà. */}
-                {!r.rimborsato_at && r.stripe_invoice_id && (
+                {!resaPerIntero(r) && r.stripe_invoice_id && (
                   <details className="flex-none">
                     <summary className="cursor-pointer font-display text-[11px] font-bold text-[#C0392B] hover:underline">Rimborsa</summary>
                     <form action={rimborsaIncasso} className="mt-2 flex flex-wrap items-center gap-2 rounded-[12px] border border-line bg-white p-2">
@@ -327,8 +331,8 @@ export default async function IncassiPage({
                         type="number"
                         step="0.01"
                         min="0.01"
-                        max={(r.amount_cents / 100).toFixed(2)}
-                        placeholder={(r.amount_cents / 100).toFixed(2)}
+                        max={((r.amount_cents - (r.rimborsato_cents ?? 0)) / 100).toFixed(2)}
+                        placeholder={((r.amount_cents - (r.rimborsato_cents ?? 0)) / 100).toFixed(2)}
                         className="h-9 w-24 rounded-[10px] border border-line px-2 text-sm font-bold text-navy outline-none focus:border-blue"
                       />
                       <input
