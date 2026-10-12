@@ -10,6 +10,7 @@ import { SEGNALABILE, TRATTENIBILE, avvisaSubitoIlCliente, fotoObbligatoria, isT
 import { conteggiaConFranchigia, franchigiaPerSacco, sacchiPerFranchigia, ridistribuisciFranchigia } from "@/lib/franchigia";
 import { haAbbonamentoAttivo } from "@/lib/abbonamento-sacchi";
 import { dataServizio } from "@/lib/periodo-servizio";
+import { incassaSaccoDelRitiro } from "@/lib/incasso-sacco";
 import { incassaExtraDelRitiro } from "@/lib/incasso-extra";
 import { notificaExtraIncassati } from "@/lib/notify";
 import { portaAPronto } from "@/lib/pronto";
@@ -494,6 +495,12 @@ export async function confermaSacchiArrivati(formData: FormData) {
     }
   }
 
+  // Il sacco, sui clienti a sacco. Qui il numero appena contato **è** il
+  // prezzo: un solo stiro si paga per sacco, e addebitarlo prima del conteggio
+  // vorrebbe dire fatturare la stima fatta in prenotazione. Per questo parte
+  // da qui e non da `portaAPronto`, come per i capi extra.
+  const sacco = await incassaSaccoDelRitiro(svc, orderId);
+
   revalidatePath("/laundry");
   revalidatePath(`/laundry/${orderId}`);
   revalidatePath("/laundry/storico");
@@ -501,7 +508,13 @@ export async function confermaSacchiArrivati(formData: FormData) {
   revalidatePath("/admin/extra");
   revalidatePath(`/admin/ordini/${orderId}`);
 
-  const righe = [rifatti, incassato > 0 ? `Capi extra incassati: ${(incassato / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}.` : null].filter(Boolean);
+  const euro = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+  const righe = [
+    rifatti,
+    incassato > 0 ? `Capi extra incassati: ${euro(incassato)}.` : null,
+    sacco.esito === "incassato" ? `Sacchi incassati: ${euro(sacco.totaleCents)}.` : null,
+    sacco.esito === "registrato" ? `Sacchi da incassare: ${euro(sacco.totaleCents)} — ${sacco.motivo}` : null,
+  ].filter(Boolean);
   if (righe.length > 0) redirect(`/laundry/${orderId}?ok=${encodeURIComponent(righe.join(" "))}`);
 }
 

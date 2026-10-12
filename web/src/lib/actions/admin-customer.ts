@@ -12,7 +12,7 @@ import { zoneIdForCap } from "@/lib/zones";
 import { geocodeAddress } from "@/lib/geo";
 import { ORDER_STATUS_LABEL, STATI_CHIUSI, type OrderStatus } from "@/lib/orders";
 import { slotFullMessage } from "@/lib/slots";
-import { lavanderiaPredefinita } from "@/lib/lavanderia";
+import { destinazioneOrdine } from "@/lib/lavanderia";
 import { inviaSollecito } from "@/lib/dunning";
 import { ULTIMO_SOLLECITO } from "@/lib/dunning-piano";
 import { METODI_CHECKOUT, METODI_FATTURA } from "@/lib/metodi-accettati";
@@ -347,6 +347,36 @@ export async function impostaAConsumo(formData: FormData) {
   const svc = createServiceClient();
   await svc.from("profiles").update({ a_consumo: attivo }).eq("id", customerId);
   revalidatePath(`/admin/abbonati/${customerId}`);
+}
+
+/** Il servizio a sacco di un cliente: solo stiro, lavaggio a sacco, o niente.
+ *
+ *  È il gesto che fa esistere il solo stiro per quella persona. Da qui in poi i
+ *  suoi ritiri nascono con quel servizio, vanno alla lavanderia che lo esegue —
+ *  la stireria di Arluno — e si pagano a sacco, quando la stireria li ha
+ *  contati. Niente canone, niente rinnovo, niente capi compresi.
+ *
+ *  Attivarlo accende anche `a_consumo`: senza, la prenotazione chiederebbe un
+ *  abbonamento attivo e il cliente non potrebbe prenotare niente. Sono due
+ *  facce dello stesso accordo e sbagliarne una vorrebbe dire un cliente
+ *  concordato che non riesce a usare il servizio.
+ *
+ *  Toglierlo **non** spegne `a_consumo`: quello è un permesso che può essere
+ *  stato dato per altri motivi, e revocarlo di straforo chiuderebbe fuori una
+ *  persona senza che nessuno l'abbia deciso. */
+export async function impostaServizioSacco(formData: FormData) {
+  await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  const scelta = String(formData.get("servizio_sacco_id") ?? "").trim();
+  if (!customerId) return;
+
+  const svc = createServiceClient();
+  const patch: Record<string, unknown> = { servizio_sacco_id: scelta || null };
+  if (scelta) patch.a_consumo = true;
+  await svc.from("profiles").update(patch).eq("id", customerId);
+
+  revalidatePath(`/admin/abbonati/${customerId}`);
+  revalidatePath("/admin/persone");
 }
 
 /** Crea un link di pagamento **una tantum**: si incassa una volta e basta.
@@ -1029,6 +1059,7 @@ export async function adminCreatePickup(formData: FormData) {
 
   const turnaround = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
   const eta = new Date(new Date(slot!.starts_at).getTime() + turnaround * 3600_000).toISOString();
+  const destinazione = await destinazioneOrdine(svc, customerId, slot!.laundry_id);
 
   const { data, error } = await svc
     .from("orders")
@@ -1037,8 +1068,10 @@ export async function adminCreatePickup(formData: FormData) {
       address_id: addressId,
       pickup_slot_id: pickupSlotId,
       delivery_slot_id: deliverySlotId || null,
-      // La fascia può non avere lavanderia: l'unica attiva fa da ripiego.
-      laundry_id: slot!.laundry_id ?? (await lavanderiaPredefinita(svc)),
+      // La fascia può non avere lavanderia: decide `destinazioneOrdine` —
+      // servizio a sacco del cliente, poi la fascia, poi l'unica generale.
+      laundry_id: destinazione.laundryId,
+      servizio_sacco_id: destinazione.servizioSaccoId,
       eta_ready_at: eta,
       bags,
       notes: notes || null,

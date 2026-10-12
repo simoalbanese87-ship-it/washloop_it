@@ -3,7 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { createServiceClient } from "@/lib/supabase/server";
 import { eurCents } from "@/lib/format";
 import { aggiungiIva, scorpora } from "@/lib/iva";
-import { aggiornaVoceListino } from "@/lib/actions/admin";
+import { aggiornaVoceListino, aggiornaServizioSacco } from "@/lib/actions/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +18,7 @@ type Voce = {
   incluse_per_sacco: number | null;
 };
 type Categoria = { id: string; name: string; emoji: string | null; sort: number | null };
+type ServizioSacco = { id: string; codice: string; nome: string; comp_lav_cents: number; price_cli_cents: number; active: boolean; laundries: { name: string } | null };
 
 /** Il listino dei capi speciali, dal lato di chi gestisce.
  *
@@ -37,13 +38,14 @@ export default async function ListinoAdmin({
 }) {
   const { ok, warn } = await searchParams;
   const svc = createServiceClient();
-  const [{ data: voci }, { data: categorie }] = await Promise.all([
+  const [{ data: voci }, { data: categorie }, { data: serviziSacco }] = await Promise.all([
     svc
       .from("special_items")
       .select("id, name, category_id, comp_lav_cents, price_cli_cents, active, sort, incluse_per_sacco")
       .order("name")
       .returns<Voce[]>(),
     svc.from("special_categories").select("id, name, emoji, sort").order("sort").returns<Categoria[]>(),
+    svc.from("servizi_sacco").select("id, codice, nome, comp_lav_cents, price_cli_cents, active, laundries(name)").order("sort").returns<ServizioSacco[]>(),
   ]);
 
   const tutte = voci ?? [];
@@ -66,6 +68,60 @@ export default async function ListinoAdmin({
         title="Listino capi speciali"
         sub={`${attive.length} voci attive${spente.length ? ` · ${spente.length} spente` : ""} · quanto paghiamo, quanto incassiamo, quanto resta`}
       />
+
+      {/* I sacchi prima dei capi: su un cliente a sacco il prezzo del sacco è
+          tutto il conto, e finché stava solo in database bisognava chiedere a
+          chi aveva fatto la migration per sapere quanto paga un solo stiro. */}
+      <Card className="mb-4">
+        <h2 className="font-display text-base font-extrabold text-navy">Servizi a sacco</h2>
+        <p className="mt-1 text-sm font-medium text-muted">
+          Si pagano a sacco e non al mese: nessun limite di capi, nessun rinnovo, nessun capo compreso. Il prezzo cliente
+          è IVA inclusa, il compenso alla lavanderia è imponibile — come per i capi qui sotto.
+        </p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-line text-xs font-bold uppercase tracking-wide text-muted">
+                <th className="px-4 py-2">Servizio</th>
+                <th className="px-4 py-2">Alla lavanderia €</th>
+                <th className="px-4 py-2">Al cliente €</th>
+                <th className="px-4 py-2">Attivo</th>
+                <th className="px-4 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {(serviziSacco ?? []).map((s) => (
+                <tr key={s.id} className={`border-b border-line/60 last:border-0 ${s.active ? "" : "bg-ice/60"}`}>
+                  <td className="px-4 py-2">
+                    <div className="font-display font-bold text-navy">{s.nome}</div>
+                    <div className="text-[11px] font-medium text-muted">{s.laundries?.name ?? "nessuna lavanderia"}</div>
+                  </td>
+                  <td className="px-4 py-2">
+                    <input form={`s-${s.id}`} name="comp_lav_eur" type="number" step="0.01" min="0" defaultValue={(s.comp_lav_cents / 100).toFixed(2)} className={campo} />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input form={`s-${s.id}`} name="price_cli_eur" type="number" step="0.01" min="0" defaultValue={(s.price_cli_cents / 100).toFixed(2)} className={campo} />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input form={`s-${s.id}`} name="active" type="checkbox" defaultChecked={s.active} className="h-4 w-4 accent-[#2b7fd4]" />
+                  </td>
+                  <td className="px-4 py-2">
+                    <form id={`s-${s.id}`} action={aggiornaServizioSacco}>
+                      <input type="hidden" name="servizio_id" value={s.id} />
+                      <button type="submit" className="rounded-full border border-line px-3 py-1.5 font-display text-xs font-extrabold text-navy hover:bg-ice">
+                        Salva
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              ))}
+              {(serviziSacco ?? []).length === 0 && (
+                <tr><td colSpan={5} className="px-4 py-3 text-sm font-medium text-muted">Nessun servizio a sacco.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       <Card className="mb-4">
         <p className="text-sm font-medium text-muted">

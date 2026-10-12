@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { scegliLavanderia } from "@/lib/lavanderia-scelta";
 
 /** La lavanderia a cui mandare un ordine quando nessuno l'ha scelta.
  *
@@ -34,12 +35,56 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *  ritiri sono nati senza lavanderia e sono arrivati sul banco senza comparire
  *  in nessuna lista. */
 export async function lavanderiaPredefinita(client: SupabaseClient): Promise<string | null> {
-  const { data } = await client
-    .from("laundries")
-    .select("id")
-    .eq("active", true)
-    .limit(2)
-    .returns<{ id: string }[]>();
-  const attive = data ?? [];
-  return attive.length === 1 ? attive[0].id : null;
+  // «Una sola attiva» da ottobre 2026 vuol dire **una sola generale**: la
+  // stireria di Arluno è attiva ma fa solo stiro, e contarla qui avrebbe spento
+  // il ripiego per tutti gli altri ordini — che è esattamente il guasto che
+  // questa funzione esiste per evitare.
+  const generali = await lavanderieGenerali(client);
+  return scegliLavanderia({ generali });
+}
+
+/** Le lavanderie generali attive: quelle che non sono dedicate a un servizio a
+ *  sacco. La stireria di Arluno fa solo stiro, e contarla fra le candidate
+ *  avrebbe spento il ripiego per tutti gli altri ordini. */
+async function lavanderieGenerali(client: SupabaseClient): Promise<string[]> {
+  const [{ data: attive }, { data: dedicate }] = await Promise.all([
+    client.from("laundries").select("id").eq("active", true).returns<{ id: string }[]>(),
+    client.from("servizi_sacco").select("laundry_id").not("laundry_id", "is", null).returns<{ laundry_id: string }[]>(),
+  ]);
+  const fuori = new Set((dedicate ?? []).map((d) => d.laundry_id));
+  return (attive ?? []).map((l) => l.id).filter((id) => !fuori.has(id));
+}
+
+/** Dove va questo ritiro, e con quale servizio a sacco.
+ *
+ *  Due risposte insieme perché sono la stessa decisione: se il cliente fa solo
+ *  stiro, l'ordine nasce con quel servizio **e** va alla stireria. Tenerle
+ *  separate vorrebbe dire poterle sbagliare una per volta — un sacco di stiro
+ *  alla lavanderia storica, o un sacco normale senza prezzo.
+ *
+ *  Come `lavanderiaPredefinita`, va chiamata col **service client**: con la
+ *  sessione del cliente le query non falliscono, tornano vuote. */
+export async function destinazioneOrdine(
+  client: SupabaseClient,
+  customerId: string,
+  fasciaLaundryId?: string | null,
+): Promise<{ laundryId: string | null; servizioSaccoId: string | null }> {
+  const { data: prof } = await client
+    .from("profiles")
+    .select("servizio_sacco_id, servizi_sacco(id, laundry_id, active)")
+    .eq("id", customerId)
+    .maybeSingle<{ servizio_sacco_id: string | null; servizi_sacco: { id: string; laundry_id: string | null; active: boolean } | { id: string; laundry_id: string | null; active: boolean }[] | null }>();
+
+  const rel = prof?.servizi_sacco;
+  const servizio = Array.isArray(rel) ? rel[0] ?? null : rel ?? null;
+  const attivo = servizio?.active ? servizio : null;
+
+  return {
+    laundryId: scegliLavanderia({
+      servizio: attivo?.laundry_id ?? null,
+      fascia: fasciaLaundryId ?? null,
+      generali: await lavanderieGenerali(client),
+    }),
+    servizioSaccoId: attivo?.id ?? null,
+  };
 }

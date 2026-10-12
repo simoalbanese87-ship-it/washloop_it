@@ -13,7 +13,7 @@ import { notifyOrderStatus, notifyCourierAssigned } from "@/lib/notify";
 import { registraSacchiLavanderia } from "@/lib/laundry-payout";
 import { deliveryCounts, slotFullMessage } from "@/lib/slots";
 import { riconsegnaDopoSpostamento } from "@/lib/riconsegna";
-import { lavanderiaPredefinita } from "@/lib/lavanderia";
+import { destinazioneOrdine } from "@/lib/lavanderia";
 import { assegnaRiderIniziale } from "@/lib/assegna-rider";
 import { allineaProva } from "@/lib/prova-stripe";
 // Il ripiego quando il piano manca. Era 48, mentre i tre piani in database
@@ -47,7 +47,12 @@ export async function createPickup(formData: FormData) {
   // lavanderia, il portale filtra per lavanderia, e quel sacco non lo vede
   // nessuno: è successo il 14 settembre a due ritiri, arrivati sul banco senza
   // comparire in nessuna lista.
-  const laundry_id = String(formData.get("laundry_id") ?? "") || (await lavanderiaPredefinita(createServiceClient()));
+  // Dove va e con quale servizio: una domanda sola. Chi fa solo stiro ha un
+  // servizio a sacco sul profilo, e il suo ritiro nasce già con quel servizio e
+  // diretto alla stireria — senza, sarebbe un sacco di stiro in lavanderia, o
+  // un sacco a sacco senza prezzo.
+  const destinazione = await destinazioneOrdine(createServiceClient(), user.id);
+  const laundry_id = String(formData.get("laundry_id") ?? "") || destinazione.laundryId;
   const bags = Number(formData.get("bags") ?? 1);
   if (!address_id || !pickup_slot_id) throw new Error("Indirizzo e slot obbligatori");
 
@@ -78,6 +83,7 @@ export async function createPickup(formData: FormData) {
       address_id,
       pickup_slot_id,
       laundry_id,
+      servizio_sacco_id: destinazione.servizioSaccoId,
       eta_ready_at: eta,
       bags: Number.isFinite(bags) && bags > 0 ? bags : 1,
       notes: String(formData.get("notes") ?? "") || null,
@@ -121,7 +127,8 @@ export async function bookPickup(input: {
   const delivery_slot_id = input.delivery_slot_id || null;
   // Stesso motivo di `createPickup`: la lavanderia di ripiego non è un dato del
   // cliente, e chiederla con la sua sessione dà sempre «nessuna».
-  const laundry_id = input.laundry_id || (await lavanderiaPredefinita(createServiceClient()));
+  const destinazione = await destinazioneOrdine(createServiceClient(), user.id);
+  const laundry_id = input.laundry_id || destinazione.laundryId;
   const bags = Number.isFinite(input.bags) && input.bags > 0 ? input.bags : 1;
   if (!address_id || !pickup_slot_id) return { ok: false, error: "Indirizzo e slot obbligatori" };
 
@@ -150,6 +157,7 @@ export async function bookPickup(input: {
       pickup_slot_id,
       delivery_slot_id,
       laundry_id,
+      servizio_sacco_id: destinazione.servizioSaccoId,
       eta_ready_at: eta,
       bags,
       notes: input.notes || null,

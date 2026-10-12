@@ -43,6 +43,8 @@ type Ordine = {
   created_at: string;
   laundry_id: string | null;
   laundries: { bag_comp_cents: number | null } | { bag_comp_cents: number | null }[] | null;
+  servizio_sacco_id: string | null;
+  servizi_sacco: { comp_lav_cents: number } | { comp_lav_cents: number }[] | null;
   pickup: { starts_at: string } | { starts_at: string }[] | null;
   profiles: { is_test: boolean } | { is_test: boolean }[] | null;
 };
@@ -68,7 +70,8 @@ export async function sacchiInLavorazione(
     .from("orders")
     .select(
       "id, customer_id, status, bags, bags_arrivati, created_at, laundry_id, " +
-        "laundries(bag_comp_cents), pickup:slots!orders_pickup_slot_id_fkey(starts_at), " +
+        "servizio_sacco_id, laundries(bag_comp_cents), servizi_sacco(comp_lav_cents), " +
+        "pickup:slots!orders_pickup_slot_id_fkey(starts_at), " +
         "profiles!orders_customer_id_fkey(is_test)",
     )
     .neq("status", "cancelled")
@@ -110,8 +113,11 @@ export async function sacchiInLavorazione(
 
   const previsti: SaccoPrevisto[] = [];
   for (const o of daImputare) {
-    if (!conAbbonamento.get(o.customer_id!)) continue;
-    const compenso = uno(o.laundries)?.bag_comp_cents ?? 1500;
+    // Il servizio a sacco non passa dall'abbonamento: lì il sacco è tutto il
+    // rapporto, e la stireria va pagata comunque. Stessa eccezione di
+    // `registraSacchiLavanderia`, e per lo stesso motivo.
+    if (!o.servizio_sacco_id && !conAbbonamento.get(o.customer_id!)) continue;
+    const compenso = uno(o.servizi_sacco)?.comp_lav_cents ?? uno(o.laundries)?.bag_comp_cents ?? 1500;
     const sacchi = sacchiOsservati(o.bags_arrivati, scansioni.get(o.id) ?? 0, o.bags ?? 0);
     if (sacchi <= 0) continue;
     previsti.push({

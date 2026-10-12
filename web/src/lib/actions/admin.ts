@@ -484,3 +484,47 @@ export async function aggiornaVoceListino(formData: FormData) {
   revalidatePath("/laundry");
   redirect(`/admin/listino?ok=${encodeURIComponent("Listino aggiornato. Gli addebiti già registrati non cambiano.")}`);
 }
+
+/** I prezzi di un servizio a sacco.
+ *
+ *  Stanno in database e si correggono da qui apposta: il giorno che la stireria
+ *  alza di cinquanta centesimi si cambia un numero, non si fa un deploy. Stesse
+ *  guardie del listino capi — importi in euro, e il compenso non può superare il
+ *  prezzo cliente, che è quasi sempre un errore di battitura e vorrebbe dire
+ *  rimetterci su ogni sacco. */
+export async function aggiornaServizioSacco(formData: FormData) {
+  await soloAdmin();
+  const id = String(formData.get("servizio_id") ?? "");
+  if (!id) redirect(`/admin/listino?warn=${encodeURIComponent("Servizio non trovato.")}`);
+
+  const euroInCents = (v: FormDataEntryValue | null) => {
+    const n = Number(String(v ?? "").trim().replace(",", "."));
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+  };
+  const comp = euroInCents(formData.get("comp_lav_eur"));
+  const cli = euroInCents(formData.get("price_cli_eur"));
+  if (comp === null || cli === null) {
+    redirect(`/admin/listino?warn=${encodeURIComponent("Importi non validi: usa numeri in euro, es. 30,50.")}`);
+  }
+  if (comp! > cli!) {
+    redirect(
+      `/admin/listino?warn=` +
+        encodeURIComponent("Il compenso alla lavanderia supera il prezzo cliente: controlla, ci rimetteresti su ogni sacco."),
+    );
+  }
+
+  const svc = createServiceClient();
+  const { error } = await svc
+    .from("servizi_sacco")
+    .update({
+      comp_lav_cents: comp,
+      price_cli_cents: cli,
+      active: String(formData.get("active") ?? "") === "on",
+    })
+    .eq("id", id);
+  if (error) redirect(`/admin/listino?warn=${encodeURIComponent(error.message)}`);
+
+  revalidatePath("/admin/listino");
+  revalidatePath("/admin/persone");
+  redirect(`/admin/listino?ok=${encodeURIComponent("Prezzo del sacco aggiornato. I ritiri già addebitati non cambiano.")}`);
+}

@@ -25,9 +25,9 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
 
     const { data: ordine } = await svc
       .from("orders")
-      .select("id, customer_id, bags, bags_arrivati, laundry_id, laundries(bag_comp_cents)")
+      .select("id, customer_id, bags, bags_arrivati, laundry_id, servizio_sacco_id, laundries(bag_comp_cents), servizi_sacco(comp_lav_cents)")
       .eq("id", orderId)
-      .maybeSingle<{ id: string; customer_id: string; bags: number | null; bags_arrivati: number | null; laundry_id: string | null; laundries: { bag_comp_cents: number | null } | null }>();
+      .maybeSingle<{ id: string; customer_id: string; bags: number | null; bags_arrivati: number | null; laundry_id: string | null; servizio_sacco_id: string | null; laundries: { bag_comp_cents: number | null } | null; servizi_sacco: { comp_lav_cents: number } | { comp_lav_cents: number }[] | null }>();
 
     if (!ordine?.laundry_id) return; // ordine senza lavanderia: niente da pagare
 
@@ -41,7 +41,12 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
 
     const rel = ordine.laundries as unknown as { bag_comp_cents: number | null }[] | { bag_comp_cents: number | null } | null;
     const lav = Array.isArray(rel) ? rel[0] : rel;
-    const compenso = lav?.bag_comp_cents ?? 1500;
+    // Su un servizio a sacco il compenso è quello del servizio, non quello
+    // generico della lavanderia: lo stiro di un sacco e il lavaggio di un sacco
+    // costano cifre diverse e li fa lo stesso banco.
+    const relServizio = ordine.servizi_sacco;
+    const servizio = Array.isArray(relServizio) ? relServizio[0] ?? null : relServizio ?? null;
+    const compenso = servizio?.comp_lav_cents ?? lav?.bag_comp_cents ?? 1500;
 
     // Quanti sacchi si pagano, in ordine di attendibilità.
     //
@@ -69,7 +74,11 @@ export async function registraSacchiLavanderia(orderId: string): Promise<void> {
     // fattura i capi, uno per uno, e quelli hanno già la loro riga `special`.
     // Scrivere anche il sacco sarebbe un costo che nessuno ci ha chiesto, e
     // falserebbe il conto del cliente in Competenza.
-    if (!(await haAbbonamentoAttivo(svc, ordine.customer_id))) return;
+    //    L'eccezione è il **servizio a sacco**: lì il sacco è tutto il
+    //    rapporto — il cliente paga quel sacco, la stireria lo lavora e ce lo
+    //    fattura. Senza questa riga la stireria di Arluno lavorerebbe gratis
+    //    nei nostri conti, e il margine del solo stiro sarebbe tutto profitto.
+    if (!ordine.servizio_sacco_id && !(await haAbbonamentoAttivo(svc, ordine.customer_id))) return;
 
     // Si paga quello che risulta registrato, **senza fermarsi al tetto
     // dell'abbonamento**.

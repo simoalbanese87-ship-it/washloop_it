@@ -4,7 +4,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco } from "@/lib/actions/admin-customer";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { addebitaCapoSpeciale, addebitaSubitoCapo } from "@/lib/actions/charge";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
@@ -27,7 +27,8 @@ const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFr
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
 
-type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null;
+type ServizioSacco = { id: string; nome: string; price_cli_cents: number; laundries: { name: string } | null };
+type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
 type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null } | null };
@@ -77,11 +78,11 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const { ok, warn } = await searchParams;
   const svc = createServiceClient();
 
-  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, a_consumo, tipo_servizio, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
+  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, a_consumo, tipo_servizio, servizio_sacco_id, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
   const tipoServizio = isTipoServizio(profile?.tipo_servizio) ? profile.tipo_servizio : null;
   if (!profile) notFound();
 
-  const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: proposte }] = await Promise.all([
+  const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: proposte }, { data: servizi }] = await Promise.all([
     svc.auth.admin.getUserById(id),
     svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, termina_dopo_settimane, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street, cap, civico, intercom, floor, notes, access_mode, access_note, concierge_hours, lat, lng").eq("user_id", id).returns<Addr[]>(),
@@ -93,8 +94,13 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     // una di prima è ancora valida, il link buono esiste e va mostrato. Con
     // `limit(1)` si leggeva «scaduto» avendo in casa un link funzionante.
     svc.from("subscription_offers").select("id, description, amount_cents, checkout_url, expires_at, created_at, settimane, sacchi").eq("user_id", id).order("created_at", { ascending: false }).limit(5).returns<Offerta[]>(),
+    // I servizi a sacco disponibili: li legge il menu qui sotto, e il prezzo
+    // mostrato è quello vero del listino, non uno scritto a mano nella pagina.
+    svc.from("servizi_sacco").select("id, nome, price_cli_cents, laundries(name)").eq("active", true).order("sort").returns<ServizioSacco[]>(),
   ]);
   const email = userRes?.user?.email ?? "—";
+  const serviziSacco = servizi ?? [];
+  const servizioDelCliente = serviziSacco.find((s) => s.id === profile.servizio_sacco_id) ?? null;
 
   // Verità da Stripe + tutto quello che la scheda non mostrava: incassi
   // registrati (ricevute e fatture) e capi fuori abbonamento.
@@ -901,6 +907,38 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               <input type="hidden" name="a_consumo" value={profile.a_consumo ? "0" : "1"} />
               <BottoneInvio className={`rounded-full px-4 py-2 font-display text-sm font-extrabold ${profile.a_consumo ? "border-2 border-line text-navy" : "bg-gradient-to-br from-blue to-cyan text-white"}`}>
                 {profile.a_consumo ? "Disattiva il consumo" : "Attiva il cliente a consumo →"}
+              </BottoneInvio>
+            </form>
+          </div>
+
+          {/* Il servizio a sacco. Non è un abbonamento e non va letto come
+              tale: un sacco da 30 litri, dentro quello che si vuole, e si paga
+              quel sacco — quando la lavanderia l'ha contato, non prima. */}
+          <div className="mt-4 rounded-[16px] border border-line bg-ice/60 p-4">
+            <h3 className="font-display text-sm font-extrabold text-navy">Servizio a sacco</h3>
+            <p className="mt-1 text-xs font-medium text-muted">
+              Si paga <strong className="text-navy">a sacco, non al mese</strong>: nessun limite di capi, nessun rinnovo,
+              nessun capo compreso. I ritiri vanno alla lavanderia che fa quel servizio, e l&apos;addebito parte quando lei
+              ha contato i sacchi. Attivarlo accende anche il cliente a consumo, altrimenti non potrebbe prenotare.
+            </p>
+            {servizioDelCliente && (
+              <p className="mt-2 rounded-[10px] bg-[#7A4FBF]/10 px-3 py-2 text-xs font-bold text-[#7A4FBF]">
+                {servizioDelCliente.nome} · {eur(servizioDelCliente.price_cli_cents)} a sacco
+                {servizioDelCliente.laundries?.name ? ` · ${servizioDelCliente.laundries.name}` : ""}
+              </p>
+            )}
+            <form action={impostaServizioSacco} className="mt-3 flex flex-wrap items-center gap-2">
+              <input type="hidden" name="customer_id" value={id} />
+              <select name="servizio_sacco_id" className={input} defaultValue={profile.servizio_sacco_id ?? ""}>
+                <option value="">Nessuno (abbonamento o a capo)</option>
+                {serviziSacco.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.nome} — {eur(s.price_cli_cents)} a sacco
+                  </option>
+                ))}
+              </select>
+              <BottoneInvio className="rounded-full border-2 border-line px-4 py-2 font-display text-sm font-extrabold text-navy">
+                Salva
               </BottoneInvio>
             </form>
           </div>
