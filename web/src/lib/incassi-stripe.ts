@@ -21,7 +21,21 @@ import { stripe } from "@/lib/stripe";
  *  parziali e movimenti che non sono ricavo.
  */
 
-export type IncassoMese = { chiave: string; totaleCents: number; quanti: number };
+export type IncassoMese = {
+  chiave: string;
+  totaleCents: number;
+  quanti: number;
+  /** Quanto di quel mese sono **canoni**: le fatture nate da un abbonamento.
+   *  Lo dice Stripe con `billing_reason`, che su un rinnovo è
+   *  `subscription_cycle` e su una fattura fuori ciclo è `manual`. */
+  canoniCents: number;
+  /** Il resto: capi fuori abbonamento e addebiti incassati subito. */
+  extraCents: number;
+};
+
+/** A quale pezzo appartiene una fattura. Serve anche dopo, per togliere un
+ *  rimborso dal pezzo giusto invece che dal totale. */
+export type PezzoIncasso = "canone" | "extra";
 
 /** Chiave `YYYY-MM` in ora di Roma: contare in UTC sposterebbe di mese chi paga
  *  la notte dell'ultimo giorno. */
@@ -36,7 +50,12 @@ function meseRoma(epochSec: number): string {
  *  Ritorna `null` — e non una mappa vuota — quando Stripe non è raggiungibile:
  *  chi chiama deve poter distinguere «non ho incassato niente» da «non lo so»,
  *  che è esattamente la confusione da cui nasce questo file. */
-export async function incassiStripePerMese(dalEpochSec: number): Promise<Map<string, IncassoMese> | null> {
+export async function incassiStripePerMese(
+  dalEpochSec: number,
+  /** Si riempie strada facendo: `stripe_invoice_id` → canone o extra. Chi
+   *  sottrae i rimborsi lo usa per toglierli dal pezzo giusto della barra. */
+  pezzoDi?: Map<string, PezzoIncasso>,
+): Promise<Map<string, IncassoMese> | null> {
   if (!process.env.STRIPE_SECRET_KEY) return null;
 
   try {
@@ -55,8 +74,15 @@ export async function incassiStripePerMese(dalEpochSec: number): Promise<Map<str
       const importo = inv.amount_paid ?? 0;
       if (importo <= 0) continue;
       const k = meseRoma(pagata);
-      const acc = per.get(k) ?? { chiave: k, totaleCents: 0, quanti: 0 };
+      const acc = per.get(k) ?? { chiave: k, totaleCents: 0, quanti: 0, canoniCents: 0, extraCents: 0 };
+      // `subscription_*` = rinnovo, creazione o modifica di un abbonamento.
+      // Tutto il resto — `manual` su una fattura fuori ciclo — è un extra: i
+      // capi e gli addebiti che incassiamo subito.
+      const pezzo: PezzoIncasso = String(inv.billing_reason ?? "").startsWith("subscription") ? "canone" : "extra";
+      if (inv.id) pezzoDi?.set(inv.id, pezzo);
       acc.totaleCents += importo;
+      if (pezzo === "canone") acc.canoniCents += importo;
+      else acc.extraCents += importo;
       acc.quanti++;
       per.set(k, acc);
     }
@@ -78,21 +104,37 @@ export async function incassiStripePerMese(dalEpochSec: number): Promise<Map<str
  *
  *  La fonte è `invoices.rimborsato_cents`, che scrive il webhook
  *  `charge.refunded`. */
-export async function rimborsiPerMese(dallIso: string): Promise<Map<string, number>> {
+export async function rimborsiPerMese(
+  dallIso: string,
+  /** Dove si sta accumulando il rimborso, pezzo per pezzo: serve a togliere un
+   *  canone restituito dalla fetta dei canoni e non da quella degli extra. Si
+   *  riempie solo se chi chiama passa la mappa `stripe_invoice_id → pezzo`. */
+  pezzoDi?: Map<string, PezzoIncasso>,
+  perPezzo?: Map<string, { canoniCents: number; extraCents: number }>,
+): Promise<Map<string, number>> {
   const { createServiceClient } = await import("@/lib/supabase/server");
   const per = new Map<string, number>();
   try {
     const { data } = await createServiceClient()
       .from("invoices")
-      .select("rimborsato_cents, rimborsato_at")
+      .select("rimborsato_cents, rimborsato_at, stripe_invoice_id")
       .not("rimborsato_at", "is", null)
       .gte("rimborsato_at", dallIso)
-      .returns<{ rimborsato_cents: number | null; rimborsato_at: string }[]>();
+      .returns<{ rimborsato_cents: number | null; rimborsato_at: string; stripe_invoice_id: string | null }[]>();
     for (const r of data ?? []) {
       // Il rimborso pesa sul mese in cui il denaro è uscito, non su quello in
       // cui era entrato: è così che lo vede il conto corrente.
       const k = meseRoma(Math.floor(Date.parse(r.rimborsato_at) / 1000));
-      per.set(k, (per.get(k) ?? 0) + (r.rimborsato_cents ?? 0));
+      const quanto = r.rimborsato_cents ?? 0;
+      per.set(k, (per.get(k) ?? 0) + quanto);
+      if (perPezzo) {
+        const acc = perPezzo.get(k) ?? { canoniCents: 0, extraCents: 0 };
+        // Se non sappiamo da dove veniva — fattura più vecchia della finestra
+        // letta su Stripe — si toglie dai canoni, che è il grosso.
+        if (r.stripe_invoice_id && pezzoDi?.get(r.stripe_invoice_id) === "extra") acc.extraCents += quanto;
+        else acc.canoniCents += quanto;
+        perPezzo.set(k, acc);
+      }
     }
   } catch (err) {
     console.error("[incassi] lettura dei rimborsi fallita:", err);

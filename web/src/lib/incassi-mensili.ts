@@ -1,6 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
-import { incassiStripePerMese, rimborsiPerMese } from "@/lib/incassi-stripe";
+import { incassiStripePerMese, rimborsiPerMese, type PezzoIncasso } from "@/lib/incassi-stripe";
 import { rinnoviDelMese, type SubPerRinnovo } from "@/lib/rinnovi-mese";
 
 /** Gli incassi mese per mese, per il grafico a barre della Home.
@@ -21,6 +21,12 @@ export type MeseIncassi = {
   /** Nome esteso per la descrizione accessibile: `agosto 2026`. */
   nome: string;
   totaleCents: number;
+  /** Il mese in pila: canoni e extra già incassati, al netto dei rimborsi.
+   *  Sommati fanno `totaleCents`. Servono a vedere **di cosa** è fatto un mese:
+   *  un mese che cresce solo di extra e uno che cresce di abbonamenti non sono
+   *  la stessa azienda. */
+  canoniCents: number;
+  extraCents: number;
   quanti: number;
   /** Il mese in cui siamo: si evidenzia. */
   corrente: boolean;
@@ -59,15 +65,26 @@ export async function incassiMensili(includiProva = false, quantiMesi = 12): Pro
   // `invoices` resta come ripiego, ma da sola non basta: si popola da un webhook
   // che non arriva, quindi ogni mese risultava a zero mentre gli abbonamenti
   // venivano pagati.
-  const daStripe = await incassiStripePerMese(Math.floor(new Date(dallIso).getTime() / 1000));
+  const pezzoDi = new Map<string, PezzoIncasso>();
+  const daStripe = await incassiStripePerMese(Math.floor(new Date(dallIso).getTime() / 1000), pezzoDi);
 
   // Stessa sottrazione della home e della pagina incassi: una barra che conta
-  // soldi già restituiti racconta una crescita che non c'è stata.
-  const rimborsi = await rimborsiPerMese(dallIso);
+  // soldi già restituiti racconta una crescita che non c'è stata. I rimborsi si
+  // tolgono dal pezzo da cui erano entrati, così la pila resta onesta.
+  const rimborsiPerPezzo = new Map<string, { canoniCents: number; extraCents: number }>();
+  const rimborsi = await rimborsiPerMese(dallIso, pezzoDi, rimborsiPerPezzo);
 
-  const per = new Map<string, { totaleCents: number; quanti: number }>();
+  const per = new Map<string, { totaleCents: number; quanti: number; canoniCents: number; extraCents: number }>();
   if (daStripe) {
-    for (const [k, v] of daStripe) per.set(k, { totaleCents: v.totaleCents - (rimborsi.get(k) ?? 0), quanti: v.quanti });
+    for (const [k, v] of daStripe) {
+      const resi = rimborsiPerPezzo.get(k) ?? { canoniCents: 0, extraCents: 0 };
+      per.set(k, {
+        totaleCents: v.totaleCents - (rimborsi.get(k) ?? 0),
+        quanti: v.quanti,
+        canoniCents: Math.max(0, v.canoniCents - resi.canoniCents),
+        extraCents: Math.max(0, v.extraCents - resi.extraCents),
+      });
+    }
   } else {
     const { data: righe } = await svc
       .from("invoices")
@@ -78,8 +95,11 @@ export async function incassiMensili(includiProva = false, quantiMesi = 12): Pro
       if (!includiProva && r.profiles?.is_test) continue;
       const { anno, mese } = annoMeseRoma(new Date(r.created_at));
       const k = chiaveDi(anno, mese);
-      const acc = per.get(k) ?? { totaleCents: 0, quanti: 0 };
+      const acc = per.get(k) ?? { totaleCents: 0, quanti: 0, canoniCents: 0, extraCents: 0 };
+      // Senza Stripe non si sa cos'era: finisce tutto nei canoni, che è il
+      // grosso, e la pila lo dice con una sola fetta.
       acc.totaleCents += r.amount_cents ?? 0;
+      acc.canoniCents += r.amount_cents ?? 0;
       acc.quanti++;
       per.set(k, acc);
     }
@@ -97,13 +117,15 @@ export async function incassiMensili(includiProva = false, quantiMesi = 12): Pro
     const d = new Date(Date.UTC(oggi.anno, oggi.mese - 1 - i, 1));
     const { anno, mese } = annoMeseRoma(d);
     const k = chiaveDi(anno, mese);
-    const acc = per.get(k) ?? { totaleCents: 0, quanti: 0 };
+    const acc = per.get(k) ?? { totaleCents: 0, quanti: 0, canoniCents: 0, extraCents: 0 };
     const corrente = anno === oggi.anno && mese === oggi.mese;
     out.push({
       chiave: k,
       etichetta: fmtCorto.format(d).replace(".", ""),
       nome: fmtLungo.format(d),
       totaleCents: acc.totaleCents,
+      canoniCents: acc.canoniCents,
+      extraCents: acc.extraCents,
       quanti: acc.quanti,
       corrente,
       attesoCents: corrente ? atteso.totaleCents : 0,

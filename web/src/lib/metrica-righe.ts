@@ -106,14 +106,25 @@ export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false, 
 
       let query = svc
         .from("invoices")
-        .select("id, amount_cents, created_at, stato, fic_number, user_id, profiles(full_name, is_test)")
+        .select("id, amount_cents, created_at, stato, fic_number, user_id, rimborsato_at, rimborsato_cents, profiles(full_name, is_test)")
         .gte("created_at", dal);
       if (al) query = query.lt("created_at", al);
       const { data: righe } = await query
         .order("created_at", { ascending: false })
-        .returns<{ id: string; amount_cents: number; created_at: string; stato: string; fic_number: string | null; user_id: string | null; profiles: { full_name: string | null; is_test: boolean } | null }[]>();
+        .returns<{ id: string; amount_cents: number; created_at: string; stato: string; fic_number: string | null; user_id: string | null; rimborsato_at: string | null; rimborsato_cents: number | null; profiles: { full_name: string | null; is_test: boolean } | null }[]>();
 
       const utili = (righe ?? []).filter((r) => includiProva || !r.profiles?.is_test);
+      // I soldi restituiti non sono incassi.
+      //
+      // Il numero in Home li toglieva già, questa lista no: i 160 € rimborsati
+      // il 12 ottobre comparivano ancora, e il totale qui dentro diceva una
+      // cifra diversa dal riquadro che l'aveva aperta. Due totali nello stesso
+      // pannello, e nessuno che sappia quale credere.
+      //
+      // La riga **resta**, con scritto quanto è tornato indietro: un movimento
+      // di soldi che sparisce è peggio di uno spiegato.
+      const netto = (r: { amount_cents: number; rimborsato_cents: number | null }) =>
+        r.amount_cents - (r.rimborsato_cents ?? 0);
       return {
         titolo: nomeMese ? `Incassato a ${nomeMese}` : "Incassato questo mese",
         spiegazione: nomeMese
@@ -121,11 +132,17 @@ export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false, 
           : "Pagamenti realmente arrivati su Stripe dal primo del mese. Ogni riga è un incasso registrato: questi sono soldi sul conto, non previsioni.",
         righe: utili.map((r) => ({
           etichetta: r.profiles?.full_name ?? "—",
-          dettaglio: `${data(r.created_at)} · ${r.fic_number ? `fattura n. ${r.fic_number}` : "ricevuta"}`,
-          importoCents: r.amount_cents,
+          dettaglio: [
+            data(r.created_at),
+            r.fic_number ? `fattura n. ${r.fic_number}` : "ricevuta",
+            r.rimborsato_at
+              ? `rimborsati ${(r.rimborsato_cents ?? 0) / 100 === r.amount_cents / 100 ? "tutti i" : ""} ${((r.rimborsato_cents ?? 0) / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })} il ${data(r.rimborsato_at)}`
+              : null,
+          ].filter(Boolean).join(" · "),
+          importoCents: netto(r),
           href: r.user_id ? `/admin/abbonati/${r.user_id}` : undefined,
         })),
-        totaleCents: utili.reduce((t, r) => t + r.amount_cents, 0),
+        totaleCents: utili.reduce((t, r) => t + netto(r), 0),
       };
     }
 
