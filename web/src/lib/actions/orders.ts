@@ -124,6 +124,11 @@ export async function bookPickup(input: {
   bags: number;
   notes?: string | null;
   recurring?: boolean;
+  /** I capi speciali che il cliente dichiara di mettere nel sacco. Si
+   *  registrano sull'ordine come capi da addebitare, ma **non si incassa
+   *  niente adesso**: il prelievo parte dove parte sempre, quando la
+   *  lavanderia ha contato i sacchi. Fino a lì sono righe che si correggono. */
+  capi?: { nome: string; qty: number }[];
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const supabase = await createClient();
   const {
@@ -133,7 +138,12 @@ export async function bookPickup(input: {
 
   const { address_id, pickup_slot_id } = input;
   const delivery_slot_id = input.delivery_slot_id || null;
-  const bags = Number.isFinite(input.bags) && input.bags > 0 ? input.bags : 1;
+  // Zero sacchi si può, ma solo se qualcosa nel sacco c'è: un cliente a consumo
+  // che porta un piumone e basta non ha nessun sacco di bucato. Zero e zero
+  // sarebbe un ritiro di niente, e quello resta un sacco.
+  const capiDichiarati = (input.capi ?? []).filter((c) => c.qty > 0);
+  const bagsRichiesti = Number.isFinite(input.bags) ? Math.max(0, Math.trunc(input.bags)) : 1;
+  const bags = bagsRichiesti > 0 ? bagsRichiesti : capiDichiarati.length > 0 ? 0 : 1;
   if (!address_id || !pickup_slot_id) return { ok: false, error: "Indirizzo e slot obbligatori" };
 
   const [{ data: slot }, { data: sub }, { data: io }] = await Promise.all([
@@ -181,6 +191,37 @@ export async function bookPickup(input: {
     .select("id")
     .single();
   if (error) return { ok: false, error: slotFullMessage(error) ?? error.message };
+
+  // I capi dichiarati dal cliente. Si scrivono con il prezzo di listino di
+  // adesso — come fa la lavanderia — così un cambio di listino domani non
+  // riscrive un conto già mostrato. `dichiarato_dal_cliente` li distingue:
+  // nessuno li ha ancora visti, e chi apre l'ordine deve saperlo.
+  if (capiDichiarati.length > 0) {
+    const svcCapi = createServiceClient();
+    const { data: voci } = await svcCapi
+      .from("special_items")
+      .select("id, name, price_cli_cents, comp_lav_cents")
+      .in("name", capiDichiarati.map((c) => c.nome))
+      .eq("active", true)
+      .returns<{ id: string; name: string; price_cli_cents: number; comp_lav_cents: number }[]>();
+    const righe = capiDichiarati
+      .map((c) => {
+        const v = (voci ?? []).find((x) => x.name === c.nome);
+        if (!v) return null;
+        return {
+          order_id: data!.id,
+          item_id: v.id,
+          item_name: v.name,
+          qty: Math.min(20, Math.trunc(c.qty)),
+          price_cli_cents: v.price_cli_cents,
+          comp_lav_cents: v.comp_lav_cents,
+          added_by: user.id,
+          dichiarato_dal_cliente: true,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+    if (righe.length > 0) await svcCapi.from("order_specials").insert(righe);
+  }
 
   // Come sopra: il giro ha un rider da subito, non da quando qualcuno guarda.
   await assegnaRiderIniziale(createServiceClient(), data!.id, address_id);

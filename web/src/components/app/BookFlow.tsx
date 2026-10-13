@@ -10,7 +10,7 @@ import { fasceProponibili, prontoDa as calcolaProntoDa } from "@/lib/riconsegna"
 
 export type Address = { id: string; label: string | null; street: string; zone_id: string | null; access_mode: string | null; access_note: string | null };
 export type Slot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null; remaining?: number | null };
-export type SpecialItem = { name: string; price_cli_cents: number };
+export type SpecialItem = { id?: string | null; name: string; price_cli_cents: number };
 export type SpecialCategory = { id: string; name: string; emoji: string; items: SpecialItem[] };
 
 const eur = (cents: number) => "€" + (cents / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -72,6 +72,17 @@ export function BookFlow({
   // settimanali attivi che non aveva chiesto. È successo davvero.
   const [recurring, setRecurring] = useState(true);
   const [openCat, setOpenCat] = useState<string | null>(null);
+  /** Quanti capi di ciascun tipo ha detto di mettere nel sacco. Chiave: il nome
+   *  della voce di listino, che è anche quello che vede la lavanderia. */
+  const [capi, setCapi] = useState<Record<string, number>>({});
+  /** I capi segnati, con il loro prezzo: serve al riepilogo e a decidere se si
+   *  può scendere a zero sacchi. */
+  const capiScelti = useMemo(() => {
+    const prezzi = new Map(categories.flatMap((c) => c.items.map((i) => [i.name, i.price_cli_cents] as const)));
+    return Object.entries(capi)
+      .filter(([, q]) => q > 0)
+      .map(([nome, qty]) => ({ nome, qty, prezzo: prezzi.get(nome) ?? 0 }));
+  }, [capi, categories]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -126,6 +137,7 @@ export function BookFlow({
       bags,
       notes: notes.trim() || null,
       recurring,
+      capi: capiScelti.map(({ nome, qty }) => ({ nome, qty })),
     });
     setSubmitting(false);
     if (!res.ok) return setError(res.error);
@@ -345,8 +357,12 @@ export function BookFlow({
               <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 8h.01M11 12h1v4h1" /></svg>
             </span>
             <div className="text-sm">
-              <div className="font-display font-extrabold text-navy">Nessun acquisto adesso</div>
-              <div className="mt-0.5 font-medium text-muted">Metti i capi speciali in un sacco separato dal bucato: li riconosciamo, li trattiamo e li addebitiamo in automatico a fine mese.</div>
+              <div className="font-display font-extrabold text-navy">Dicci cosa metti nel sacco</div>
+              <div className="mt-0.5 font-medium text-muted">
+                Segna qui i capi speciali: li mettiamo in conto a questo ritiro e la lavanderia sa già cosa aspettarsi.
+                Mettili in un sacco separato dal bucato. L&apos;addebito parte quando la lavanderia li ha in mano: se non
+                arrivano, non paghi niente.
+              </div>
               {/* La regola delle camicie era scritta solo sul sito e nelle FAQ,
                   cioè dove si decide se abbonarsi — non qui, dove si decide
                   cosa mettere nel sacco. È il momento in cui serve saperla. */}
@@ -374,18 +390,46 @@ export function BookFlow({
                 </button>
                 {open && (
                   <div className="border-t border-line px-4 pb-2">
-                    {c.items.map((it) => (
-                      <div key={it.name} className="flex items-center justify-between border-b border-line py-2 text-sm last:border-0">
-                        <span className="font-medium text-muted">{it.name}</span>
-                        <span className="font-display font-extrabold text-navy">{eur(it.price_cli_cents)}</span>
-                      </div>
-                    ))}
+                    {c.items.map((it) => {
+                      const q = capi[it.name] ?? 0;
+                      return (
+                        <div key={it.name} className="flex items-center justify-between gap-3 border-b border-line py-2 text-sm last:border-0">
+                          <span className="min-w-0 flex-1 font-medium text-muted">{it.name}</span>
+                          <span className="font-display font-extrabold text-navy">{eur(it.price_cli_cents)}</span>
+                          {/* Il contatore: dire «ne metto uno» qui vale più di
+                              un listino da guardare. Chi ritira e chi lavora lo
+                              sa prima di aprire il sacco. */}
+                          <span className="flex flex-none items-center gap-1.5">
+                            <button
+                              type="button"
+                              aria-label={`Togli un ${it.name}`}
+                              disabled={q === 0}
+                              onClick={() => setCapi((c0) => ({ ...c0, [it.name]: Math.max(0, (c0[it.name] ?? 0) - 1) }))}
+                              className="grid h-8 w-8 place-items-center rounded-full border border-line font-display text-base font-black text-navy disabled:opacity-30"
+                            >
+                              −
+                            </button>
+                            <span className="w-5 text-center font-display text-sm font-black text-navy">{q}</span>
+                            <button
+                              type="button"
+                              aria-label={`Aggiungi un ${it.name}`}
+                              onClick={() => setCapi((c0) => ({ ...c0, [it.name]: (c0[it.name] ?? 0) + 1 }))}
+                              className="grid h-8 w-8 place-items-center rounded-full bg-navy font-display text-base font-black text-white"
+                            >
+                              +
+                            </button>
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
             );
           })}
-          <p className="text-center text-xs font-medium text-muted">Prezzi IVA inclusa · addebito automatico a fine mese in base ai capi lasciati nel sacco · fino a 3 camicie incluse nel sacco.</p>
+          <p className="text-center text-xs font-medium text-muted">
+            Prezzi IVA inclusa · si pagano quando la lavanderia li ha contati · fino a 3 camicie incluse nel sacco.
+          </p>
         </div>
       )}
 
@@ -440,17 +484,46 @@ export function BookFlow({
             </p>
           </div>
 
+          {/* Zero sacchi si può, ma solo se qualcosa da portare c'è: chi manda
+              un piumone e basta non ha nessun sacco di bucato. Senza capi
+              dichiarati il minimo resta uno, perché un ritiro di niente non è
+              un ritiro. */}
           <div className="flex items-center justify-between rounded-[18px] border border-line bg-white p-4">
             <div>
               <div className="font-display text-sm font-extrabold text-navy">Quanti sacchi?</div>
-              <div className="text-xs font-medium text-muted">Inclusi nel tuo abbonamento</div>
+              <div className="text-xs font-medium text-muted">
+                {bags === 0 ? "Nessun sacco: porti solo i capi segnati" : "Inclusi nel tuo abbonamento"}
+              </div>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => setBags(Math.max(1, bags - 1))} className="grid h-9 w-9 place-items-center rounded-full bg-ice font-display text-lg font-black text-blue disabled:opacity-40" disabled={bags <= 1}>−</button>
+              <button
+                onClick={() => setBags(Math.max(capiScelti.length > 0 ? 0 : 1, bags - 1))}
+                className="grid h-9 w-9 place-items-center rounded-full bg-ice font-display text-lg font-black text-blue disabled:opacity-40"
+                disabled={bags <= (capiScelti.length > 0 ? 0 : 1)}
+              >
+                −
+              </button>
               <span className="w-5 text-center font-display text-lg font-black text-navy">{bags}</span>
               <button onClick={() => setBags(bags + 1)} className="grid h-9 w-9 place-items-center rounded-full bg-ice font-display text-lg font-black text-blue">+</button>
             </div>
           </div>
+
+          {capiScelti.length > 0 && (
+            <div className="rounded-[18px] border border-line bg-white p-4">
+              <div className="font-display text-sm font-extrabold text-navy">Capi che hai segnato</div>
+              <ul className="mt-2 space-y-1 text-sm">
+                {capiScelti.map((c) => (
+                  <li key={c.nome} className="flex items-baseline justify-between gap-3">
+                    <span className="font-medium text-muted">{c.qty}× {c.nome}</span>
+                    <span className="font-display font-extrabold text-navy">{eur(c.qty * c.prezzo)}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs font-medium text-muted">
+                Si pagano quando la lavanderia li ha in mano: se non arrivano, non paghi niente.
+              </p>
+            </div>
+          )}
 
           <input
             value={notes}

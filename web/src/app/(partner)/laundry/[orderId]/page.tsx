@@ -48,6 +48,10 @@ type Special = {
   qty: number;
   comp_lav_cents: number;
   charged_at: string | null;
+  /** L'ha scritto il cliente prenotando, con il capo ancora in casa sua.
+   *  Qui dentro vuol dire: da verificare col capo in mano, e se nel sacco non
+   *  c'è, si toglie con «Rimuovi» prima del conteggio. */
+  dichiarato_dal_cliente: boolean;
 };
 
 const NEXT_CTA: Partial<Record<OrderStatus, string>> = {
@@ -79,7 +83,7 @@ export default async function LaundryOrderDetail({
       .maybeSingle<PartnerOrder>(),
     supabase
       .from("partner_order_specials")
-      .select("id, item_name, qty, comp_lav_cents, charged_at")
+      .select("id, item_name, qty, comp_lav_cents, charged_at, dichiarato_dal_cliente")
       .eq("order_id", orderId)
       .order("created_at", { ascending: true })
       .returns<Special[]>(),
@@ -266,9 +270,15 @@ export default async function LaundryOrderDetail({
                   <div className="min-w-0">
                     <div className="truncate font-display text-sm font-bold text-navy">
                       {s.qty}× {s.item_name}
+                      {s.dichiarato_dal_cliente && !s.charged_at ? (
+                        <span className="ml-2 rounded-full bg-[#C9881F]/15 px-2 py-0.5 align-middle text-[11px] font-bold uppercase tracking-wide text-[#8A5A00]">
+                          da verificare
+                        </span>
+                      ) : null}
                     </div>
                     <div className="text-xs font-medium text-muted">
                       {eur(s.comp_lav_cents)} cad. · {s.charged_at ? "addebitato" : "in attesa"}
+                      {s.dichiarato_dal_cliente ? " · dichiarato dal cliente in prenotazione" : ""}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">

@@ -74,6 +74,9 @@ type Special = {
   // l'unica risposta possibile è «non lo so»: è già successo con la camicia di
   // fabia, e la domanda era «te lo sei inventato?».
   autore: { full_name: string | null; role: string } | null;
+  // L'ha scritto il cliente prenotando, con il capo ancora in casa sua: è una
+  // dichiarazione, non un capo contato. Chi guarda l'addebito deve saperlo.
+  dichiarato_dal_cliente: boolean;
 };
 
 /** «Chi ha messo dentro questo capo, e quando».
@@ -85,6 +88,9 @@ type Special = {
  *  la chiave va a NULL — si dice che non si sa, invece di inventare. */
 function chiHaInserito(s: Special): string {
   const quando = fmtFull(s.created_at);
+  // La dichiarazione batte il nome: la riga l'ha creata il cliente dall'app
+  // mentre prenotava, e nessuno ha ancora visto il capo.
+  if (s.dichiarato_dal_cliente) return `dichiarato dal cliente in prenotazione · ${quando}`;
   // PostgREST restituisce gli embed uno-a-uno a volte come array.
   const a = Array.isArray(s.autore) ? (s.autore[0] ?? null) : s.autore;
   if (!a) return `inserito il ${quando} · autore non più risalibile`;
@@ -209,7 +215,7 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
   // già stato addebitato di 14,00 €, e da lì non si poteva nemmeno stornare.
   const { data: specials } = await createServiceClient()
     .from("order_specials")
-    .select("id, item_name, qty, price_cli_cents, charged_at, incassato_at, incasso_fallito_at, refunded_at, annullato_at, created_at, autore:profiles!order_specials_added_by_fkey(full_name, role)")
+    .select("id, item_name, qty, price_cli_cents, charged_at, incassato_at, incasso_fallito_at, refunded_at, annullato_at, created_at, dichiarato_dal_cliente, autore:profiles!order_specials_added_by_fkey(full_name, role)")
     .eq("order_id", id)
     .order("created_at")
     .returns<Special[]>();
@@ -514,6 +520,11 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
                   <li key={s.id} className="flex items-center justify-between gap-3 rounded-[12px] border border-line bg-ice px-3 py-2 text-sm">
                     <span>
                       <span className="font-semibold text-navy">{s.qty}× {s.item_name}</span>
+                      {s.dichiarato_dal_cliente && !s.charged_at ? (
+                        <span className="ml-2 rounded-full bg-[#C9881F]/15 px-2 py-0.5 align-middle text-[11px] font-bold uppercase tracking-wide text-[#8A5A00]">
+                          da verificare
+                        </span>
+                      ) : null}
                       <span className="block text-xs font-medium text-muted">{chiHaInserito(s)}</span>
                     </span>
                     <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
