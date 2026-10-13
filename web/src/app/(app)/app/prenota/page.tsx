@@ -3,7 +3,7 @@ import { BookFlow, type Address, type Slot, type SpecialCategory } from "@/compo
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/auth";
 import { pickupCounts, deliveryCounts } from "@/lib/slots";
-import { TURNAROUND_ORE } from "@/lib/planning-rider";
+import { oreDiLavorazione } from "@/lib/turnaround";
 import { fasciaPermessa } from "@/lib/servizio-fascia";
 import { isTipoServizio } from "@/lib/tipo-servizio";
 
@@ -48,7 +48,10 @@ export default async function PrenotaPage() {
   const deliverySlots: Slot[] = (rawDelivery ?? []).map((s) => ({
     id: s.id, starts_at: s.starts_at, ends_at: s.ends_at, laundry_id: s.laundry_id, remaining: residuo(s, dCounts),
   }));
-  const turnaroundHours = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
+  // Le ore che il cliente legge e su cui si filtrano le fasce di riconsegna:
+  // 48 per il solo stiro, il suo piano per gli altri. La regola sta in
+  // `turnaround.ts` — qui si passano solo i due dati che le servono.
+  const turnaroundHours = oreDiLavorazione({ tipoServizio: io?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours });
 
   const categories: SpecialCategory[] = (cats ?? []).map((c) => ({
     id: c.id,

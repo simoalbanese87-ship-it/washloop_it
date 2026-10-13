@@ -22,7 +22,7 @@ import { METODI_CHECKOUT, METODI_FATTURA } from "@/lib/metodi-accettati";
 import { salvaNotaCliente } from "@/lib/note-interne";
 import { paracadute, tetto } from "@/lib/prova";
 import { ricorrenza, settimaneValide } from "@/lib/durata-abbonamento";
-import { TURNAROUND_ORE } from "@/lib/planning-rider";
+import { oreDiLavorazione } from "@/lib/turnaround";
 import { incassaSubito } from "@/lib/incasso-subito";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1101,7 +1101,8 @@ export async function adminCreatePickup(formData: FormData) {
   ]);
   if (!slot) redirect(back({ warn: "Fascia di ritiro non trovata." }));
 
-  const turnaround = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
+  const { data: profTurn } = await svc.from("profiles").select("tipo_servizio").eq("id", customerId).maybeSingle<{ tipo_servizio: string | null }>();
+  const turnaround = oreDiLavorazione({ tipoServizio: profTurn?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours });
   const eta = new Date(new Date(slot!.starts_at).getTime() + turnaround * 3600_000).toISOString();
   // Come in app: decide prima la fascia — un sacco sulla fascia dello stiro è
   // di stiro — e poi il servizio scritto in anagrafica. Qui però non si blocca

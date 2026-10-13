@@ -6,7 +6,7 @@ import { registraGuasto } from "@/lib/incidenti";
 import { destinazioneOrdine } from "@/lib/lavanderia";
 import { assegnaRiderIniziale } from "@/lib/assegna-rider";
 import { allineaProva } from "@/lib/prova-stripe";
-import { TURNAROUND_ORE } from "@/lib/planning-rider";
+import { oreDiLavorazione } from "@/lib/turnaround";
 import { eseguiCron } from "@/lib/cron-log";
 
 /** Cron giornaliero: genera gli ordini delle ricorrenze settimanali attive,
@@ -88,14 +88,20 @@ export async function GET(req: Request) {
       // Sub attivo + turnaround del cliente (cache per cliente)
       let turnaround = turnaroundCache.get(rec.customer_id) ?? -1;
       if (turnaround === -1) {
-        const { data: sub } = await sb
-          .from("subscriptions")
-          .select("status, plans(turnaround_hours)")
-          .eq("user_id", rec.customer_id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>();
-        turnaround = sub && ["active", "trialing"].includes(sub.status) ? (sub.plans?.turnaround_hours ?? TURNAROUND_ORE) : 0;
+        const [{ data: sub }, { data: prof }] = await Promise.all([
+          sb
+            .from("subscriptions")
+            .select("status, plans(turnaround_hours)")
+            .eq("user_id", rec.customer_id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>(),
+          sb.from("profiles").select("tipo_servizio").eq("id", rec.customer_id).maybeSingle<{ tipo_servizio: string | null }>(),
+        ]);
+        turnaround =
+          sub && ["active", "trialing"].includes(sub.status)
+            ? oreDiLavorazione({ tipoServizio: prof?.tipo_servizio, orePiano: sub.plans?.turnaround_hours })
+            : 0;
         turnaroundCache.set(rec.customer_id, turnaround);
       }
       if (turnaround === 0) continue; // abbonamento non attivo → niente generazione

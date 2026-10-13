@@ -11,7 +11,7 @@ import { spostaRitiro, spostaRiconsegna, clienteDisdiceRitiro } from "@/lib/acti
 import { deliveryCounts, pickupCounts } from "@/lib/slots";
 import { fasceProponibili } from "@/lib/riconsegna";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
-import { TURNAROUND_ORE } from "@/lib/planning-rider";
+import { oreDiLavorazione } from "@/lib/turnaround";
 
 type Item = { id: string; kind: string | null; status: ItemStatus; photo_url: string | null };
 
@@ -171,12 +171,18 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
   let fasceRiconsegna: { id: string; starts_at: string; ends_at: string }[] = [];
   if (spostabileRiconsegna) {
     const inizioRitiro = unoSolo(order.pickup_slot)?.starts_at ?? order.created_at;
-    const { data: sub } = await supabase
-      .from("subscriptions")
-      .select("plans(turnaround_hours)")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle<{ plans: { turnaround_hours: number } | null }>();
+    // Le ore di lavorazione: il piano, oppure 48 se fa solo stiro. Senza
+    // leggere anche il servizio, a un cliente dello stiro verrebbero proposte
+    // le fasce di tre giorni dopo invece che di due.
+    const [{ data: sub }, { data: mio }] = await Promise.all([
+      supabase
+        .from("subscriptions")
+        .select("plans(turnaround_hours)")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle<{ plans: { turnaround_hours: number } | null }>(),
+      supabase.from("profiles").select("tipo_servizio").maybeSingle<{ tipo_servizio: string | null }>(),
+    ]);
     const { data: slots } = await supabase
       .from("slots")
       .select("id, starts_at, ends_at, capacity")
@@ -190,7 +196,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
     fasceRiconsegna = fasceProponibili(
       (slots ?? []).filter((s) => s.id === order.delivery_slot_id || s.capacity == null || (occupati.get(s.id) ?? 0) < s.capacity),
       inizioRitiro,
-      sub?.plans?.turnaround_hours ?? TURNAROUND_ORE,
+      oreDiLavorazione({ tipoServizio: mio?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours }),
     ).slice(0, 12);
   }
   const riconsegnaArchiviata = consegnaFissata?.archived_at != null;

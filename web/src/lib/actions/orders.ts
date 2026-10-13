@@ -23,7 +23,7 @@ import { allineaProva } from "@/lib/prova-stripe";
 // concordato, che un piano collegato non ce l'hanno, si vedevano una riconsegna
 // prevista un giorno prima del vero. Un solo numero, e sta dove sta il
 // calendario del rider.
-import { TURNAROUND_ORE } from "@/lib/planning-rider";
+import { oreDiLavorazione, ORE_LAVANDERIA } from "@/lib/turnaround";
 import { portaAPronto } from "@/lib/pronto";
 import { puoPrenotare, perchePuoNonPrenotare } from "@/lib/puo-prenotare";
 import { IN_LAVORAZIONE } from "@/lib/consegne-da-caricare";
@@ -81,7 +81,7 @@ export async function createPickup(formData: FormData) {
   if (!puoPrenotare({ statoAbbonamento: sub?.status, aConsumo: io?.a_consumo })) {
     redirect("/app/abbonamento?need=1");
   }
-  const turnaround = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
+  const turnaround = oreDiLavorazione({ tipoServizio: io?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours });
   const eta = slot?.starts_at ? new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString() : null;
 
   const { data, error } = await supabase
@@ -161,7 +161,7 @@ export async function bookPickup(input: {
   if (!puoPrenotare({ statoAbbonamento: sub?.status, aConsumo: io?.a_consumo })) {
     return { ok: false, error: perchePuoNonPrenotare({ statoAbbonamento: sub?.status, aConsumo: io?.a_consumo }) ?? "Serve un abbonamento attivo." };
   }
-  const turnaround = sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
+  const turnaround = oreDiLavorazione({ tipoServizio: io?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours });
   const eta = slot?.starts_at ? new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString() : null;
 
   const { data, error } = await supabase
@@ -953,18 +953,22 @@ const PRIMA_DELLA_CONSEGNA: OrderStatus[] = [
 const unoSolo = <T,>(v: T | T[] | null | undefined): T | null =>
   (Array.isArray(v) ? v[0] ?? null : v ?? null);
 
-/** Le ore di lavorazione del piano di questo cliente. 48 se non risulta nulla,
- *  che è il valore usato ovunque nel progetto come base. */
-async function oreDiLavorazione(svc: ReturnType<typeof createServiceClient>, customerId: string | null): Promise<number> {
-  if (!customerId) return 48;
-  const { data: sub } = await svc
-    .from("subscriptions")
-    .select("plans(turnaround_hours)")
-    .eq("user_id", customerId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<{ plans: { turnaround_hours: number } | null }>();
-  return sub?.plans?.turnaround_hours ?? TURNAROUND_ORE;
+/** Le ore di lavorazione di questo cliente: il suo piano, oppure 48 se fa solo
+ *  stiro. La regola sta in `turnaround.ts` con i test — qui c'è solo la
+ *  lettura dei due dati che le servono. */
+async function oreDelCliente(svc: ReturnType<typeof createServiceClient>, customerId: string | null): Promise<number> {
+  if (!customerId) return ORE_LAVANDERIA;
+  const [{ data: sub }, { data: prof }] = await Promise.all([
+    svc
+      .from("subscriptions")
+      .select("plans(turnaround_hours)")
+      .eq("user_id", customerId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ plans: { turnaround_hours: number } | null }>(),
+    svc.from("profiles").select("tipo_servizio").eq("id", customerId).maybeSingle<{ tipo_servizio: string | null }>(),
+  ]);
+  return oreDiLavorazione({ tipoServizio: prof?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours });
 }
 
 /** Rimette la riconsegna in riga dopo che il ritiro si è spostato.
@@ -996,7 +1000,7 @@ async function allineaRiconsegna(
   const inizioRitiro = unoSolo(o?.pickup)?.starts_at ?? null;
   if (!o || !inizioRitiro) return "";
 
-  const turnaround = await oreDiLavorazione(svc, o.customer_id);
+  const turnaround = await oreDelCliente(svc, o.customer_id);
   const eta = new Date(new Date(inizioRitiro).getTime() + turnaround * 3600_000).toISOString();
 
   const { data: fasce } = await svc
