@@ -3,6 +3,11 @@ import type { MeseIncassi } from "@/lib/incassi-mensili";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { maximumFractionDigits: 0 });
 
+/** Con i centesimi: serve dove si fa una somma a vista. Arrotondando, tre
+ *  numeri interi che si sommano possono sballare di un euro — e un conto che
+ *  non torna di un euro è un conto di cui non ci si fida più. */
+const eur2 = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+
 /** Gli incassi mese per mese, a barre. Ogni barra porta ai clienti di quel mese.
  *
  *  Barre in CSS e non una libreria di grafici: sono dodici valori e una scala,
@@ -26,7 +31,7 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
         <span className="text-xs font-medium text-muted">
           {conIncassi === 0
             ? "Ancora nessun incasso registrato"
-            : `Totale ${eur(totale)} — la somma delle colonne · clicca una barra per vedere chi`}
+            : `Totale ${eur2(totale)} — la somma delle colonne · clicca una barra per vedere chi`}
         </span>
       </div>
 
@@ -59,11 +64,11 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
           const hAttesa = quota(m.attesoCents);
           const vuoto = m.totaleCents === 0 && m.attesoCents === 0;
           // Il valore si scrive dentro la fetta solo se la fetta lo contiene:
-          // l'area delle barre è alta ~130px, quindi sotto il 14% il numero
+          // l'area delle barre è alta ~130px, quindi sotto l'11% il numero
           // uscirebbe dal suo colore e finirebbe sopra quello accanto. Chi
           // resta fuori lo legge comunque nel totale sopra la barra e nelle
           // due righe di riepilogo qui sotto.
-          const ciSta = (h: number) => h >= 14;
+          const ciSta = (h: number) => h >= 11;
           return (
             <Link
               key={m.chiave}
@@ -137,10 +142,10 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
           totale in alto e le colonne restano due cose da sommare a mente. */}
       {conIncassi > 0 && (
         <p className="mt-3 border-t border-line pt-3 text-xs font-medium text-muted">
-          <strong className="font-display text-sm font-extrabold text-navy">{eur(totale)}</strong> in tutto ={" "}
-          <strong className="text-navy">{eur(totaleCanoni)}</strong> di abbonamenti +{" "}
-          <strong className="text-navy">{eur(totaleExtra)}</strong> di extra
-          {corrente && corrente.attesoCents > 0 ? `, più ${eur(corrente.attesoCents)} ancora attesi questo mese` : ""}
+          <strong className="font-display text-sm font-extrabold text-navy">{eur2(totale)}</strong> in tutto ={" "}
+          <strong className="text-navy">{eur2(totaleCanoni)}</strong> di abbonamenti +{" "}
+          <strong className="text-navy">{eur2(totaleExtra)}</strong> di extra
+          {corrente && corrente.attesoCents > 0 ? `, più ${eur2(corrente.attesoCents)} ancora attesi questo mese` : ""}
         </p>
       )}
     </div>
