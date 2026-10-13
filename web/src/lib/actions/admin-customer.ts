@@ -1450,3 +1450,77 @@ export async function creaOrdineCollegato(formData: FormData) {
   revalidatePath("/admin/ordini");
   redirect(`/admin/ordini/${nuovo!.id}?ok=${encodeURIComponent("Ordine per la lavanderia creato: i capi si addebitano a listino.")}`);
 }
+
+/** Modifica un indirizzo che c'è già.
+ *
+ *  Perché serve
+ *  ------------
+ *  Finora si poteva solo aggiungere o cancellare: per scrivere l'orario della
+ *  portineria su un indirizzo esistente l'unica strada era cancellarlo e
+ *  rifarlo — perdendo le coordinate, e con loro la zona, l'assegnazione
+ *  automatica del rider e il posto sulla mappa del giro. Su un indirizzo a cui
+ *  sono già agganciati degli ordini è anche peggio.
+ *
+ *  La geocodifica si rifà **solo se la via è cambiata**: riscriverla a ogni
+ *  salvataggio vorrebbe dire rimettere in gioco un dato buono per aggiungere
+ *  un citofono, e il geocoder ogni tanto sbaglia. */
+export async function aggiornaIndirizzo(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("address_id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  const back = (params: Record<string, string>) =>
+    `/admin/abbonati/${customerId}?${new URLSearchParams(params)}`;
+  if (!id || !customerId) throw new Error("Indirizzo mancante");
+
+  const street = String(formData.get("street") ?? "").trim();
+  const civico = String(formData.get("civico") ?? "").trim();
+  const cap = String(formData.get("cap") ?? "").trim();
+  const city = String(formData.get("city") ?? "").trim() || "Milano";
+  const label = String(formData.get("label") ?? "").trim() || "Casa";
+  const intercom = String(formData.get("intercom") ?? "").trim();
+  const floor = String(formData.get("floor") ?? "").trim();
+  const accessMode = String(formData.get("access_mode") ?? "door");
+  const accessNote = String(formData.get("access_note") ?? "").trim();
+  const conciergeHours = String(formData.get("concierge_hours") ?? "").trim();
+  if (!street || !civico) redirect(back({ warn: "Via e numero civico sono obbligatori." }));
+
+  const svc = createServiceClient();
+  const { data: prima } = await svc
+    .from("addresses")
+    .select("street, cap, lat, lng, zone_id")
+    .eq("id", id)
+    .eq("user_id", customerId)
+    .maybeSingle<{ street: string; cap: string | null; lat: number | null; lng: number | null; zone_id: string | null }>();
+  if (!prima) redirect(back({ warn: "Indirizzo non trovato." }));
+
+  const fullStreet = [`${street} ${civico}`.trim(), cap, city].filter(Boolean).join(", ");
+  const viaCambiata = fullStreet !== prima!.street;
+
+  const patch: Record<string, unknown> = {
+    label,
+    street: fullStreet,
+    cap: cap || null,
+    civico: civico || null,
+    intercom: accessMode !== "concierge" ? intercom || null : null,
+    floor: accessMode !== "concierge" ? floor || null : null,
+    access_mode: accessMode,
+    access_note: accessNote || null,
+    concierge_hours: accessMode === "concierge" ? conciergeHours || null : null,
+  };
+
+  if (viaCambiata) {
+    const geo = await geocodeAddress({ street, civico, cap, city });
+    patch.lat = geo?.lat ?? null;
+    patch.lng = geo?.lng ?? null;
+    patch.zone_id = await zoneIdForCap(svc, cap);
+  } else if ((cap || null) !== prima!.cap) {
+    // Stessa via, CAP corretto: la zona si rifà, le coordinate restano.
+    patch.zone_id = await zoneIdForCap(svc, cap);
+  }
+
+  const { error } = await svc.from("addresses").update(patch).eq("id", id).eq("user_id", customerId);
+  if (error) redirect(back({ warn: `Indirizzo non salvato: ${error.message}` }));
+
+  revalidatePath(`/admin/abbonati/${customerId}`);
+  redirect(back({ ok: viaCambiata ? "Indirizzo aggiornato e rigeocodificato." : "Indirizzo aggiornato." }));
+}

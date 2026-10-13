@@ -4,7 +4,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco, aggiornaIndirizzo } from "@/lib/actions/admin-customer";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { addebitaCapoSpeciale, addebitaSubitoCapo } from "@/lib/actions/charge";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
@@ -25,6 +25,15 @@ import { CardSetupForm } from "@/components/admin/CardSetupForm";
 import { ATTESA_GIORNI } from "@/lib/dunning-piano";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** L'indirizzo è salvato in una riga sola — «Via Tale 10, 20143, Milano» — ma
+ *  il modulo lo chiede a pezzi. Si rispacchetta qui, con prudenza: se la forma
+ *  non è quella attesa si lascia tutto nella via, che è meglio di un campo
+ *  svuotato per un'ipotesi sbagliata. */
+const pezziIndirizzo = (s: string) => s.split(",").map((p) => p.trim());
+const viaDi = (s: string) => (pezziIndirizzo(s)[0] ?? s).replace(/\s+\S*\d\S*$/, "").trim() || pezziIndirizzo(s)[0] || s;
+const civicoDi = (s: string) => (pezziIndirizzo(s)[0] ?? "").match(/(\S*\d\S*)$/)?.[1] ?? "";
+const cittaDi = (s: string) => pezziIndirizzo(s)[2] ?? "Milano";
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
 
@@ -1019,7 +1028,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                 e in app trova solo un avviso al posto della prenotazione.
               </p>
             ) : (
-              (addresses ?? []).map((a) => <SchedaIndirizzo key={a.id} a={a} />)
+              (addresses ?? []).map((a) => <SchedaIndirizzo key={a.id} a={a} customerId={id} />)
             )}
           </div>
 
@@ -1449,7 +1458,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
  *  Le voci mancanti si dicono («nessuna nota», «piano non indicato») invece di
  *  sparire: una riga assente si legge come «non l'ho cercata», una riga che
  *  dice «manca» si legge come «lo sappiamo, va chiesto». */
-function SchedaIndirizzo({ a }: { a: Addr }) {
+function SchedaIndirizzo({ a, customerId }: { a: Addr; customerId: string }) {
   const vuoto = <span className="font-normal italic text-muted/70">non indicato</span>;
   return (
     <div className="rounded-[12px] border border-line bg-ice px-3 py-2.5 text-sm">
@@ -1498,6 +1507,63 @@ function SchedaIndirizzo({ a }: { a: Addr }) {
           Senza coordinate: non finisce in nessuna zona. Usa &ldquo;Geocodifica indirizzi mancanti&rdquo; in Catalogo.
         </p>
       ) : null}
+
+      {/* Modificare invece di rifare. Finora per aggiungere la portineria a un
+          indirizzo che c'era già bisognava cancellarlo e riscriverlo, e con lui
+          sparivano le coordinate — quindi la zona, il rider assegnato da solo e
+          il posto sulla mappa del giro. */}
+      <details className="mt-2">
+        <summary className="cursor-pointer list-none font-display text-xs font-bold text-blue hover:underline">
+          Modifica indirizzo
+        </summary>
+        <form action={aggiornaIndirizzo} className="mt-2 grid gap-2 sm:grid-cols-2">
+          <input type="hidden" name="address_id" value={a.id} />
+          <input type="hidden" name="customer_id" value={customerId} />
+          <label className="text-[11px] font-bold text-muted">Via
+            <input name="street" defaultValue={viaDi(a.street)} required className={input} />
+          </label>
+          <label className="text-[11px] font-bold text-muted">Civico
+            <input name="civico" defaultValue={a.civico ?? civicoDi(a.street)} required className={input} />
+          </label>
+          <label className="text-[11px] font-bold text-muted">CAP
+            <input name="cap" defaultValue={a.cap ?? ""} className={input} />
+          </label>
+          <label className="text-[11px] font-bold text-muted">Città
+            <input name="city" defaultValue={cittaDi(a.street)} className={input} />
+          </label>
+          <label className="text-[11px] font-bold text-muted">Etichetta
+            <input name="label" defaultValue={a.label ?? "Casa"} className={input} />
+          </label>
+          <label className="text-[11px] font-bold text-muted">Come si entra
+            <select name="access_mode" defaultValue={a.access_mode ?? "door"} className={input}>
+              <option value="door">Alla porta</option>
+              <option value="home">Al portone</option>
+              <option value="concierge">Portineria</option>
+            </select>
+          </label>
+          <label className="text-[11px] font-bold text-muted">Citofono
+            <input name="intercom" defaultValue={a.intercom ?? ""} className={input} />
+          </label>
+          <label className="text-[11px] font-bold text-muted">Piano
+            <input name="floor" defaultValue={a.floor ?? ""} className={input} />
+          </label>
+          <label className="text-[11px] font-bold text-muted">Orario portineria
+            <input name="concierge_hours" defaultValue={a.concierge_hours ?? ""} placeholder="es. 8:00–18:00" className={input} />
+          </label>
+          <label className="text-[11px] font-bold text-muted">Nota per il rider
+            <input name="access_note" defaultValue={a.access_note ?? ""} placeholder="Nome del portinaio, indicazioni…" className={input} />
+          </label>
+          <div className="sm:col-span-2">
+            <BottoneInvio attesa="Salvo…" className="rounded-full border-2 border-line px-4 py-2 font-display text-sm font-extrabold text-navy">
+              Salva indirizzo
+            </BottoneInvio>
+            <p className="mt-1 text-[11px] font-medium text-muted">
+              Le coordinate si rifanno solo se cambi la via: correggere un citofono non rimette in gioco la zona.
+              L&apos;orario della portineria si salva quando «come si entra» è <strong>Portineria</strong>.
+            </p>
+          </div>
+        </form>
+      </details>
     </div>
   );
 }
