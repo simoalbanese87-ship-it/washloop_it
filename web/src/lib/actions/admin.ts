@@ -253,15 +253,28 @@ export async function createSlot(formData: FormData) {
     ? await svc.from("laundries").select("zone_id").eq("id", laundry_id).maybeSingle<{ zone_id: string | null }>()
     : { data: null };
 
+  // Che lavoro si ritira in questa fascia. Mancava, ed è il motivo per cui la
+  // fascia dello stiro non si riusciva a creare dal calendario: nasceva sempre
+  // «per tutti», e il filtro in prenotazione la mostrava a chiunque.
+  const servizioGrezzo = String(formData.get("servizio") ?? "").trim();
+  const servizio = isServizioFascia(servizioGrezzo) ? servizioGrezzo : null;
+
   const supabase = await createClient();
   const { error } = await supabase.from("slots").insert({
     zone_id: String(formData.get("zone_id") ?? "") || lab?.zone_id || null,
     laundry_id,
     kind: String(formData.get("kind") ?? "pickup"),
+    servizio,
     starts_at: romeLocalToISO(`${date}T${from}`),
     ends_at: romeLocalToISO(`${date}T${to}`),
     capacity: Number(formData.get("capacity") ?? 15) || 15,
   });
+  // Il vincolo in database (`slots_senza_doppioni`) impedisce due fasce
+  // identiche. Non è un errore da mostrare come tale: è una cosa che capita
+  // premendo due volte, e la risposta giusta è dirlo in italiano.
+  if (error?.code === "23505") {
+    redirect(`${REV}?warn=${encodeURIComponent("Questa fascia c'è già: stesso giorno, stesso orario, stesso servizio.")}`);
+  }
   if (error) redirect(`${REV}?warn=${encodeURIComponent(`Fascia non creata: ${error.message}`)}`);
   revalidatePath(REV);
   redirect(`${REV}?ok=${encodeURIComponent("Fascia aggiunta al calendario.")}`);
@@ -430,9 +443,36 @@ export async function generateSlots(formData: FormData) {
   if (rows.length === 0) throw new Error("Nessuno slot da creare con questi criteri");
   if (rows.length > 500) throw new Error("Troppi slot: riduci l'intervallo o le fasce");
 
-  const { error } = await supabase.from("slots").insert(rows);
+  // Le fasce che per quel periodo ci sono già: rigenerare un intervallo che si
+  // sovrappone a uno fatto prima deve aggiungere solo i giorni che mancano, non
+  // raddoppiare tutto. È il gesto che ha creato i doppioni del venerdì, e il
+  // vincolo in database farebbe fallire l'inserimento **intero** per una riga
+  // sola — quindi si filtra qui.
+  const { data: gia } = await supabase
+    .from("slots")
+    .select("kind, starts_at, ends_at, laundry_id, servizio")
+    .is("archived_at", null)
+    .gte("starts_at", romeLocalToISO(`${date_from}T00:00`))
+    .lte("starts_at", romeLocalToISO(`${date_to}T23:59`))
+    .returns<{ kind: string; starts_at: string; ends_at: string; laundry_id: string | null; servizio: string | null }[]>();
+  const impronta = (r: { kind: unknown; starts_at: unknown; ends_at: unknown; laundry_id: unknown; servizio: unknown }) =>
+    `${r.kind}|${new Date(String(r.starts_at)).getTime()}|${new Date(String(r.ends_at)).getTime()}|${r.laundry_id ?? ""}|${r.servizio ?? ""}`;
+  const esistenti = new Set((gia ?? []).map(impronta));
+  const nuove = rows.filter((r) => !esistenti.has(impronta(r as never)));
+
+  if (nuove.length === 0) {
+    redirect(`${REV}?warn=${encodeURIComponent("Nessuna fascia aggiunta: per quei giorni c'erano già tutte.")}`);
+  }
+
+  const { error } = await supabase.from("slots").insert(nuove);
   if (error) throw new Error(error.message);
   revalidatePath(REV);
+  const saltate = rows.length - nuove.length;
+  redirect(
+    `${REV}?ok=${encodeURIComponent(
+      `${nuove.length} ${nuove.length === 1 ? "fascia aggiunta" : "fasce aggiunte"}${saltate > 0 ? ` · ${saltate} c'${saltate === 1 ? "era" : "erano"} già` : ""}.`,
+    )}`,
+  );
 }
 
 /** Modifica una voce del listino capi speciali.

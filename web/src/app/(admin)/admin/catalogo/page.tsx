@@ -24,7 +24,7 @@ type Zone = { id: string; name: string; active: boolean; courier_id: string | nu
 type Courier = { id: string; full_name: string | null };
 type DepotRow = { id: string; name: string; address: string | null; lat: number | null; lng: number | null };
 type Laundry = { id: string; name: string; zone_id: string | null; address: string | null; phone: string | null; email: string | null; active: boolean; bag_comp_cents: number | null };
-type Slot = { id: string; kind: string; starts_at: string; ends_at: string; capacity: number | null; laundries: { name: string } | null };
+type Slot = { id: string; kind: string; starts_at: string; ends_at: string; capacity: number | null; servizio: string | null; laundries: { name: string } | null };
 type Plan = { id: string; name: string; price_month_cents: number; turnaround_hours: number; pickups_per_week: number; bags_per_week: number; active: boolean; stripe_price_id: string | null };
 
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
@@ -52,7 +52,7 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
     // tolte apposta.
     supabase
       .from("slots")
-      .select("id, kind, starts_at, ends_at, capacity, laundries(name)")
+      .select("id, kind, starts_at, ends_at, capacity, servizio, laundries(name)")
       .is("archived_at", null)
       .gte("starts_at", inizioMese)
       .lte("starts_at", fineFinestra)
@@ -78,6 +78,7 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
     return {
       id: s.id,
       kind: s.kind as "pickup" | "delivery",
+      servizio: s.servizio,
       starts_at: s.starts_at,
       ends_at: s.ends_at,
       capacity: s.capacity,
@@ -323,7 +324,7 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
           </form>
 
           {/* Aggiunta singola */}
-          <form action={createSlot} className="mt-5 grid gap-2 border-t border-line pt-4 sm:grid-cols-6">
+          <form action={createSlot} className="mt-5 grid gap-2 border-t border-line pt-4 sm:grid-cols-7">
             <select name="laundry_id" className={input} defaultValue="">
               <option value="">Lavanderia (facoltativa)</option>
               {(laundries ?? []).map((l) => (<option key={l.id} value={l.id}>{l.name}</option>))}
@@ -331,6 +332,11 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
             <select name="kind" className={input} defaultValue="pickup">
               <option value="pickup">Ritiro</option>
               <option value="delivery">Consegna</option>
+            </select>
+            <select name="servizio" className={input} defaultValue="">
+              <option value="">Per tutti</option>
+              <option value="lavanderia">Lavanderia</option>
+              <option value="stiro">Stiro</option>
             </select>
             <input name="date" type="date" className={input} />
             <input name="from" type="time" className={input} />

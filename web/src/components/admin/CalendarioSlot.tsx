@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { deleteSlot, createSlot, setSlotCapacity } from "@/lib/actions/admin";
+import { isServizioFascia, SERVIZIO_FASCIA_LABEL, SERVIZIO_FASCIA_TONO } from "@/lib/servizio-fascia";
 
 /** Il calendario delle fasce, a mese.
  *
@@ -23,6 +24,10 @@ export type FasciaCal = {
   capacity: number | null;
   presi: number;
   laundry: string | null;
+  /** Che lavoro si ritira in questa fascia: `lavanderia` il martedì, `stiro` il
+   *  mercoledì, `null` quando vale per tutti (le riconsegne). Senza questo, tre
+   *  fasce alla stessa ora sembravano la stessa cosa tre volte. */
+  servizio: string | null;
 };
 
 const GIORNI = ["lun", "mar", "mer", "gio", "ven", "sab", "dom"];
@@ -206,6 +211,11 @@ export function CalendarioSlot({
                 return (
                   <div key={f.id} className="flex flex-wrap items-center gap-3 rounded-[12px] border border-line px-3 py-2.5">
                     <span className={`rounded-full px-2.5 py-1 font-display text-[11px] font-extrabold ${c.chiaro}`}>{c.nome}</span>
+                    {isServizioFascia(f.servizio) && (
+                      <span className={`rounded-full px-2.5 py-1 font-display text-[11px] font-extrabold ${SERVIZIO_FASCIA_TONO[f.servizio]}`}>
+                        {SERVIZIO_FASCIA_LABEL[f.servizio]}
+                      </span>
+                    )}
                     <span className="font-display text-sm font-extrabold text-navy">
                       {oraRoma(f.starts_at)}–{oraRoma(f.ends_at)}
                     </span>
@@ -251,7 +261,7 @@ export function CalendarioSlot({
           <form action={createSlot} className="mt-4 border-t border-line pt-4">
             <input type="hidden" name="date" value={giornoAperto} />
             <div className="font-display text-sm font-extrabold text-navy">Aggiungi una fascia</div>
-            <div className="mt-2 grid gap-2 sm:grid-cols-[auto_auto_auto_auto_1fr_auto]">
+            <div className="mt-2 grid gap-2 sm:grid-cols-[auto_auto_auto_auto_auto_1fr_auto]">
               <select
                 name="kind"
                 value={tipoNuovo}
@@ -284,6 +294,19 @@ export function CalendarioSlot({
                 aria-label="Capienza"
                 className="w-24 rounded-[10px] border border-line bg-white px-3 py-2 text-sm font-medium text-navy"
               />
+              {/* Il servizio: senza, una fascia nasce sempre «per tutti» ed è
+                  il motivo per cui la riconsegna dello stiro non si riusciva a
+                  creare da qui. */}
+              <select
+                name="servizio"
+                defaultValue=""
+                aria-label="Servizio"
+                className="rounded-[10px] border border-line bg-white px-3 py-2 text-sm font-medium text-navy"
+              >
+                <option value="">Per tutti</option>
+                <option value="lavanderia">Lavanderia</option>
+                <option value="stiro">Stiro</option>
+              </select>
               <select
                 name="laundry_id"
                 defaultValue=""
@@ -300,7 +323,9 @@ export function CalendarioSlot({
             </div>
             <p className="mt-2 text-xs font-medium text-muted">
               Precompilata con gli orari del servizio: ritiro 08:00–12:00, consegna 10:30–14:30, 15 posti.
-              La lavanderia serve solo a sapere da dove riparte il capo, non è obbligatoria.
+              Il <strong>servizio</strong> decide chi può prenotarla: il martedì è lavanderia, il mercoledì stiro,
+              le riconsegne restano «per tutti» perché il giro del venerdì è uno solo. La lavanderia serve solo a
+              sapere da dove riparte il capo, non è obbligatoria.
             </p>
           </form>
         </div>
