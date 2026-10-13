@@ -4,7 +4,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco, aggiornaIndirizzo } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco, aggiornaIndirizzo, cambiaCanone } from "@/lib/actions/admin-customer";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { addebitaCapoSpeciale, addebitaSubitoCapo } from "@/lib/actions/charge";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
@@ -597,6 +597,30 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             <>
               <div className="mt-3 space-y-1 text-sm font-medium text-muted">
                 <div>Piano: <span className="font-bold text-navy">{sub.plans?.name ?? (sub.termina_dopo_settimane ? `Prova a pagamento di ${sub.termina_dopo_settimane === 1 ? "1 settimana" : `${sub.termina_dopo_settimane} settimane`}` : "—")}</span> · {priceLabel}{cadenza} {sub.manual && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">manuale</span>}</div>
+                {/* Il canone concordato. Il servizio di un cliente si cambia
+                    con un menu, il prezzo no: finché non c'era questo, passare
+                    dalla lavanderia al solo stiro voleva dire disdire e far
+                    rimettere la carta per un abbonamento che c'era già. */}
+                <form action={cambiaCanone} className="flex flex-wrap items-baseline gap-2">
+                  <input type="hidden" name="sub_id" value={sub.id} />
+                  <input type="hidden" name="customer_id" value={id} />
+                  <label htmlFor="canone-mese">Canone al mese:</label>
+                  <input
+                    id="canone-mese"
+                    name="canone"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder={((sub.custom_price_cents ?? sub.plans?.price_month_cents ?? 0) / 100).toFixed(2)}
+                    className="w-24 rounded-[10px] border border-line bg-white px-2 py-1 text-sm font-bold text-navy outline-none focus:border-blue"
+                  />
+                  <span>€</span>
+                  <button type="submit" className="font-display text-sm font-bold text-blue hover:underline">Cambia</button>
+                  <span className="text-xs">
+                    {sub.stripe_subscription_id
+                      ? "stesso abbonamento, stessa carta, stessa data di rinnovo · il mese in corso non si ricalcola"
+                      : "abbonamento non su Stripe: cambia solo quello che è scritto qui"}
+                  </span>
+                </form>
                 {/* I sacchi compresi: è il tetto con cui paghiamo la lavanderia
                     e contiamo la franchigia, ed è quello che fa entrare questo
                     cliente nel «costo previsto» di Competenza. Prima non si

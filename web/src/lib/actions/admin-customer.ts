@@ -639,6 +639,114 @@ export async function terminaProvaOra(formData: FormData) {
   redirect(`${backTo}?ok=${encodeURIComponent("Prova terminata: Stripe emette la fattura e prova ad addebitare la carta.")}`);
 }
 
+/** Cambia il canone di un abbonamento già attivo, senza interromperlo.
+ *
+ *  Il caso che l'ha fatta nascere: una cliente compra il piano della lavanderia
+ *  da 160,00 € e poi passa al solo stiro, che costa 122,00 €. Il servizio si
+ *  cambia con un menu, il prezzo no: il pannello sapeva solo **creare** un
+ *  abbonamento nuovo a prezzo concordato — cioè disdire quello in corso e far
+ *  rimettere la carta al cliente per una cosa che lui ha già fatto.
+ *
+ *  Qui si cambia il prezzo **sullo stesso abbonamento**: stessa carta, stessa
+ *  data di rinnovo, nessuna interruzione. Su Stripe un prezzo non si modifica —
+ *  è un oggetto immutabile — quindi se ne crea uno nuovo sullo **stesso
+ *  prodotto** (così in fattura il cliente continua a leggere lo stesso nome) e
+ *  lo si sostituisce nell'abbonamento.
+ *
+ *  `proration_behavior: "none"`: il conguaglio del mese in corso è una
+ *  decisione commerciale, non un calcolo. Lo si fa — se si vuole farlo — con un
+ *  rimborso o un addebito, dove si vede e si può spiegare al cliente; lasciarlo
+ *  a Stripe vorrebbe dire ritrovarsi una riga a sorpresa sulla prossima
+ *  fattura.
+ *
+ *  Il canone concordato si scrive anche in `custom_price_cents`: è il campo da
+ *  cui il pannello legge il prezzo quando non è quello del piano di listino. */
+export async function cambiaCanone(formData: FormData) {
+  await requireAdmin();
+  const subId = String(formData.get("sub_id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  const grezzo = String(formData.get("canone") ?? "").trim();
+  if (!subId || !customerId) throw new Error("Parametri mancanti");
+  const backTo = `/admin/abbonati/${customerId}`;
+
+  const cents = grezzo ? eurToCents(grezzo) : NaN;
+  if (!Number.isFinite(cents) || cents <= 0) {
+    redirect(`${backTo}?warn=${encodeURIComponent("Scrivi il nuovo canone in euro, per esempio 122,00.")}`);
+  }
+
+  const svc = createServiceClient();
+  const { data: sub } = await svc
+    .from("subscriptions")
+    .select("id, user_id, status, manual, stripe_subscription_id, custom_price_cents, plans(name, price_month_cents)")
+    .eq("id", subId)
+    .maybeSingle<{
+      id: string;
+      user_id: string;
+      status: string;
+      manual: boolean;
+      stripe_subscription_id: string | null;
+      custom_price_cents: number | null;
+      plans: { name: string; price_month_cents: number } | null;
+    }>();
+  if (!sub) throw new Error("Abbonamento non trovato");
+
+  const vecchio = sub.custom_price_cents ?? sub.plans?.price_month_cents ?? null;
+  if (vecchio === cents) {
+    redirect(`${backTo}?warn=${encodeURIComponent(`Il canone è già ${eur(cents)}: non ho cambiato niente.`)}`);
+  }
+
+  // Abbonamento manuale: non c'è niente da aggiornare su Stripe, il prezzo vive
+  // solo qui. Si scrive e si torna indietro.
+  if (!sub.stripe_subscription_id) {
+    await svc.from("subscriptions").update({ custom_price_cents: cents }).eq("id", subId);
+    revalidatePath(backTo);
+    redirect(`${backTo}?ok=${encodeURIComponent(`Canone concordato: ${eur(cents)} al mese. Questo abbonamento non è su Stripe: l'addebito lo fai tu.`)}`);
+  }
+
+  try {
+    const attuale = await stripe().subscriptions.retrieve(sub.stripe_subscription_id!);
+    const voce = attuale.items.data[0];
+    if (!voce) {
+      redirect(`${backTo}?warn=${encodeURIComponent("Questo abbonamento su Stripe non ha nessuna voce: va guardato dalla dashboard.")}`);
+    }
+
+    const prezzoVecchio = voce!.price;
+    const prodotto = typeof prezzoVecchio.product === "string" ? prezzoVecchio.product : prezzoVecchio.product?.id;
+    if (!prodotto) {
+      redirect(`${backTo}?warn=${encodeURIComponent("Non risalgo al prodotto di questo abbonamento su Stripe: va cambiato dalla dashboard.")}`);
+    }
+
+    // Stessa cadenza di prima: cambiamo quanto paga, non ogni quanto.
+    const nuovo = await stripe().prices.create({
+      currency: prezzoVecchio.currency ?? "eur",
+      unit_amount: cents,
+      recurring: {
+        interval: prezzoVecchio.recurring?.interval ?? "month",
+        interval_count: prezzoVecchio.recurring?.interval_count ?? 1,
+      },
+      product: prodotto!,
+      metadata: { cambiato_da: "pannello", vecchio_price: prezzoVecchio.id },
+    });
+
+    await stripe().subscriptions.update(sub.stripe_subscription_id!, {
+      items: [{ id: voce!.id, price: nuovo.id }],
+      proration_behavior: "none",
+      metadata: { custom_price_cents: String(cents) },
+    });
+  } catch (err) {
+    redirect(`${backTo}?warn=${encodeURIComponent(`Stripe ha rifiutato il cambio di canone: ${err instanceof Error ? err.message : "errore"}`)}`);
+  }
+
+  await svc.from("subscriptions").update({ custom_price_cents: cents }).eq("id", subId);
+
+  revalidatePath(backTo);
+  redirect(
+    `${backTo}?ok=${encodeURIComponent(
+      `Canone cambiato: ${vecchio != null ? `da ${eur(vecchio)} ` : ""}a ${eur(cents)} al mese. L'abbonamento resta attivo, la carta e la data di rinnovo non cambiano, e il mese in corso non viene ricalcolato.`,
+    )}`,
+  );
+}
+
 export async function changeSubscription(formData: FormData) {
   await requireAdmin();
   const subId = String(formData.get("sub_id") ?? "");
