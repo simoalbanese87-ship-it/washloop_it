@@ -15,6 +15,8 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
   const massimo = Math.max(1, ...mesi.map((m) => m.canoniCents + m.extraCents + m.attesoCents));
   const corrente = mesi.find((m) => m.corrente);
   const totale = mesi.reduce((t, m) => t + m.totaleCents, 0);
+  const totaleCanoni = mesi.reduce((t, m) => t + m.canoniCents, 0);
+  const totaleExtra = mesi.reduce((t, m) => t + m.extraCents, 0);
   const conIncassi = mesi.filter((m) => m.totaleCents > 0).length;
 
   return (
@@ -24,7 +26,7 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
         <span className="text-xs font-medium text-muted">
           {conIncassi === 0
             ? "Ancora nessun incasso registrato"
-            : `${eur(totale)} in ${conIncassi} ${conIncassi === 1 ? "mese" : "mesi"} · clicca una barra per vedere chi`}
+            : `Totale ${eur(totale)} — la somma delle colonne · clicca una barra per vedere chi`}
         </span>
       </div>
 
@@ -42,7 +44,7 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
         </p>
       )}
 
-      <div className="mt-4 flex items-end gap-1.5" style={{ height: 132 }}>
+      <div className="mt-4 flex items-end gap-1.5" style={{ height: 172 }}>
         {mesi.map((m) => {
           // La barra in pila: sotto i canoni, sopra gli extra, e in cima —
           // tratteggiato — quello che deve ancora arrivare. Un mese fatto di
@@ -56,6 +58,12 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
           const hExtra = quota(m.extraCents);
           const hAttesa = quota(m.attesoCents);
           const vuoto = m.totaleCents === 0 && m.attesoCents === 0;
+          // Il valore si scrive dentro la fetta solo se la fetta lo contiene:
+          // l'area delle barre è alta ~130px, quindi sotto il 14% il numero
+          // uscirebbe dal suo colore e finirebbe sopra quello accanto. Chi
+          // resta fuori lo legge comunque nel totale sopra la barra e nelle
+          // due righe di riepilogo qui sotto.
+          const ciSta = (h: number) => h >= 14;
           return (
             <Link
               key={m.chiave}
@@ -66,32 +74,44 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
               aria-label={`${m.nome}: ${eur(m.totaleCents)}, di cui ${eur(m.canoniCents)} di abbonamenti e ${eur(m.extraCents)} di extra${
                 m.attesoCents > 0 ? `, più ${eur(m.attesoCents)} attesi dai rinnovi` : ""
               }. Apri l'elenco.`}
-              className="group flex flex-1 flex-col items-center justify-end gap-1.5"
+              className="group flex flex-1 flex-col items-center justify-end gap-1"
               style={{ height: "100%" }}
             >
-              <span className="font-display text-[10px] font-extrabold text-navy/70 opacity-0 transition-opacity group-hover:opacity-100">
-                {m.totaleCents > 0 ? eur(m.totaleCents) : ""}
+              {/* Il totale del mese, scritto sempre. Prima compariva solo
+                  passandoci sopra col mouse: per sapere com'era andato un mese
+                  bisognava cercarlo barra per barra, e da un grafico così non
+                  si capiva se stavamo crescendo. */}
+              <span className="font-display text-[10px] font-extrabold leading-none text-navy">
+                {m.totaleCents > 0 ? eur(m.totaleCents) : m.attesoCents > 0 ? "—" : ""}
               </span>
-              {hAttesa > 0 && (
-                <span
-                  className="w-full rounded-t-[6px] border-2 border-dashed border-blue/55 bg-blue/12"
-                  style={{ height: `${hAttesa}%` }}
-                />
-              )}
-              {hExtra > 0 && (
-                <span
-                  className={`w-full bg-cyan/70 transition-colors group-hover:bg-cyan ${hAttesa > 0 ? "" : "rounded-t-[6px]"}`}
-                  style={{ height: `${hExtra}%` }}
-                />
-              )}
-              {hCanoni > 0 && (
-                <span
-                  className={`w-full bg-[#1F8A5B]/75 transition-colors group-hover:bg-[#1F8A5B] ${hAttesa === 0 && hExtra === 0 ? "rounded-t-[6px]" : ""}`}
-                  style={{ height: `${hCanoni}%` }}
-                />
-              )}
-              {vuoto && <span className="w-full rounded-t-[6px] bg-navy/10" style={{ height: "2%" }} />}
-              <span className={`font-display text-[10px] font-bold ${m.corrente ? "text-navy" : "text-muted"}`}>
+              <div className="flex w-full flex-1 flex-col justify-end">
+                {hAttesa > 0 && (
+                  <span
+                    className="flex w-full items-center justify-center overflow-hidden rounded-t-[6px] border-2 border-dashed border-blue/55 bg-blue/12 font-display text-[9px] font-extrabold leading-none text-blue"
+                    style={{ height: `${hAttesa}%` }}
+                  >
+                    {ciSta(hAttesa) ? eur(m.attesoCents) : ""}
+                  </span>
+                )}
+                {hExtra > 0 && (
+                  <span
+                    className={`flex w-full items-center justify-center overflow-hidden bg-cyan/70 font-display text-[9px] font-extrabold leading-none text-navy transition-colors group-hover:bg-cyan ${hAttesa > 0 ? "" : "rounded-t-[6px]"}`}
+                    style={{ height: `${hExtra}%` }}
+                  >
+                    {ciSta(hExtra) ? eur(m.extraCents) : ""}
+                  </span>
+                )}
+                {hCanoni > 0 && (
+                  <span
+                    className={`flex w-full items-center justify-center overflow-hidden bg-[#1F8A5B]/75 font-display text-[9px] font-extrabold leading-none text-white transition-colors group-hover:bg-[#1F8A5B] ${hAttesa === 0 && hExtra === 0 ? "rounded-t-[6px]" : ""}`}
+                    style={{ height: `${hCanoni}%` }}
+                  >
+                    {ciSta(hCanoni) ? eur(m.canoniCents) : ""}
+                  </span>
+                )}
+                {vuoto && <span className="w-full rounded-t-[6px] bg-navy/10" style={{ height: "2%" }} />}
+              </div>
+              <span className={`font-display text-[10px] font-bold leading-none ${m.corrente ? "text-navy" : "text-muted"}`}>
                 {m.etichetta}
               </span>
             </Link>
@@ -112,6 +132,17 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
         </span>
         <span>I rimborsi sono già tolti.</span>
       </div>
+
+      {/* Il conto che chiude: il numero generale e di cosa è fatto. Senza, il
+          totale in alto e le colonne restano due cose da sommare a mente. */}
+      {conIncassi > 0 && (
+        <p className="mt-3 border-t border-line pt-3 text-xs font-medium text-muted">
+          <strong className="font-display text-sm font-extrabold text-navy">{eur(totale)}</strong> in tutto ={" "}
+          <strong className="text-navy">{eur(totaleCanoni)}</strong> di abbonamenti +{" "}
+          <strong className="text-navy">{eur(totaleExtra)}</strong> di extra
+          {corrente && corrente.attesoCents > 0 ? `, più ${eur(corrente.attesoCents)} ancora attesi questo mese` : ""}
+        </p>
+      )}
     </div>
   );
 }
