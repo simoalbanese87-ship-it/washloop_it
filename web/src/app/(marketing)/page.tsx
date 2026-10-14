@@ -275,6 +275,33 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ============ 4b · SOLO STIRO ============ */}
+      {/* Dal 14 ottobre 2026 i servizi sono due, e dalla home si vedeva solo
+          quello che lava. Chi ha la lavatrice e non vuole stirare non si
+          riconosceva in nessuna parola di questa pagina e se ne andava.
+
+          Una fascia, non una sezione: una riga di titolo, una di testo e un
+          link, come «Porta un amico». Il prezzo non si scrive qui — sta nella
+          pagina dedicata e in /prezzi, che lo leggono dal database: un numero
+          copiato a mano in home è il primo a smettere di essere vero. */}
+      <section className="bg-ice">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-5 px-5 py-14">
+          <div>
+            <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-[#7A4FBF]">Solo stiro</div>
+            <h2 className="mt-2 font-display text-2xl font-black tracking-[-0.02em] text-navy md:text-3xl">
+              La lavatrice la fai tu, l&apos;asse lo chiudiamo noi<span className="text-[#7A4FBF]">.</span>
+            </h2>
+            <p className="mt-2 max-w-xl text-sm font-medium leading-relaxed text-muted">
+              C&apos;è anche l&apos;abbonamento per la sola stiratura: ritiriamo i capi che hai già lavato il
+              mercoledì e tornano piegati il venerdì, in 48 ore.
+            </p>
+          </div>
+          <Link href="/servizio-stiro-a-domicilio-milano" className="font-display text-sm font-extrabold text-[#7A4FBF] hover:underline">
+            Scopri il solo stiro →
+          </Link>
+        </div>
+      </section>
+
       {/* ============ 5 · PORTA UN AMICO ============ */}
       {/* Il commento in cima dice «cinque sezioni, e non una di più», e questa
           è la sesta: scelta consapevole del 6 ottobre 2026. Per non tradire la

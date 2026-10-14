@@ -136,7 +136,7 @@ const CONFRONTO: { voce: string; noi: string; capo: string; self: string }[] = [
   { voce: "Ore tue a settimana", noi: "≈ 0", capo: "1–2, tra viaggi e coda", self: "2–3, tra lavaggi e stiro" },
 ];
 
-type Piano = { id: string; code: string; name: string; price_month_cents: number; bags_per_week: number };
+type Piano = { id: string; code: string; name: string; price_month_cents: number; bags_per_week: number; servizio: string | null; turnaround_hours: number };
 type Categoria = { id: string; name: string; sort: number };
 type Voce = { id: string; category_id: string; name: string; price_cli_cents: number; sort: number };
 
@@ -151,7 +151,7 @@ export default async function Prezzi() {
   const [{ data: piani }, { data: categorie }, { data: voci }] = await Promise.all([
     supabase
       .from("plans")
-      .select("id, code, name, price_month_cents, bags_per_week")
+      .select("id, code, name, price_month_cents, bags_per_week, servizio, turnaround_hours")
       .eq("active", true)
       .order("sort")
       .returns<Piano[]>(),
@@ -164,9 +164,14 @@ export default async function Prezzi() {
   ]);
 
   const lista = piani ?? [];
+  // Due servizi, due elenchi. Il solo stiro non è un piano piccolo della
+  // lavanderia: è un altro lavoro — i capi li lavi tu — e in mezzo agli altri
+  // tre sembrerebbe soltanto «la stessa cosa che costa meno».
+  const pianiLavanderia = lista.filter((p) => p.servizio !== "stiro");
+  const pianoStiro = lista.find((p) => p.servizio === "stiro") ?? null;
   const perSettimana = (p: Piano) => Math.round(p.price_month_cents / SETTIMANE_AL_MESE);
   const perSacco = (p: Piano) => Math.round(p.price_month_cents / SETTIMANE_AL_MESE / p.bags_per_week);
-  const minimo = lista.length ? Math.min(...lista.map(perSettimana)) : null;
+  const minimo = pianiLavanderia.length ? Math.min(...pianiLavanderia.map(perSettimana)) : null;
 
   const perCategoria = (categorie ?? [])
     .map((c) => ({ ...c, voci: (voci ?? []).filter((v) => v.category_id === c.id) }))
@@ -178,7 +183,7 @@ export default async function Prezzi() {
   const faq = [
     {
       q: "Quanto costa al mese, in totale?",
-      a: `${lista.map((p) => `${eur(p.price_month_cents)} al mese per ${p.bags_per_week === 1 ? "un sacco" : `${p.bags_per_week} sacchi`} a settimana`).join(", ")}. In ognuno dei piani ritiro, lavaggio, stiratura di ciò che lo richiede e riconsegna sono compresi: l'importo che leggi è quello che paghi, senza voci aggiunte a fine mese.`,
+      a: `${pianiLavanderia.map((p) => `${eur(p.price_month_cents)} al mese per ${p.bags_per_week === 1 ? "un sacco" : `${p.bags_per_week} sacchi`} a settimana`).join(", ")}. In ognuno dei piani ritiro, lavaggio, stiratura di ciò che lo richiede e riconsegna sono compresi: l'importo che leggi è quello che paghi, senza voci aggiunte a fine mese.`,
     },
     {
       q: "E se una settimana non riempio il sacco?",
@@ -199,6 +204,12 @@ export default async function Prezzi() {
     {
       q: "Posso cambiare piano quando voglio?",
       a: "Sì, dall'app, con effetto dal mese successivo. Se la famiglia cresce — o la casa si svuota d'estate — il piano si adegua senza rifare il contratto.",
+    },
+    {
+      q: "Posso far stirare senza far lavare?",
+      a: pianoStiro
+        ? `Sì, con il piano ${pianoStiro.name}: ${eur(pianoStiro.price_month_cents)} al mese per un ritiro a settimana di capi che hai già lavato in casa. Li stiriamo, li pieghiamo e tornano in ${pianoStiro.turnaround_hours} ore. Il ritiro è il mercoledì e la riconsegna il venerdì.`
+        : "Il solo stiro si attiva su richiesta: scrivici e ti mandiamo l'abbonamento dedicato.",
     },
     {
       q: "E se mi serve più spazio di quello del mio piano?",
@@ -274,7 +285,7 @@ export default async function Prezzi() {
           </p>
 
           <div className="mt-12 grid gap-6 lg:grid-cols-3">
-            {lista.map((p) => {
+            {pianiLavanderia.map((p) => {
               const c = CARD[p.code];
               const evidenziato = !!c?.evidenza;
               return (
@@ -346,6 +357,49 @@ export default async function Prezzi() {
               il prezzo che vedi prima.
             </p>
           </div>
+
+          {/* Il solo stiro. Sta sotto i piani e non in mezzo perché è la
+              risposta a un'altra domanda: non «quanto bucato fai», ma «la
+              lavatrice ce l'hai e il ferro no». Chi arriva qui dalla pagina
+              dello stiro ci trova il prezzo senza doverlo chiedere, che è
+              esattamente quello che prima costava una telefonata. */}
+          {pianoStiro && (
+            <div className="mt-5 overflow-hidden rounded-[24px] border border-[#7A4FBF]/35 bg-white">
+              <div className="grid gap-7 p-7 md:grid-cols-[1.2fr_1fr] md:items-center">
+                <div>
+                  <div className="font-display text-xs font-extrabold uppercase tracking-[0.2em] text-[#7A4FBF]">
+                    Lavi tu, stiriamo noi
+                  </div>
+                  <h3 className="mt-2 font-display text-2xl font-black tracking-[-0.02em] text-navy">
+                    {pianoStiro.name}: solo la pila da stirare.
+                  </h3>
+                  <p className="mt-3 text-sm font-medium leading-relaxed text-muted">
+                    Per chi la lavatrice la fa in casa e si ferma lì. Ritiriamo i capi già lavati, li
+                    stiriamo e li riportiamo piegati in <strong className="font-bold text-navy">{pianoStiro.turnaround_hours} ore</strong>:
+                    niente lavaggio, niente asse. Il ritiro è il mercoledì, la riconsegna il venerdì.
+                  </p>
+                  <ul className="mt-4 space-y-2 text-sm font-medium text-navy/80">
+                    {["Un sacco a settimana di capi già lavati", "Camicie, camicette, pantaloni, lenzuola", "Tornano piegati, pronti da riporre", "Nessun vincolo: in pausa o disdetta dall'app"].map((r) => (
+                      <li key={r} className="flex gap-2"><span className="text-[#7A4FBF]">·</span><span>{r}</span></li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded-[20px] border border-line bg-ice p-6 text-center">
+                  <span className="font-display text-5xl font-black text-navy">{eur(pianoStiro.price_month_cents)}</span>
+                  <span className="ml-1 font-display text-base font-bold text-muted">/mese</span>
+                  <div className="mt-1 text-sm font-medium text-muted">
+                    {eur(perSettimana(pianoStiro))} a settimana · {SETTIMANE_AL_MESE} ritiri al mese
+                  </div>
+                  <div className="mt-5">
+                    <ButtonLink href={`/onboarding?plan=${pianoStiro.code}${refQS}`}>Attiva {pianoStiro.name} →</ButtonLink>
+                  </div>
+                  <Link href="/servizio-stiro-a-domicilio-milano" className="mt-4 inline-block font-display text-sm font-extrabold text-blue hover:underline">
+                    Come funziona il solo stiro →
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Porta un amico: qui, dove si sta decidendo quanto spendere, una
               settimana gratis è un'informazione sul prezzo, non un banner. */}

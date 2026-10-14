@@ -12,7 +12,7 @@ import { PasswordField } from "@/components/ui/PasswordField";
 import { ACCESS_MODE_LABEL } from "@/lib/orders";
 import { planRecap } from "@/lib/plan-copy";
 
-export type WizPlan = { id: string; code: string; name: string; price_month_cents: number; pickups_per_week: number; turnaround_hours: number };
+export type WizPlan = { id: string; code: string; name: string; price_month_cents: number; pickups_per_week: number; turnaround_hours: number; servizio: string | null };
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT");
 const input =
@@ -24,6 +24,14 @@ const Check = ({ size = 18 }: { size?: number }) => (<svg width={size} height={s
 const Lock = () => (<svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>);
 
 const TOTAL = 4; // register, address, plan, pay
+
+/** I due servizi in vendita, nell'ordine in cui si mostrano. Il solo stiro sta
+ *  sotto perché è il caso particolare: chi arriva senza sapere cosa vuole deve
+ *  leggere prima quello che portiamo via tutto. */
+const GRUPPI: { servizio: "lavanderia" | "stiro"; titolo: string; nota: string }[] = [
+  { servizio: "lavanderia", titolo: "Lavaggio e stiro", nota: "pronto in 72 ore" },
+  { servizio: "stiro", titolo: "Solo stiro", nota: "capi già lavati · 48 ore" },
+];
 
 export function OnboardingWizard({ plans, initialPlanCode, codiceInvito, invitanteNome }: { plans: WizPlan[]; initialPlanCode: string | null; codiceInvito?: string | null; invitanteNome?: string | null }) {
   const [step, setStep] = useState(0); // 0 welcome, 1 register, 2 address, 3 plan, 4 pay
@@ -227,25 +235,44 @@ export function OnboardingWizard({ plans, initialPlanCode, codiceInvito, invitan
               <div className="font-display text-[12px] font-extrabold uppercase tracking-[0.18em] text-cyan">Il tuo abbonamento</div>
               <h2 className="mt-2.5 font-display text-[30px] font-black leading-[1.08]">Scegli il<br />tuo piano.</h2>
               <p className="mt-2.5 text-[15px] font-medium text-white/70">Cambia o disdici quando vuoi dall&apos;app.</p>
-              <div className="mt-6 space-y-3">
-                {plans.map((p) => {
-                  const on = p.id === planId;
+              {/* I piani in due gruppi, perché sono due servizi diversi e non
+                  due taglie dello stesso: con il lavaggio portiamo via il
+                  bucato, con il solo stiro ritiriamo capi già lavati. Messi in
+                  fila uno sotto l'altro, «Solo stiro a 122 €» sembrava il piano
+                  piccolo della lavanderia — cioè la stessa cosa a meno. */}
+              <div className="mt-6 space-y-6">
+                {GRUPPI.map((g) => {
+                  const dentro = plans.filter((p) => (p.servizio === "stiro") === (g.servizio === "stiro"));
+                  if (dentro.length === 0) return null;
                   return (
-                    <button
-                      key={p.id}
-                      onClick={() => setPlanId(p.id)}
-                      className={`block w-full rounded-[20px] border-2 p-5 text-left transition-all ${on ? "border-cyan bg-white/[0.1]" : "border-white/15 bg-white/[0.05]"}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="font-display text-lg font-black text-white">{p.name}</div>
-                        <span className={`grid h-6 w-6 place-items-center rounded-full border-2 ${on ? "border-cyan bg-cyan text-navy" : "border-white/30"}`}>{on && <Check size={14} />}</span>
+                    <div key={g.servizio}>
+                      <div className="flex items-baseline justify-between gap-3">
+                        <div className="font-display text-[13px] font-extrabold uppercase tracking-[0.14em] text-cyan">{g.titolo}</div>
+                        <div className="text-[12px] font-semibold text-white/50">{g.nota}</div>
                       </div>
-                      <div className="mt-1 flex items-end gap-1">
-                        <span className="font-display text-[32px] font-black tracking-[-0.03em] text-white">{eur(p.price_month_cents)}</span>
-                        <span className="mb-1.5 text-sm font-semibold text-white/55">/mese</span>
+                      <div className="mt-3 space-y-3">
+                        {dentro.map((p) => {
+                          const on = p.id === planId;
+                          return (
+                            <button
+                              key={p.id}
+                              onClick={() => setPlanId(p.id)}
+                              className={`block w-full rounded-[20px] border-2 p-5 text-left transition-all ${on ? "border-cyan bg-white/[0.1]" : "border-white/15 bg-white/[0.05]"}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="font-display text-lg font-black text-white">{p.name}</div>
+                                <span className={`grid h-6 w-6 place-items-center rounded-full border-2 ${on ? "border-cyan bg-cyan text-navy" : "border-white/30"}`}>{on && <Check size={14} />}</span>
+                              </div>
+                              <div className="mt-1 flex items-end gap-1">
+                                <span className="font-display text-[32px] font-black tracking-[-0.03em] text-white">{eur(p.price_month_cents)}</span>
+                                <span className="mb-1.5 text-sm font-semibold text-white/55">/mese</span>
+                              </div>
+                              <div className="mt-1 text-sm font-medium text-white/65">{planRecap(p.code) ?? `Ritiro 1 volta a settimana · pronto in ${p.turnaround_hours}h · ritiro e consegna inclusi`}</div>
+                            </button>
+                          );
+                        })}
                       </div>
-                      <div className="mt-1 text-sm font-medium text-white/65">{planRecap(p.code) ?? `Ritiro 1 volta a settimana · pronto in ${p.turnaround_hours}h · ritiro e consegna inclusi`}</div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>

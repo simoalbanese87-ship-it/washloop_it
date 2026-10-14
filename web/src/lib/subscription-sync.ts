@@ -4,6 +4,7 @@ import { stripe } from "@/lib/stripe";
 import { createServiceClient } from "@/lib/supabase/server";
 import { registraCartaDalCheckout } from "@/lib/carta-registrata";
 import { sincronizzaPersona } from "@/lib/brevo-sync";
+import { servizioDopoAbbonamento } from "@/lib/piano-servizio";
 
 /** Scrive su `subscriptions` lo stato reale di un abbonamento Stripe.
  *
@@ -79,6 +80,35 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
     // funzione è l'imbuto di tutti i percorsi — webhook, ritorno dal checkout,
     // eventi successivi — ed è già idempotente. Non lancia mai.
     await sincronizzaPersona(userId);
+    // Il servizio del piano, scritto sul profilo. È il passaggio che rende il
+    // solo stiro una cosa che il cliente può comprarsi da solo: senza, chi paga
+    // il piano dello stiro resterebbe «lavanderia» in anagrafica e il suo primo
+    // sacco partirebbe verso la lavanderia storica, dove non lo aspetta
+    // nessuno. La regola — e il motivo per cui un piano di lavanderia non
+    // sovrascrive un servizio già scritto a mano — sta in `piano-servizio.ts`.
+    if (planId) {
+      const [{ data: piano }, { data: prof }] = await Promise.all([
+        db.from("plans").select("servizio").eq("id", planId).maybeSingle<{ servizio: string | null }>(),
+        db.from("profiles").select("tipo_servizio, servizio_sacco_id").eq("id", userId)
+          .maybeSingle<{ tipo_servizio: string | null; servizio_sacco_id: string | null }>(),
+      ]);
+      const nuovoServizio = servizioDopoAbbonamento(piano?.servizio, prof?.tipo_servizio);
+      if (nuovoServizio) {
+        const patch: Record<string, unknown> = { tipo_servizio: nuovoServizio };
+        // Sul solo stiro si aggancia anche il servizio a sacco: è la riga da
+        // cui `destinazioneOrdine` capisce che quel ritiro va alla stireria.
+        if (nuovoServizio === "solo_stiro" && !prof?.servizio_sacco_id) {
+          const { data: stiro } = await db
+            .from("servizi_sacco")
+            .select("id")
+            .eq("codice", "stiro")
+            .eq("active", true)
+            .maybeSingle<{ id: string }>();
+          if (stiro) patch.servizio_sacco_id = stiro.id;
+        }
+        await db.from("profiles").update(patch).eq("id", userId);
+      }
+    }
     // I sacchi concordati al momento del link, scritti **solo se la colonna è
     // ancora vuota**: erano un campo che qualcuno doveva compilare a mano dopo
     // il pagamento, cioè il passaggio che salta quando le prove sono cento.

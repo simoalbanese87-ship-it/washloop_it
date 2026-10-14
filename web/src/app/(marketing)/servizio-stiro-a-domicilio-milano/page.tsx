@@ -6,6 +6,8 @@ import { JsonLd } from "@/components/marketing/JsonLd";
 import { ZONE_SERVITE, COMUNI_SERVITI, graficoPagina } from "@/lib/area-servita";
 import { CAP_MILANO, CAP_COMUNI } from "@/lib/copertura";
 import { VerificaCap } from "@/components/lead/VerificaCap";
+import { createClient } from "@/lib/supabase/server";
+import { eurCents as eur } from "@/lib/format";
 
 /* ============================================================
    Pagina di ricerca — "servizio stiro a domicilio Milano"
@@ -29,11 +31,11 @@ const URL_PAGINA = "https://washloop.it/servizio-stiro-a-domicilio-milano";
 export const metadata: Metadata = {
   title: "Servizio stiro a domicilio a Milano — camicie stirate e piegate",
   description:
-    "Servizio di stiro a domicilio a Milano: ritiriamo i capi sotto casa, li laviamo e stiriamo e te li riconsegniamo piegati entro 3 giorni feriali. Stiratura inclusa nell'abbonamento, non è un extra.",
+    "Servizio di stiro a domicilio a Milano: ritiriamo i capi che hai già lavato, li stiriamo e te li riportiamo piegati in 48 ore. Abbonamento solo stiro, oppure lavaggio e stiro insieme.",
   alternates: { canonical: "/servizio-stiro-a-domicilio-milano" },
   openGraph: {
     title: "Servizio stiro a domicilio a Milano — WashLoop",
-    description: "Camicie stirate, piegate e riconsegnate a casa entro 3 giorni feriali. Lo stiro è dentro l'abbonamento, non un supplemento.",
+    description: "Camicie stirate, piegate e riconsegnate a casa. Con l'abbonamento solo stiro bastano 48 ore: tu lavi, noi stiriamo.",
     url: URL_PAGINA,
     type: "website",
     locale: "it_IT",
@@ -46,7 +48,11 @@ export const metadata: Metadata = {
 const FAQ_PAGINA = [
   {
     q: "Posso far stirare senza far lavare?",
-    a: "No: WashLoop lava e stira nello stesso passaggio, non offriamo lo stiro separato. È una scelta, non un limite tecnico — un capo lavato da noi lo stiriamo sapendo com'è stato trattato, e il risultato è più costante. Se cerchi solo la stiratura di capi già lavati in casa, non siamo il servizio giusto e preferiamo dirtelo subito.",
+    a: "Sì. C'è un abbonamento dedicato — Solo stiro — per chi la lavatrice la fa in casa: ritiriamo i capi già lavati il mercoledì, li stiriamo, li pieghiamo e tornano il venerdì. Se invece vuoi togliere di mezzo anche il lavaggio, i piani di lavanderia comprendono lo stiro senza supplementi.",
+  },
+  {
+    q: "Qual è la differenza fra i due abbonamenti?",
+    a: "Chi fa il lavoro, e quando. Con il solo stiro lavi tu e noi stiriamo: ritiro il mercoledì, riconsegna il venerdì, 48 ore. Con i piani di lavanderia ci diamo tutto noi — lavaggio, asciugatura, stiro e piega — con ritiro il martedì e riconsegna in 3 giorni feriali.",
   },
   {
     q: "Quali capi stirate?",
@@ -54,7 +60,7 @@ const FAQ_PAGINA = [
   },
   {
     q: "La stiratura è compresa nel prezzo?",
-    a: "Sì. Lavaggio e stiratura stanno nello stesso abbonamento, da 160 €/mese, insieme al ritiro e alla riconsegna. Non c'è un supplemento per capo stirato e non c'è un carrello da riempire.",
+    a: "Sì, in tutti e due i casi. Nell'abbonamento solo stiro è il servizio stesso; nei piani di lavanderia la stiratura è compresa insieme al lavaggio, senza supplementi per capo e senza carrello da riempire.",
   },
   {
     q: "Quante camicie sono incluse?",
@@ -66,14 +72,14 @@ const FAQ_PAGINA = [
   },
   {
     q: "Quanto tempo ci vuole?",
-    a: "Entro 3 giorni feriali dal ritiro. Il ritiro è un giorno fisso a settimana, la fascia la scegli tu; la riconsegna la programmiamo noi e ti avvisiamo per email con giorno e ora.",
+    a: "Con il solo stiro 48 ore: ritiro il mercoledì, riconsegna il venerdì. Con i piani di lavanderia, dove c'è anche da lavare e asciugare, entro 3 giorni feriali. In tutti e due i casi il giorno del ritiro è fisso e la fascia la scegli tu.",
   },
 ];
 
 const PASSI = [
-  { n: "01", t: "Affidi i capi", d: "Camicie e biancheria quotidiana nel sacco. Senza pila da affrontare la domenica sera, senza asse da tirare fuori." },
-  { n: "02", t: "Li trattiamo", d: "Lavaggio e stiratura professionali nello stesso passaggio: colli, polsini e pieghe curati da chi lo fa di mestiere." },
-  { n: "03", t: "Tornano pronti", d: "Piegati e ordinati, entro 3 giorni feriali. Si aprono e si ripongono: nessun altro gesto da parte tua." },
+  { n: "01", t: "Affidi i capi", d: "La pila che hai già lavato, nel sacco. Senza domenica sera passata in piedi, senza asse da tirare fuori." },
+  { n: "02", t: "Li stiriamo", d: "Colli, polsini e pieghe curati da chi lo fa di mestiere, in stireria. Se vuoi, laviamo anche noi: è l'altro abbonamento." },
+  { n: "03", t: "Tornano pronti", d: "Piegati e ordinati, in 48 ore con il solo stiro. Si aprono e si ripongono: nessun altro gesto da parte tua." },
 ];
 
 const COSA_STIRIAMO = ["Camicie", "Camicette", "Pantaloni", "Magliette", "Lenzuola", "Federe"];
@@ -94,14 +100,27 @@ const MOTIVI = [
   },
 ];
 
-export default function ServizioStiroADomicilioMilano() {
+export default async function ServizioStiroADomicilioMilano() {
+  // Il prezzo si legge dal database, come in /prezzi: un numero scritto a mano
+  // in una pagina di marketing è un numero che prima o poi non coincide più con
+  // quello che il checkout addebita.
+  const supabase = await createClient();
+  const { data: piano } = await supabase
+    .from("plans")
+    .select("code, name, price_month_cents, turnaround_hours")
+    .eq("servizio", "stiro")
+    .eq("active", true)
+    .order("sort")
+    .limit(1)
+    .maybeSingle<{ code: string; name: string; price_month_cents: number; turnaround_hours: number }>();
+
   return (
     <>
       <JsonLd
         data={graficoPagina({
           nomeServizio: "Servizio di stiratura a domicilio a Milano",
           descrizione:
-            "Servizio di stiro a domicilio a Milano in abbonamento: ritiro settimanale sotto casa, lavaggio e stiratura professionali, riconsegna dei capi piegati entro 3 giorni feriali.",
+            "Servizio di stiro a domicilio a Milano in abbonamento: ritiro settimanale sotto casa dei capi già lavati, stiratura professionale e riconsegna piegata in 48 ore.",
           url: URL_PAGINA,
           faq: FAQ_PAGINA,
         })}
@@ -124,10 +143,23 @@ export default function ServizioStiroADomicilioMilano() {
             a Milano. <span className="text-cyan">L&apos;asse resta chiuso.</span>
           </h1>
           <p className="mt-6 max-w-xl text-lg font-medium leading-relaxed text-white/65">
-            Ritiriamo i capi sotto casa, li laviamo e stiriamo in lavanderia professionale e te
-            li riportiamo piegati entro 3 giorni feriali. La stiratura è dentro
-            l&apos;abbonamento: nessun supplemento a capo.
+            Ritiriamo i capi che hai gi&agrave; lavato, li stiriamo in stireria professionale e te
+            li riportiamo piegati{piano ? ` in ${piano.turnaround_hours} ore` : ""}. Se preferisci
+            non lavare nemmeno tu, c&apos;&egrave; l&apos;abbonamento che fa tutto.
           </p>
+          {/* Il bottone che attiva, prima del CAP: chi arriva qui cercando «solo
+              stiro» ha già deciso cosa vuole, e fino a ieri l'unica strada era
+              scrivere a noi e aspettare un link fatto a mano. */}
+          {piano && (
+            <div className="mt-7 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+              <ButtonLink href={`/onboarding?plan=${piano.code}`} variant="light">
+                Attiva {piano.name} — {eur(piano.price_month_cents)}/mese →
+              </ButtonLink>
+              <span className="text-sm font-semibold text-white/55">
+                Ritiro il mercoled&igrave;, riconsegna il venerd&igrave;
+              </span>
+            </div>
+          )}
           {/* Un solo invito, come sulla home: il CAP. «Attiva WashLoop» sta
               nell'intestazione di ogni pagina, quindi metterlo anche qui
               significava due tasti che chiedono cose diverse a chi ha appena
@@ -137,7 +169,8 @@ export default function ServizioStiroADomicilioMilano() {
             <VerificaCap />
           </div>
           <p className="mt-6 font-display text-sm font-bold text-white/45">
-            Da 160 €/mese · lavaggio e stiro inclusi · fino a 3 camicie per sacchetto
+            {piano ? `Solo stiro ${eur(piano.price_month_cents)}/mese` : "Solo stiro su abbonamento"} ·
+            lavaggio e stiro insieme da 160 €/mese
           </p>
           </div>
 
@@ -305,9 +338,11 @@ export default function ServizioStiroADomicilioMilano() {
             Se passiamo dalla tua zona, la prossima pila la smontiamo noi.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <ButtonLink href="/onboarding" variant="light">Attiva WashLoop →</ButtonLink>
-            <ButtonLink href="/lavanderia-a-domicilio-milano" variant="ghost">
-              Come funziona il servizio completo →
+            <ButtonLink href={piano ? `/onboarding?plan=${piano.code}` : "/onboarding"} variant="light">
+              {piano ? `Attiva ${piano.name} →` : "Attiva WashLoop →"}
+            </ButtonLink>
+            <ButtonLink href="/prezzi" variant="ghost">
+              Vedi tutti i prezzi →
             </ButtonLink>
           </div>
         </div>

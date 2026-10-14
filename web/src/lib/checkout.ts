@@ -23,10 +23,13 @@ export async function checkoutUrlForPlan(planId: string): Promise<string> {
 
   const { data: plan } = await supabase
     .from("plans")
-    .select("id, name, stripe_price_id")
+    .select("id, name, price_month_cents, stripe_price_id")
     .eq("id", planId)
     .single();
-  if (!plan?.stripe_price_id) throw new Error("Prezzo Stripe non configurato per questo piano");
+  if (!plan) throw new Error("Piano non trovato");
+  if (!plan.stripe_price_id && !(plan.price_month_cents > 0)) {
+    throw new Error("Questo piano non ha né un prezzo Stripe né un importo: non si può incassare");
+  }
 
   // Recupera eventuale customer esistente
   const { data: existing } = await supabase
@@ -55,7 +58,24 @@ export async function checkoutUrlForPlan(planId: string): Promise<string> {
     // Carta (+ Apple/Google Pay), Link, Amazon Pay. La lista e il perché stanno
     // in `lib/metodi-accettati.ts`: scritta qui sarebbe da cambiare in due posti.
     payment_method_types: [...METODI_CHECKOUT],
-    line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
+    // Un piano può avere il suo price su Stripe — i tre storici ce l'hanno — o
+    // solo l'importo in tabella: in quel caso il prezzo si costruisce qui, come
+    // fa già il link di abbonamento su misura. Così un piano nuovo (il solo
+    // stiro è il primo) si aggiunge dal database senza passare dalla dashboard
+    // di Stripe, e cambiarne il prezzo non lascia in giro un price vecchio.
+    line_items: [
+      plan.stripe_price_id
+        ? { price: plan.stripe_price_id, quantity: 1 }
+        : {
+            quantity: 1,
+            price_data: {
+              currency: "eur",
+              product_data: { name: `WashLoop · ${plan.name}` },
+              unit_amount: plan.price_month_cents,
+              recurring: { interval: "month" as const },
+            },
+          },
+    ],
     // Pagina di conferma dedicata (conversione Google Ads). {CHECKOUT_SESSION_ID}
     // è sostituito da Stripe → serve per deduplicare la conversione.
     success_url: `${siteUrl()}/checkout/grazie?session_id={CHECKOUT_SESSION_ID}`,
