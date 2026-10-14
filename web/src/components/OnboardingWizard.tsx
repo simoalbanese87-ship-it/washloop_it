@@ -33,8 +33,8 @@ const TOTAL = 4; // register, address, plan, pay
  *  titolo suonerebbe come se fosse un'opzione in più — e metterebbe le due voci
  *  sullo stesso piano, quando invece il solo stiro è l'eccezione. */
 const GRUPPI: { servizio: "lavanderia" | "stiro"; titolo: string; nota: string }[] = [
-  { servizio: "lavanderia", titolo: "Lavanderia", nota: "tutto compreso · 72 ore" },
-  { servizio: "stiro", titolo: "Solo stiro", nota: "capi già lavati · 48 ore" },
+  { servizio: "lavanderia", titolo: "Lavanderia", nota: "laviamo, stiriamo, pieghiamo" },
+  { servizio: "stiro", titolo: "Solo stiro", nota: "la lavatrice la fai tu" },
 ];
 
 export function OnboardingWizard({ plans, initialPlanCode, codiceInvito, invitanteNome }: { plans: WizPlan[]; initialPlanCode: string | null; codiceInvito?: string | null; invitanteNome?: string | null }) {
@@ -329,7 +329,7 @@ export function OnboardingWizard({ plans, initialPlanCode, codiceInvito, invitan
             )}
             {step === 3 && (
               <button onClick={() => setStep(4)} disabled={!planId} className="flex h-[54px] w-full items-center justify-center gap-2 rounded-full bg-gradient-to-br from-blue to-cyan font-display text-base font-extrabold text-white shadow-[0_16px_36px_-16px_rgba(43,127,212,0.7)] disabled:opacity-40">
-                Continua col piano {plan?.name} <ArrowR />
+                Vai avanti con {plan?.name} <ArrowR />
               </button>
             )}
             {step === 4 && (

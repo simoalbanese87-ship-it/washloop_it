@@ -7,22 +7,46 @@ export type PlanCopy = { tagline: string; features: string[] };
 export const PLAN_COPY: Record<string, PlanCopy> = {
   essential: {
     tagline: "Per chi vive da solo",
-    features: ["1 sacco a settimana", "Ritiro 1 volta a settimana", "Fino a 3 camicie per sacchetto", "Lavaggio + stiratura inclusi", "Metti in pausa quando vuoi"],
+    features: [
+      "Un sacco a settimana, giorno fisso",
+      "Lavato, stirato e piegato",
+      "Fino a 3 camicie stirate per sacco",
+      "Pausa di un mese dall'app",
+      "Nessun vincolo di durata",
+    ],
   },
   plus: {
     tagline: "Il preferito dei professionisti",
-    features: ["2 sacchi a settimana", "Ritiro 1 volta a settimana", "Fino a 6 camicie stirate a settimana", "Lavaggio + stiratura premium", "Tracciabilità capo per capo"],
+    features: [
+      "Due sacchi a settimana, stesso giorno",
+      "Lavato, stirato e piegato",
+      "Fino a 6 camicie stirate a settimana",
+      "Lenzuola e biancheria senza accumuli",
+      "Pausa di un mese dall'app",
+    ],
   },
   family: {
     tagline: "Per coppie e famiglie",
-    features: ["3 sacchi a settimana", "Ritiro 1 volta a settimana", "Fino a 9 camicie stirate a settimana", "Capi delicati inclusi", "Slot prioritari"],
+    features: [
+      "Tre sacchi a settimana, stesso giorno",
+      "Lavato, stirato e piegato",
+      "Fino a 9 camicie stirate a settimana",
+      "Il prezzo a sacco più basso del listino",
+      "Pausa di un mese dall'app",
+    ],
   },
   // Il solo stiro: capi già lavati in casa, stirati e piegati dalla stireria.
   // Non è un piano più piccolo della lavanderia, è un altro lavoro — e il
   // recap deve dirlo nella prima riga, che è l'unica che molti leggono.
   stiro: {
     tagline: "Hai la lavatrice, non hai tempo di stirare",
-    features: ["Capi già lavati da te", "Ritiro il mercoledì", "Torna in 48 ore, piegato", "1 sacco a settimana", "Metti in pausa quando vuoi"],
+    features: [
+      "Ritiro il mercoledì, torna il venerdì",
+      "Stirato, piegato, pronto da riporre",
+      "Un sacco a settimana di capi già lavati",
+      "Niente lavaggio: quello lo fai tu",
+      "Metti in pausa quando vuoi",
+    ],
   },
 };
 
