@@ -27,9 +27,13 @@ const TOTAL = 4; // register, address, plan, pay
 
 /** I due servizi in vendita, nell'ordine in cui si mostrano. Il solo stiro sta
  *  sotto perché è il caso particolare: chi arriva senza sapere cosa vuole deve
- *  leggere prima quello che portiamo via tutto. */
+ *  leggere prima quello che portiamo via tutto.
+ *
+ *  «Lavanderia» e basta: da noi la lavanderia lava **e** stira, scriverlo nel
+ *  titolo suonerebbe come se fosse un'opzione in più — e metterebbe le due voci
+ *  sullo stesso piano, quando invece il solo stiro è l'eccezione. */
 const GRUPPI: { servizio: "lavanderia" | "stiro"; titolo: string; nota: string }[] = [
-  { servizio: "lavanderia", titolo: "Lavaggio e stiro", nota: "pronto in 72 ore" },
+  { servizio: "lavanderia", titolo: "Lavanderia", nota: "tutto compreso · 72 ore" },
   { servizio: "stiro", titolo: "Solo stiro", nota: "capi già lavati · 48 ore" },
 ];
 
