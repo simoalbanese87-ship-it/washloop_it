@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { apriChat, chatDisponibile, type ChiScrive } from "@/lib/chat-brevo";
+import { apriChat, chatDisponibile, quandoChatSiChiude, type ChiScrive } from "@/lib/chat-brevo";
 
 /** «Domande?»: il badge fisso in basso a destra, e dentro due strade.
  *
@@ -23,6 +23,8 @@ export function ChiediAWashLoop({ offsetBasso = false, chi }: { offsetBasso?: bo
   // Il bivio è il primo schermo: `false` finché non si sceglie l'assistente.
   const [assistente, setAssistente] = useState(false);
   const [chatRotta, setChatRotta] = useState(false);
+  // Chat Brevo aperta: la nostra pillola si toglie di mezzo.
+  const [inChat, setInChat] = useState(false);
   const [domanda, setDomanda] = useState("");
   const [risposta, setRisposta] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
@@ -65,13 +67,23 @@ export function ChiediAWashLoop({ offsetBasso = false, chi }: { offsetBasso?: bo
   }
 
   function scriviANoi() {
-    if (apriChat(chi)) setAperto(false);
-    else setChatRotta(true);
+    if (!apriChat(chi)) {
+      setChatRotta(true);
+      return;
+    }
+    // Mentre la conversazione è aperta la nostra pillola sparisce: resterebbe
+    // sopra il campo dove si scrive, nello stesso angolo. Torna da sola quando
+    // la chat si chiude.
+    setAperto(false);
+    setInChat(true);
+    quandoChatSiChiude(() => setInChat(false));
   }
 
   // Nell'area cliente la barra di navigazione sta in basso: il badge va alzato,
   // altrimenti ci finisce sopra.
   const basso = offsetBasso ? "bottom-24 sm:bottom-6" : "bottom-5";
+
+  if (inChat) return null;
 
   if (!aperto) {
     return (

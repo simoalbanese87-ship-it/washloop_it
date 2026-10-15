@@ -40,6 +40,15 @@ export type ChiScrive = { nome?: string | null; email?: string | null };
 
 let iniettato = false;
 
+/** Chi vuole sapere quando la chat si chiude. Serve a una cosa sola: far
+ *  tornare la nostra pillola «Domande?», che mentre la conversazione è aperta
+ *  starebbe sopra il campo dove si scrive. */
+let allaChiusura: (() => void) | null = null;
+
+export function quandoChatSiChiude(cb: (() => void) | null) {
+  allaChiusura = cb;
+}
+
 function brevo(): NonNullable<Window["BrevoConversations"]> {
   // La coda è quella dello snippet ufficiale: le chiamate fatte prima che lo
   // script arrivi si impilano e partono dopo, in ordine.
@@ -64,7 +73,11 @@ export function apriChat(chi?: ChiScrive): boolean {
     iniettato = true;
     window.BrevoConversationsID = BREVO_CHAT_ID;
     // `hideButtonOnLoad`: la bollicina la mettiamo noi, questa resta spenta.
-    window.BrevoConversationsSetup = { ...(window.BrevoConversationsSetup ?? {}), hideButtonOnLoad: true };
+    window.BrevoConversationsSetup = {
+      ...(window.BrevoConversationsSetup ?? {}),
+      hideButtonOnLoad: true,
+      onChatClosed: () => allaChiusura?.(),
+    };
     const s = document.createElement("script");
     s.async = true;
     s.src = "https://conversations-widget.brevo.com/brevo-conversations.js";
