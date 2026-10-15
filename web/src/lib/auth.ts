@@ -9,6 +9,10 @@ export type Profile = {
   laundry_id: string | null;
   /** Codice anonimo WL-####: è quello stampato sul tag del sacco. */
   client_code: string | null;
+  /** L'indirizzo con cui è entrato. Sta in `auth`, non in `profiles`: lo si
+   *  porta qui perché serve ogni volta che si parla col cliente — la chat lo
+   *  usa per far trovare a chi risponde la persona giusta. */
+  email: string | null;
 };
 
 /** Ritorna utente + profilo correnti, o null se non loggato. */
@@ -25,7 +29,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
     .eq("id", user.id)
     .single();
 
-  return (data as Profile) ?? null;
+  return data ? ({ ...(data as Omit<Profile, "email">), email: user.email ?? null }) : null;
 }
 
 /** Stati Stripe che abilitano la prenotazione. */

@@ -16,7 +16,7 @@ export const LEGAL = {
   pec: "digitalconsultingsrl@legalmail.it",
   privacyEmail: "privacy@washloop.it",
   // Data ultimo aggiornamento dei documenti legali.
-  lastUpdated: "21 agosto 2026",
+  lastUpdated: "15 ottobre 2026",
 } as const;
 
 /** True se restano placeholder da compilare (per avvisi interni). */

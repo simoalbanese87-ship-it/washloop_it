@@ -45,8 +45,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       prenotaHref={(quantiIndirizzi ?? 0) === 0 ? "/app/indirizzi" : "/app/prenota"}
     >
       {children}
-      {/* Alzato: nell'app la barra di navigazione sta in basso. */}
-      <ChiediAWashLoop offsetBasso />
+      {/* Alzato: nell'app la barra di navigazione sta in basso.
+          Qui sappiamo chi è: nome ed email arrivano alla chat, così chi
+          risponde non apre la conversazione chiedendo «con chi parlo?». */}
+      <ChiediAWashLoop offsetBasso chi={{ nome: profile.full_name, email: profile.email }} />
     </MobileShell>
   );
 }

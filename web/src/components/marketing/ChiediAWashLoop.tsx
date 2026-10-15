@@ -1,18 +1,28 @@
 "use client";
 
 import { useState } from "react";
+import { apriChat, chatDisponibile, type ChiScrive } from "@/lib/chat-brevo";
 
-/** «Chiedi a WashLoop»: badge fisso in basso a destra, sempre a portata.
+/** «Domande?»: il badge fisso in basso a destra, e dentro due strade.
  *
- *  Non è una chat: una domanda, una risposta, e si chiude. È voluto — una chat
- *  invita a raccontare il proprio caso (nome, indirizzo, numero d'ordine), e
- *  quei dati non devono arrivare qui: l'assistente risponde solo dalle FAQ e
- *  non vede gli ordini di nessuno.
+ *  Le domande che arrivano da qui sono di due specie, e dal 15 ottobre 2026 si
+ *  separano al primo clic:
+ *
+ *  - **Risposta subito** — l'assistente sulle FAQ, che c'era già. Una domanda,
+ *    una risposta, niente conversazione: non vede gli ordini di nessuno, e
+ *    quindi non si deve raccontargli il proprio caso.
+ *  - **Scrivi a noi** — la chat Brevo, dove risponde una persona. Si carica
+ *    **solo premendo** (vedi `lib/chat-brevo.ts`): nessun cookie di terze parti
+ *    a chi passa di qui e non ci scriverà mai, e una bollicina sola in
+ *    quell'angolo invece di due sovrapposte.
  *
  *  Chiuso è una pillola piccola; aperto è un riquadro che non copre la pagina.
  *  Sotto il livello del banner cookie (z-[60]), che deve restare sopra tutto. */
-export function ChiediAWashLoop({ offsetBasso = false }: { offsetBasso?: boolean }) {
+export function ChiediAWashLoop({ offsetBasso = false, chi }: { offsetBasso?: boolean; chi?: ChiScrive }) {
   const [aperto, setAperto] = useState(false);
+  // Il bivio è il primo schermo: `false` finché non si sceglie l'assistente.
+  const [assistente, setAssistente] = useState(false);
+  const [chatRotta, setChatRotta] = useState(false);
   const [domanda, setDomanda] = useState("");
   const [risposta, setRisposta] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
@@ -46,6 +56,19 @@ export function ChiediAWashLoop({ offsetBasso = false }: { offsetBasso?: boolean
     setErrore(null);
   }
 
+  function chiudi() {
+    setAperto(false);
+    // Alla riapertura si riparte dal bivio: la scelta di prima era per quella
+    // domanda lì, non per sempre.
+    setAssistente(false);
+    nuovaDomanda();
+  }
+
+  function scriviANoi() {
+    if (apriChat(chi)) setAperto(false);
+    else setChatRotta(true);
+  }
+
   // Nell'area cliente la barra di navigazione sta in basso: il badge va alzato,
   // altrimenti ci finisce sopra.
   const basso = offsetBasso ? "bottom-24 sm:bottom-6" : "bottom-5";
@@ -69,12 +92,16 @@ export function ChiediAWashLoop({ offsetBasso = false }: { offsetBasso?: boolean
     <div className={`fixed ${basso} right-4 z-40 w-[min(92vw,380px)] rounded-[22px] border border-line bg-white p-4 shadow-[0_24px_60px_-20px_rgba(27,45,94,0.45)]`}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="font-display text-sm font-extrabold text-navy">Chiedi a WashLoop</div>
-          <p className="text-xs font-medium text-muted">Rispondiamo sulle domande più comuni.</p>
+          <div className="font-display text-sm font-extrabold text-navy">
+            {assistente ? "Chiedi a WashLoop" : "Come preferisci?"}
+          </div>
+          <p className="text-xs font-medium text-muted">
+            {assistente ? "Rispondiamo sulle domande più comuni." : "Due strade: una risponde adesso, l'altra è una persona."}
+          </p>
         </div>
         <button
           type="button"
-          onClick={() => setAperto(false)}
+          onClick={chiudi}
           aria-label="Chiudi"
           className="grid h-7 w-7 flex-none place-items-center rounded-full bg-ice font-display text-sm font-bold text-navy"
         >
@@ -82,7 +109,61 @@ export function ChiediAWashLoop({ offsetBasso = false }: { offsetBasso?: boolean
         </button>
       </div>
 
-      {risposta ? (
+      {!assistente ? (
+        <div className="mt-3 space-y-2">
+          {/* La prima strada: risposta immediata, ma automatica. Si dice cosa
+              aspettarsi prima di sceglierla, perché «chat» e «risposta
+              automatica» promettono due cose diverse. */}
+          <button
+            type="button"
+            onClick={() => setAssistente(true)}
+            className="flex w-full items-start gap-3 rounded-[16px] border-2 border-line bg-white p-3 text-left transition-colors hover:border-cyan"
+          >
+            <span aria-hidden className="text-lg leading-none">⚡</span>
+            <span>
+              <span className="block font-display text-sm font-extrabold text-navy">Risposta subito</span>
+              <span className="block text-xs font-medium leading-snug text-muted">
+                Prezzi, zone, come funziona. Risponde l&apos;assistente, in pochi secondi.
+              </span>
+            </span>
+          </button>
+
+          {/* La seconda: una persona. Niente promesse sui tempi — «ti
+              rispondiamo in 2 minuti» è la frase che fa arrabbiare chi aspetta
+              dieci. */}
+          {chatDisponibile() && (
+            <button
+              type="button"
+              onClick={scriviANoi}
+              className="flex w-full items-start gap-3 rounded-[16px] border-2 border-line bg-white p-3 text-left transition-colors hover:border-cyan"
+            >
+              <span aria-hidden className="text-lg leading-none">💬</span>
+              <span>
+                <span className="block font-display text-sm font-extrabold text-navy">Scrivi a noi</span>
+                <span className="block text-xs font-medium leading-snug text-muted">
+                  Il tuo ordine, un ritiro da spostare, un problema. Ti risponde una persona.
+                </span>
+              </span>
+            </button>
+          )}
+
+          {/* Terza via, che non è una scelta ma un ripiego: se la chat non
+              parte (un blocco, un'estensione, la rete) resta un indirizzo
+              scritto, invece di un bottone che non fa niente. */}
+          {(!chatDisponibile() || chatRotta) && (
+            <a
+              href="mailto:info@washloop.it"
+              className="flex w-full items-start gap-3 rounded-[16px] border-2 border-line bg-white p-3 text-left transition-colors hover:border-cyan"
+            >
+              <span aria-hidden className="text-lg leading-none">✉️</span>
+              <span>
+                <span className="block font-display text-sm font-extrabold text-navy">Scrivici per email</span>
+                <span className="block text-xs font-medium leading-snug text-muted">info@washloop.it</span>
+              </span>
+            </a>
+          )}
+        </div>
+      ) : risposta ? (
         <>
           <p className="mt-3 max-h-56 overflow-y-auto whitespace-pre-line rounded-[14px] bg-ice p-3 text-sm font-medium leading-relaxed text-navy">
             {risposta}
@@ -122,10 +203,12 @@ export function ChiediAWashLoop({ offsetBasso = false }: { offsetBasso?: boolean
 
       {errore && <p className="mt-2 text-xs font-semibold text-[#C9881F]">{errore}</p>}
 
-      <p className="mt-3 text-[11px] font-medium leading-snug text-muted">
-        Risposta automatica generata con l&apos;AI dalle nostre FAQ. Non vede i tuoi ordini e non conserviamo la conversazione.{" "}
-        <a href="/privacy" className="underline">Come trattiamo i dati</a>.
-      </p>
+      {assistente && (
+        <p className="mt-3 text-[11px] font-medium leading-snug text-muted">
+          Risposta automatica generata con l&apos;AI dalle nostre FAQ. Non vede i tuoi ordini e non conserviamo la conversazione.{" "}
+          <a href="/privacy" className="underline">Come trattiamo i dati</a>.
+        </p>
+      )}
     </div>
   );
 }

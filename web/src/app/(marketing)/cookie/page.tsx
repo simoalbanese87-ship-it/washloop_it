@@ -26,6 +26,7 @@ export default function CookiePage() {
           <li><strong>Autenticazione (Supabase)</strong> — mantengono la sessione di accesso all'area personale.</li>
           <li><strong>Preferenza cookie</strong> (<code>wl_cookie_consent</code>) — memorizza la tua scelta sui cookie.</li>
           <li><strong>Sicurezza pagamenti (Stripe)</strong> — prevenzione frodi e corretto funzionamento del checkout.</li>
+          <li><strong>Chat di assistenza (Brevo)</strong> — tengono aperta la conversazione e ti fanno ritrovare le risposte quando torni. Si installano <strong>solo se apri la chat</strong> premendo &quot;Scrivi a noi&quot;: finché non lo fai, il widget non viene nemmeno caricato.</li>
         </ul>
       </LegalSection>
 

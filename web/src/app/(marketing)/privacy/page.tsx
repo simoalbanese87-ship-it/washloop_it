@@ -62,7 +62,7 @@ export default function PrivacyPage() {
           <li><strong>Supabase</strong> — database e autenticazione (hosting dati).</li>
           <li><strong>Vercel</strong> — hosting dell'applicazione web.</li>
           <li><strong>Stripe</strong> — elaborazione dei pagamenti e gestione abbonamenti.</li>
-          <li><strong>Brevo (Sendinblue)</strong> — invio delle email transazionali.</li>
+          <li><strong>Brevo (Sendinblue)</strong> — invio delle email transazionali e <strong>chat di assistenza</strong>: se apri la chat dal sito, Brevo tratta il testo dei messaggi e, se sei nell&apos;area personale, nome ed email per permetterci di risponderti. La chat si carica solo quando la apri tu.</li>
           <li><strong>Anthropic</strong> — assistente automatico sulle domande frequenti. Riceve il testo della domanda per generare la risposta; non riceve il tuo nome, il tuo indirizzo, i tuoi ordini né alcun identificativo del tuo account. Anthropic dichiara di non usare i dati trasmessi via API per addestrare i propri modelli.</li>
           <li><strong>Fatture in Cloud (TeamSystem)</strong> — emissione e conservazione delle fatture elettroniche, per i soli clienti che ne fanno richiesta.</li>
           <li><strong>Lavanderie partner e corrieri</strong> — esecuzione materiale del servizio. Le lavanderie partner trattano i dati in forma minimizzata: vedono un <strong>codice cliente anonimo</strong> e i soli dati operativi necessari (sacchi, servizio, profumo, zona), mai nome, indirizzo o recapiti.</li>
