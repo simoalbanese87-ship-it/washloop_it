@@ -281,13 +281,17 @@ export default async function Home() {
         <span className="flex-none font-display text-lg font-black text-navy/30">→</span>
       </Link>
 
-      {/* Uso del mese */}
-      {active && sub?.plans && (
+      {/* Uso del mese.
+          Si mostra anche a chi **non** ha un piano di listino, se ha un numero
+          di passaggi concordato: sono proprio gli accordi su misura — Marta
+          Savino, due volte al mese — a non avere un `plans`, ed erano gli unici
+          a non vedere da nessuna parte quanti passaggi gli restassero. */}
+      {active && (sub?.plans || passaggi?.spettanti != null) && (
         <section className="rounded-[22px] border border-line bg-white p-5">
           <div className="flex items-center justify-between">
             <div>
               <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-blue">Il tuo piano</div>
-              <div className="mt-1 font-display text-xl font-black text-navy">{sub.plans.name}</div>
+              <div className="mt-1 font-display text-xl font-black text-navy">{sub?.plans?.name ?? "Su misura"}</div>
             </div>
             <div className="text-right">
               {/* Con un tetto di passaggi il numero che conta è quanti ne
@@ -301,12 +305,12 @@ export default async function Home() {
                     {passaggi.residui === 1 ? "passaggio che resta" : "passaggi che restano"}
                   </div>
                 </>
-              ) : (
+              ) : sub?.plans ? (
                 <>
                   <div className="font-display text-2xl font-black text-navy">{sub.plans.bags_per_week}</div>
                   <div className="text-[11px] font-bold text-muted">{sub.plans.bags_per_week === 1 ? "sacco/sett" : "sacchi/sett"}</div>
                 </>
-              )}
+              ) : null}
             </div>
           </div>
           {passaggi?.spettanti != null && (
