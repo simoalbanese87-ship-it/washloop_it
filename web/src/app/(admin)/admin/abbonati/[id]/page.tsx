@@ -38,7 +38,7 @@ const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm
 
 
 type ServizioSacco = { id: string; codice: string; nome: string; price_cli_cents: number; laundries: { name: string } | null };
-type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null;
+type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null; tags_delivered_at: string | null;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
 type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null } | null };
@@ -88,7 +88,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const { ok, warn } = await searchParams;
   const svc = createServiceClient();
 
-  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, a_consumo, tipo_servizio, servizio_sacco_id, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
+  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, a_consumo, tipo_servizio, servizio_sacco_id, tags_delivered_at, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
   const tipoServizio = isTipoServizio(profile?.tipo_servizio) ? profile.tipo_servizio : null;
   if (!profile) notFound();
 
@@ -472,6 +472,30 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             Accedi come cliente →
           </BottoneInvio>
         </form>
+        {/* Il tag del sacco. Stava solo sulla scheda di un ordine: per
+            stamparlo bisognava trovargliene uno aperto, oppure cercare la
+            persona a mano nell'elenco delle etichette. È la cosa che si stampa
+            il giorno in cui il cliente nasce, quindi va dov'è il cliente. */}
+        {profile.client_code && (
+          <a
+            href={`/admin/etichette?c=${id}&n=2`}
+            className="inline-flex min-h-[48px] items-center gap-2 rounded-full border-2 border-navy/30 px-6 font-display text-[15px] font-extrabold text-navy transition-colors hover:bg-navy/5"
+          >
+            🖨 Stampa il tag ({profile.client_code})
+          </a>
+        )}
+        {/* Già consegnati: serve a non ristampare quello che il cliente ha in
+            casa — il codice è lo stesso, due cartellini in giro confondono il
+            banco. */}
+        {profile.tags_delivered_at ? (
+          <span className="rounded-full bg-[#1F8A5B]/12 px-3 py-1.5 text-xs font-bold text-[#1F8A5B]">
+            Tag consegnati il {fmtDate(profile.tags_delivered_at)}
+          </span>
+        ) : profile.client_code ? (
+          <span className="rounded-full bg-[#C9881F]/12 px-3 py-1.5 text-xs font-bold text-[#C9881F]">
+            Tag non ancora consegnati
+          </span>
+        ) : null}
       </div>
 
       {/* Correggere l'anagrafica.

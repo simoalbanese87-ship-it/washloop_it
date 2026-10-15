@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { MeseIncassi } from "@/lib/incassi-mensili";
+import { variazionePercentuale, etichettaVariazione } from "@/lib/variazione";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { maximumFractionDigits: 0 });
 
@@ -7,6 +8,13 @@ const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { maximumFr
  *  numeri interi che si sommano possono sballare di un euro — e un conto che
  *  non torna di un euro è un conto di cui non ci si fida più. */
 const eur2 = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+
+/** Dove chiude un mese: l'incassato più quello che deve ancora arrivare.
+ *
+ *  Sui mesi chiusi `attesoCents` è zero, quindi è il totale e basta. Sul mese in
+ *  corso è l'unico numero che si possa paragonare a un mese finito: confrontare
+ *  metà ottobre con tutto settembre è un calo che non esiste. */
+const proiezione = (m: { totaleCents: number; attesoCents: number }) => m.totaleCents + m.attesoCents;
 
 /** Gli incassi mese per mese, a barre. Ogni barra porta ai clienti di quel mese.
  *
@@ -31,7 +39,7 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
         <span className="text-xs font-medium text-muted">
           {conIncassi === 0
             ? "Ancora nessun incasso registrato"
-            : `Totale ${eur2(totale)} — la somma delle colonne · clicca una barra per vedere chi`}
+            : `Totale ${eur2(totale)} — la somma delle colonne · la % è sul mese prima · clicca una barra per vedere chi`}
         </span>
       </div>
 
@@ -43,14 +51,14 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
           <span className="inline-block h-3 w-5 rounded-[3px] border-2 border-dashed border-blue/55 bg-blue/12" />
           <span>
             <strong className="text-navy">{eur(corrente.attesoCents)}</strong> ancora attesi in {corrente.nome} da{" "}
-            {corrente.rinnoviAttesi} {corrente.rinnoviAttesi === 1 ? "rinnovo" : "rinnovi"} gia&apos; programmati ·
+            {corrente.rinnoviAttesi} {corrente.rinnoviAttesi === 1 ? "rinnovo" : "rinnovi"} già programmati ·{" "}
             chiuderebbe a <strong className="text-navy">{eur(corrente.totaleCents + corrente.attesoCents)}</strong>
           </span>
         </p>
       )}
 
-      <div className="mt-4 flex items-end gap-1.5" style={{ height: 172 }}>
-        {mesi.map((m) => {
+      <div className="mt-4 flex items-end gap-1.5" style={{ height: 196 }}>
+        {mesi.map((m, i) => {
           // La barra in pila: sotto i canoni, sopra gli extra, e in cima —
           // tratteggiato — quello che deve ancora arrivare. Un mese fatto di
           // abbonamenti e uno fatto di capi extra non sono la stessa azienda,
@@ -74,7 +82,7 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
               key={m.chiave}
               href={`/admin/numeri/incassato-mese?mese=${m.chiave}${prova ? "&prova=1" : ""}`}
               title={`${m.nome}: ${eur(m.totaleCents)} — ${eur(m.canoniCents)} di abbonamenti, ${eur(m.extraCents)} di extra${
-                m.attesoCents > 0 ? ` · attesi ancora ${eur(m.attesoCents)} da ${m.rinnoviAttesi} rinnovi` : ""
+                m.attesoCents > 0 ? ` · attesi ancora ${eur(m.attesoCents)} da ${m.rinnoviAttesi} rinnovi, chiuderebbe a ${eur(proiezione(m))}` : ""
               }`}
               aria-label={`${m.nome}: ${eur(m.totaleCents)}, di cui ${eur(m.canoniCents)} di abbonamenti e ${eur(m.extraCents)} di extra${
                 m.attesoCents > 0 ? `, più ${eur(m.attesoCents)} attesi dai rinnovi` : ""
@@ -82,12 +90,28 @@ export function GraficoIncassi({ mesi, prova }: { mesi: MeseIncassi[]; prova: bo
               className="group flex flex-1 flex-col items-center justify-end gap-1"
               style={{ height: "100%" }}
             >
-              {/* Il totale del mese, scritto sempre. Prima compariva solo
-                  passandoci sopra col mouse: per sapere com'era andato un mese
-                  bisognava cercarlo barra per barra, e da un grafico così non
-                  si capiva se stavamo crescendo. */}
-              <span className="font-display text-[10px] font-extrabold leading-none text-navy">
-                {m.totaleCents > 0 ? eur(m.totaleCents) : m.attesoCents > 0 ? "—" : ""}
+              {/* Sopra la colonna, il numero che conta.
+                  Sui mesi chiusi è il totale, che è definitivo. Sul mese in
+                  corso è **dove chiude**: scriverci l'incassato finora faceva
+                  sembrare ottobre in calo su settembre mentre i rinnovi del
+                  mese non erano ancora passati. L'incassato resta, sotto, in
+                  corpo minore: è un dato vero, solo non è quello da confrontare.
+                  Più sotto la variazione sul mese prima, che è la domanda per
+                  cui si apre questa pagina il lunedì mattina. */}
+              <span className="flex flex-col items-center gap-0.5 leading-none">
+                <span className="font-display text-[10px] font-extrabold text-navy">
+                  {proiezione(m) > 0 ? eur(proiezione(m)) : ""}
+                </span>
+                {m.corrente && m.attesoCents > 0 && m.totaleCents > 0 && (
+                  <span className="font-display text-[8px] font-bold text-muted">di cui {eur(m.totaleCents)}</span>
+                )}
+                {(() => {
+                  const v = etichettaVariazione(variazionePercentuale(proiezione(m), i > 0 ? proiezione(mesi[i - 1]) : null));
+                  if (!v) return null;
+                  const tono =
+                    v.verso === "su" ? "text-[#1F8A5B]" : v.verso === "giu" ? "text-[#C0392B]" : "text-muted";
+                  return <span className={`font-display text-[9px] font-extrabold ${tono}`}>{v.testo}</span>;
+                })()}
               </span>
               <div className="flex w-full flex-1 flex-col justify-end">
                 {hAttesa > 0 && (
