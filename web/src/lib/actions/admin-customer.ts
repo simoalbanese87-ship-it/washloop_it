@@ -661,6 +661,93 @@ export async function terminaProvaOra(formData: FormData) {
  *
  *  Il canone concordato si scrive anche in `custom_price_cents`: è il campo da
  *  cui il pannello legge il prezzo quando non è quello del piano di listino. */
+/** Quanti passaggi comprende l'abbonamento, dentro il periodo pagato.
+ *
+ *  «Due volte al mese» era un accordo che viveva in una chat: il sistema
+ *  sapeva dire se uno poteva prenotare, non quante volte, e il saldo si faceva
+ *  a mente contando gli ordini. Qui si scrive, e da lì in avanti lo stesso
+ *  numero lo leggono il pannello e l'app del cliente.
+ *
+ *  Vuoto rimette il comportamento di prima — nessun tetto, la cadenza la dà il
+ *  calendario — che è quello di tutti gli abbonamenti già in corso. Zero no:
+ *  un abbonamento con zero ritiri non esiste, è un campo compilato male, e
+ *  lasciandolo passare il cliente leggerebbe «li hai usati tutti» il giorno
+ *  dopo aver pagato. */
+export async function impostaPassaggi(formData: FormData) {
+  await requireAdmin();
+  const subId = String(formData.get("sub_id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  const grezzo = String(formData.get("passaggi") ?? "").trim();
+  if (!subId || !customerId) throw new Error("Parametri mancanti");
+  const backTo = `/admin/abbonati/${customerId}`;
+
+  let passaggi: number | null = null;
+  if (grezzo !== "") {
+    const n = Number(grezzo);
+    if (!Number.isInteger(n) || n <= 0) {
+      redirect(
+        `${backTo}?warn=${encodeURIComponent(
+          "I passaggi sono un numero intero maggiore di zero. Lascia vuoto per togliere il tetto: la cadenza torna a darla il calendario.",
+        )}`,
+      );
+    }
+    passaggi = n;
+  }
+
+  const svc = createServiceClient();
+  const { error } = await svc.from("subscriptions").update({ passaggi_per_ciclo: passaggi }).eq("id", subId);
+  if (error) redirect(`${backTo}?warn=${encodeURIComponent(error.message)}`);
+
+  revalidatePath(backTo);
+  revalidatePath("/app");
+  redirect(
+    `${backTo}?ok=${encodeURIComponent(
+      passaggi == null
+        ? "Tetto tolto: questo abbonamento non conta più i passaggi."
+        : `Passaggi compresi: ${passaggi} per periodo.`,
+    )}`,
+  );
+}
+
+/** Fa scorrere nel ciclo in corso i passaggi non usati in quello prima.
+ *
+ *  Quello che avanza scade col ciclo: è la regola, e serve perché un credito
+ *  che si accumula per sempre diventa, dopo tre mesi di pausa, un mese di
+ *  servizio da regalare. L'eccezione la decide una persona — un cliente via per
+ *  lavoro, una settimana saltata per colpa nostra — e questo bottone è
+ *  l'eccezione.
+ *
+ *  Si scrive quanti, non «tutti quelli che avanzavano»: il numero lo guarda chi
+ *  preme, sulla riga sopra, e così resta il suo. */
+export async function portaAvantiPassaggi(formData: FormData) {
+  await requireAdmin();
+  const subId = String(formData.get("sub_id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  const grezzo = String(formData.get("quanti") ?? "").trim();
+  if (!subId || !customerId) throw new Error("Parametri mancanti");
+  const backTo = `/admin/abbonati/${customerId}`;
+
+  const n = Number(grezzo);
+  if (!Number.isInteger(n) || n < 0) {
+    redirect(`${backTo}?warn=${encodeURIComponent("Scrivi quanti passaggi far scorrere: un numero intero, zero per azzerare.")}`);
+  }
+
+  const svc = createServiceClient();
+  const { error } = await svc
+    .from("subscriptions")
+    .update({ passaggi_riportati: n, passaggi_riportati_at: new Date().toISOString() })
+    .eq("id", subId);
+  if (error) redirect(`${backTo}?warn=${encodeURIComponent(error.message)}`);
+
+  revalidatePath(backTo);
+  revalidatePath("/app");
+  redirect(
+    `${backTo}?ok=${encodeURIComponent(
+      n === 0 ? "Nessun passaggio riportato in questo periodo." : `${n === 1 ? "Un passaggio riportato" : `${n} passaggi riportati`} in questo periodo.`,
+    )}`,
+  );
+}
+
 export async function cambiaCanone(formData: FormData) {
   await requireAdmin();
   const subId = String(formData.get("sub_id") ?? "");

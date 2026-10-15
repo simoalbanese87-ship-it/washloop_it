@@ -1,15 +1,20 @@
 import Link from "next/link";
 import { BookFlow, type Address, type Slot, type SpecialCategory } from "@/components/app/BookFlow";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/auth";
 import { pickupCounts, deliveryCounts } from "@/lib/slots";
 import { oreDiLavorazione } from "@/lib/turnaround";
+import { saldoPassaggi } from "@/lib/passaggi-abbonamento";
 import { fasciaPermessa } from "@/lib/servizio-fascia";
 import { isTipoServizio } from "@/lib/tipo-servizio";
 
 type Cat = { id: string; name: string; emoji: string; sort: number };
 type Item = { category_id: string; name: string; price_cli_cents: number; sort: number };
 type RawSlot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null; capacity: number | null; servizio: string | null };
+
+/** Giorno e mese, in ora di Roma: la data entro cui vanno usati i passaggi. */
+const fmtGiorno = (iso: string) =>
+  new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", day: "2-digit", month: "2-digit" }).format(new Date(iso));
 
 export default async function PrenotaPage() {
   const supabase = await createClient();
@@ -62,6 +67,12 @@ export default async function PrenotaPage() {
 
   const aConsumo = io?.a_consumo === true;
   const active = abbonato || aConsumo;
+
+  // Il saldo dei passaggi, per chi ne ha un numero concordato. Si mostra e
+  // basta: chi li ha finiti prenota lo stesso — un passaggio in più è una
+  // conversazione, non un errore da bloccare al cliente che sta prenotando.
+  const userId = (await supabase.auth.getUser()).data.user?.id ?? null;
+  const passaggi = userId ? await saldoPassaggi(createServiceClient(), userId) : null;
   const noAddress = !addresses || addresses.length === 0;
   const sofferenza = !aConsumo && (sub?.status === "past_due" || sub?.status === "unpaid");
 
@@ -111,7 +122,32 @@ export default async function PrenotaPage() {
           </section>
         </>
       ) : (
-        <BookFlow addresses={addresses!} slots={slots ?? []} deliverySlots={deliverySlots} turnaroundHours={turnaroundHours} categories={categories} />
+        <>
+          {passaggi?.spettanti != null && (
+            <section
+              className={`rounded-[18px] border px-4 py-3 text-sm font-semibold ${
+                passaggi.residui === 0
+                  ? "border-[#C9881F]/35 bg-[#C9881F]/10 text-[#C9881F]"
+                  : "border-line bg-white text-navy"
+              }`}
+            >
+              {passaggi.residui === 0 ? (
+                <>
+                  Hai usato tutti i {passaggi.spettanti} passaggi di questo periodo
+                  {passaggi.scadeIl ? `, che finisce il ${fmtGiorno(passaggi.scadeIl)}` : ""}. Puoi prenotare lo
+                  stesso: ti scriviamo noi per accordarci.
+                </>
+              ) : (
+                <>
+                  {passaggi.residui === 1 ? "Ti resta 1 passaggio" : `Ti restano ${passaggi.residui} passaggi`} di{" "}
+                  {passaggi.spettanti}
+                  {passaggi.scadeIl ? `, da usare entro il ${fmtGiorno(passaggi.scadeIl)}` : ""}.
+                </>
+              )}
+            </section>
+          )}
+          <BookFlow addresses={addresses!} slots={slots ?? []} deliverySlots={deliverySlots} turnaroundHours={turnaroundHours} categories={categories} />
+        </>
       )}
     </div>
   );

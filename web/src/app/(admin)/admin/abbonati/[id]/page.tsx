@@ -4,7 +4,8 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco, aggiornaIndirizzo, cambiaCanone } from "@/lib/actions/admin-customer";
+import { saldoPassaggi } from "@/lib/passaggi-abbonamento";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco, aggiornaIndirizzo, cambiaCanone, impostaPassaggi, portaAvantiPassaggi } from "@/lib/actions/admin-customer";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { addebitaCapoSpeciale, addebitaSubitoCapo } from "@/lib/actions/charge";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
@@ -41,7 +42,7 @@ type ServizioSacco = { id: string; codice: string; nome: string; price_cli_cents
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null; tags_delivered_at: string | null;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
-type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null } | null };
+type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; passaggi_per_ciclo: number | null; passaggi_riportati: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null } | null };
 type Addr = {
   id: string; label: string | null; street: string; cap: string | null; civico: string | null;
   intercom: string | null; floor: string | null; notes: string | null;
@@ -94,7 +95,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: proposte }, { data: servizi }] = await Promise.all([
     svc.auth.admin.getUserById(id),
-    svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, termina_dopo_settimane, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, passaggi_per_ciclo, passaggi_riportati, termina_dopo_settimane, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street, cap, civico, intercom, floor, notes, access_mode, access_note, concierge_hours, lat, lng").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, stripe_ref, created_at").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
@@ -115,13 +116,17 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   // Verità da Stripe + tutto quello che la scheda non mostrava: incassi
   // registrati (ricevute e fatture) e capi fuori abbonamento.
-  const [stripeSub, incassi, capi, { data: nota }] = await Promise.all([
+  const [stripeSub, incassi, capi, { data: nota }, passaggi] = await Promise.all([
     sub?.stripe_subscription_id ? abbonamentoDaStripe(sub.stripe_subscription_id, sub.stripe_customer_id ?? null) : Promise.resolve(null),
     incassiCliente(id),
     capiSpecialiCliente(id),
     // Le note interne stanno in una tabella a parte, con RLS solo admin: su
     // `profiles` sarebbero leggibili dal cliente stesso.
     svc.from("customer_notes").select("note").eq("customer_id", id).maybeSingle<{ note: string }>(),
+    // Il saldo dei passaggi: quanti ne comprende il periodo pagato e quanti ne
+    // ha già usati. La conta sta in `passaggi-abbonamento.ts`, col service
+    // client, perché è un numero che si dice a un cliente che paga.
+    saldoPassaggi(svc, id),
   ]);
 
   const totaleIncassatoCents = incassi.reduce((t, i) => t + i.amount_cents, 0);
@@ -673,6 +678,64 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                         : "non impostato: vale il ritiro settimanale, e il costo previsto non lo conta"}
                   </span>
                 </form>
+                {/* I passaggi del periodo pagato. «Due volte al mese» era un
+                    accordo che viveva in una chat: qui diventa un numero, e lo
+                    stesso numero lo legge il cliente in app. Vuoto = nessun
+                    tetto, che è il caso di quasi tutti. */}
+                <form action={impostaPassaggi} className="flex flex-wrap items-baseline gap-2">
+                  <input type="hidden" name="sub_id" value={sub.id} />
+                  <input type="hidden" name="customer_id" value={id} />
+                  <label htmlFor="passaggi-ciclo">Passaggi compresi:</label>
+                  <input
+                    id="passaggi-ciclo"
+                    name="passaggi"
+                    type="number"
+                    min={1}
+                    max={31}
+                    step={1}
+                    defaultValue={sub.passaggi_per_ciclo ?? ""}
+                    placeholder="—"
+                    className="w-16 rounded-[10px] border border-line bg-white px-2 py-1 text-sm font-bold text-navy outline-none focus:border-blue"
+                  />
+                  <button type="submit" className="font-display text-sm font-bold text-blue hover:underline">Salva</button>
+                  <span className="text-xs">
+                    {passaggi?.spettanti != null
+                      ? passaggi.frase
+                      : "nessun tetto: la cadenza la dà il calendario delle fasce"}
+                  </span>
+                </form>
+                {/* Il credito che scorre. Quello che avanza scade col periodo —
+                    se no tre mesi di pausa diventano un mese da regalare — e
+                    l'eccezione la decide una persona, qui. */}
+                {sub.passaggi_per_ciclo != null && (
+                  <form action={portaAvantiPassaggi} className="flex flex-wrap items-baseline gap-2">
+                    <input type="hidden" name="sub_id" value={sub.id} />
+                    <input type="hidden" name="customer_id" value={id} />
+                    <label htmlFor="passaggi-riportati">Riportati dal periodo prima:</label>
+                    <input
+                      id="passaggi-riportati"
+                      name="quanti"
+                      type="number"
+                      min={0}
+                      max={31}
+                      step={1}
+                      defaultValue={sub.passaggi_riportati ?? 0}
+                      className="w-16 rounded-[10px] border border-line bg-white px-2 py-1 text-sm font-bold text-navy outline-none focus:border-blue"
+                    />
+                    <button type="submit" className="font-display text-sm font-bold text-blue hover:underline">Salva</button>
+                    <span className="text-xs">
+                      {(sub.passaggi_riportati ?? 0) > 0
+                        ? "si sommano ai passaggi di questo periodo"
+                        : "quello che avanza scade: qui lo fai scorrere"}
+                    </span>
+                  </form>
+                )}
+                {passaggi && passaggi.oltre > 0 && (
+                  <div className="rounded-[10px] bg-[#C9881F]/10 px-3 py-2 text-xs font-semibold text-[#C9881F]">
+                    {passaggi.oltre === 1 ? "Un passaggio" : `${passaggi.oltre} passaggi`} oltre il piano in questo
+                    periodo. Non è stato addebitato niente: decidete voi se farlo pagare o lasciarlo correre.
+                  </div>
+                )}
                 {/* La prova: quando scatta l'addebito, a quale ritiro è
                     agganciata e qual è il muro. Il muro serve a chi risponde al
                     telefono per capire perché una data è quella e non un'altra. */}

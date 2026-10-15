@@ -17,6 +17,9 @@ type RecRow = {
   pending_weekday: number | null; pending_hhmm: string | null; pending_bags: number | null; pending_delivery_hhmm: string | null;
 };
 
+import { saldoPassaggi } from "@/lib/passaggi-abbonamento";
+import { createServiceClient } from "@/lib/supabase/server";
+
 const ACTIVE_ORDER: OrderStatus[] = ["pickup_scheduled", "picked_up", "at_laundry", "washing", "ready", "delivery_scheduled", "out_for_delivery"];
 
 export default async function Home() {
@@ -51,6 +54,13 @@ export default async function Home() {
   ]);
 
   const recurring = recs ?? [];
+
+  // Quanti passaggi gli restano in questo periodo. Col service client, come in
+  // pannello: è un numero che decide cosa può fare un cliente che paga, e una
+  // lettura negata da RLS torna vuota invece di dare errore. `null` per chi non
+  // ha un tetto, cioè quasi tutti: a loro non si dice niente di nuovo.
+  const io2 = (await supabase.auth.getUser()).data.user?.id ?? null;
+  const passaggi = io2 ? await saldoPassaggi(createServiceClient(), io2) : null;
 
   const aConsumo = io?.a_consumo === true;
   const active = sub?.status === "active" || sub?.status === "trialing" || aConsumo;
@@ -280,10 +290,34 @@ export default async function Home() {
               <div className="mt-1 font-display text-xl font-black text-navy">{sub.plans.name}</div>
             </div>
             <div className="text-right">
-              <div className="font-display text-2xl font-black text-navy">{sub.plans.bags_per_week}</div>
-              <div className="text-[11px] font-bold text-muted">{sub.plans.bags_per_week === 1 ? "sacco/sett" : "sacchi/sett"}</div>
+              {/* Con un tetto di passaggi il numero che conta è quanti ne
+                  restano, non quanti sacchi comprende il piano: è la cosa che
+                  il cliente chiedeva al telefono. Senza tetto resta il numero
+                  di prima, che per lui non è cambiato. */}
+              {passaggi?.residui != null ? (
+                <>
+                  <div className="font-display text-2xl font-black text-navy">{passaggi.residui}</div>
+                  <div className="text-[11px] font-bold text-muted">
+                    {passaggi.residui === 1 ? "passaggio che resta" : "passaggi che restano"}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="font-display text-2xl font-black text-navy">{sub.plans.bags_per_week}</div>
+                  <div className="text-[11px] font-bold text-muted">{sub.plans.bags_per_week === 1 ? "sacco/sett" : "sacchi/sett"}</div>
+                </>
+              )}
             </div>
           </div>
+          {passaggi?.spettanti != null && (
+            <p className="mt-3 border-t border-line pt-3 text-xs font-semibold text-muted">
+              {passaggi.oltre > 0
+                ? `Hai usato ${passaggi.usati} passaggi su ${passaggi.spettanti} compresi. Gli altri te li conteggiamo a parte: ti scriviamo noi.`
+                : passaggi.residui === 0
+                  ? `Li hai usati tutti in questo periodo${passaggi.scadeIl ? `, che finisce il ${fmtDate(passaggi.scadeIl)}` : ""}. Se te ne serve un altro, scrivici.`
+                  : `${passaggi.usati} usati su ${passaggi.spettanti}${passaggi.scadeIl ? ` · da usare entro il ${fmtDate(passaggi.scadeIl)}` : ""}`}
+            </p>
+          )}
           {rigaQuando(etichetta, fmtDate) && (
             <p className="mt-3 border-t border-line pt-3 text-xs font-semibold text-muted">{rigaQuando(etichetta, fmtDate)}</p>
           )}
