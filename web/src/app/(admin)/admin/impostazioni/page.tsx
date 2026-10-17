@@ -16,6 +16,7 @@ const GRUPPI: { titolo: string; nota: string; voci: { href: string; label: strin
     nota: "Quello che serve per far girare il servizio.",
     voci: [
       { href: "/admin/etichette", label: "Etichette", sub: "Tag QR per i sacchi: stampa e consegna" },
+      { href: "/admin/compiti", label: "Materiale", sub: "Chi aspetta cartellini e sacco, e da chi recuperarli" },
       { href: "/admin/team", label: "Team", sub: "Accessi di rider, lavanderia e sales" },
       { href: "/admin/lavanderia", label: "Soldi alla lavanderia", sub: "Quanto le devi, per quali ordini, cosa hai pagato" },
     ],

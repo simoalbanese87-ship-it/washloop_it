@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { registraCartaDalCheckout } from "@/lib/carta-registrata";
 import { sincronizzaPersona } from "@/lib/brevo-sync";
 import { servizioDopoAbbonamento } from "@/lib/piano-servizio";
+import { allineaCompiti } from "@/lib/compiti-sync";
 
 /** Scrive su `subscriptions` lo stato reale di un abbonamento Stripe.
  *
@@ -167,6 +168,14 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
       .eq("stripe_subscription_id", sub.id)
       .is("canceled_at", null);
   }
+
+  // I compiti del rider: portare il materiale a chi comincia, riprenderlo a
+  // chi ha chiuso. Qui e non nel webhook per lo stesso motivo di tutto il
+  // resto di questa funzione: è l'imbuto di ogni percorso Stripe, ed è
+  // idempotente. Sta **dopo** la scrittura dello stato perché legge la riga
+  // che abbiamo appena aggiornato. Non lancia mai: un promemoria mancato non
+  // deve impedire a un abbonamento di attivarsi.
+  await allineaCompiti(userId);
 
   return { ok: true };
 }

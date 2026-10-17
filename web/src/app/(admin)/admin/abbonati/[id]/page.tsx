@@ -6,6 +6,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
 import { saldoPassaggi } from "@/lib/passaggi-abbonamento";
 import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco, aggiornaIndirizzo, cambiaCanone, impostaPassaggi, portaAvantiPassaggi } from "@/lib/actions/admin-customer";
+import { ricalcolaCompiti } from "@/lib/actions/compiti";
+import { compitiDaFare } from "@/lib/compiti-sync";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { addebitaCapoSpeciale, addebitaSubitoCapo } from "@/lib/actions/charge";
 import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionForm";
@@ -39,7 +41,7 @@ const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm
 
 
 type ServizioSacco = { id: string; codice: string; nome: string; price_cli_cents: number; laundries: { name: string } | null };
-type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null; tags_delivered_at: string | null;
+type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null; tags_delivered_at: string | null; borsa_consegnata_at: string | null; materiale_rientrato_at: string | null;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
 type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; passaggi_per_ciclo: number | null; passaggi_riportati: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null } | null };
@@ -89,7 +91,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const { ok, warn } = await searchParams;
   const svc = createServiceClient();
 
-  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, a_consumo, tipo_servizio, servizio_sacco_id, tags_delivered_at, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
+  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, a_consumo, tipo_servizio, servizio_sacco_id, tags_delivered_at, borsa_consegnata_at, materiale_rientrato_at, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
   const tipoServizio = isTipoServizio(profile?.tipo_servizio) ? profile.tipo_servizio : null;
   if (!profile) notFound();
 
@@ -501,7 +503,31 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             Tag non ancora consegnati
           </span>
         ) : null}
+        {/* Il sacco personale. È dotazione come i cartellini, ed è l'altra
+            metà della stessa domanda: «questo cliente ha in mano quello che
+            gli serve?». Il rientro si scrive qui perché da qui si capisce se
+            c'è roba nostra ancora in giro. */}
+        {profile.materiale_rientrato_at ? (
+          <span className="rounded-full bg-navy/10 px-3 py-1.5 text-xs font-bold text-navy">
+            Materiale rientrato il {fmtDate(profile.materiale_rientrato_at)}
+          </span>
+        ) : profile.borsa_consegnata_at ? (
+          <span className="rounded-full bg-[#1F8A5B]/12 px-3 py-1.5 text-xs font-bold text-[#1F8A5B]">
+            Sacco consegnato il {fmtDate(profile.borsa_consegnata_at)}
+          </span>
+        ) : (
+          <span className="rounded-full bg-[#C9881F]/12 px-3 py-1.5 text-xs font-bold text-[#C9881F]">
+            Sacco non ancora consegnato
+          </span>
+        )}
       </div>
+
+      {/* Cosa c'è da fare su questo cliente, e il bottone per ricalcolarlo.
+          I compiti nascono dai cambi di abbonamento: dopo una correzione fatta
+          a mano — un profilo sistemato, un abbonamento riattivato dalla
+          dashboard di Stripe — questo è il modo di vederli aggiornati subito
+          invece di aspettare il passaggio della notte. */}
+      <CompitiDelCliente clienteId={id} />
 
       {/* Correggere l'anagrafica.
           Finora nome e telefono si scrivevano solo alla creazione del cliente:
@@ -1752,5 +1778,43 @@ function Sezione({
       </summary>
       <div className="border-t border-line px-5 py-4">{children}</div>
     </details>
+  );
+}
+
+/** I compiti aperti di questo cliente. */
+async function CompitiDelCliente({ clienteId }: { clienteId: string }) {
+  const compiti = (await compitiDaFare({})).filter((c) => c.clienteId === clienteId);
+  return (
+    <div className="mb-4 rounded-[16px] border border-line bg-white p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="font-display text-sm font-extrabold text-navy">Materiale da portare o recuperare</h2>
+        <form action={ricalcolaCompiti}>
+          <input type="hidden" name="cliente_id" value={clienteId} />
+          <input type="hidden" name="back" value={`/admin/abbonati/${clienteId}`} />
+          <BottoneInvio attesa="Ricalcolo…" className="font-display text-[11px] font-bold text-blue hover:underline">
+            Ricalcola
+          </BottoneInvio>
+        </form>
+      </div>
+      {compiti.length === 0 ? (
+        <p className="mt-1.5 text-sm font-medium text-muted">Niente da fare: ha quello che gli serve, e noi non abbiamo niente da riprendere.</p>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {compiti.map((c) => (
+            <li key={c.id} className="text-sm font-medium text-navy">
+              <strong className="font-display font-extrabold">
+                {c.tipo === "dotazione" ? "Da consegnare" : "Da recuperare"}
+              </strong>
+              {c.manca ? ` · ${c.manca}` : ""}
+              {c.scadeIl ? ` · ${c.inRitardo ? "era per il" : "entro il"} ${c.scadeIl}` : ""}
+              {c.assegnatoANome ? ` · ${c.assegnatoANome}` : " · nessun rider assegnato"}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-[11px] font-medium text-muted">
+        Si gestiscono tutti insieme in <Link href="/admin/compiti" className="font-bold text-blue hover:underline">Materiale</Link>.
+      </p>
+    </div>
   );
 }

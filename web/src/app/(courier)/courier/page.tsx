@@ -9,6 +9,8 @@ import { getCurrentProfile } from "@/lib/auth";
 import { fmtSlot, entroOggiRoma, fineGiornataRomaMs } from "@/lib/format";
 import { AZIONABILI, IN_LAVORAZIONE, daCaricareOggi } from "@/lib/consegne-da-caricare";
 import { ConsegnaDaCaricare } from "@/components/app/ConsegnaDaCaricare";
+import { CompitoCard } from "@/components/app/CompitoCard";
+import { compitiDaFare } from "@/lib/compiti-sync";
 import { ORDER_STATUS_LABEL } from "@/lib/orders";
 import { optimizeOrder, partenzaDelGiro } from "@/lib/route";
 import type { OrderStatus, AccessMode } from "@/lib/orders";
@@ -60,7 +62,7 @@ export default async function CourierToday() {
   const profile = await getCurrentProfile();
   const supabase = await createClient();
 
-  const [{ data }, { data: depotRow }] = await Promise.all([
+  const [{ data }, { data: depotRow }, compiti] = await Promise.all([
     supabase
       .from("orders")
       .select(
@@ -72,6 +74,11 @@ export default async function CourierToday() {
       .in("status", [...AZIONABILI, ...IN_LAVORAZIONE])
       .returns<Row[]>(),
     supabase.from("depots").select("lat, lng").eq("active", true).limit(1).maybeSingle<{ lat: number | null; lng: number | null }>(),
+    // Materiale da portare e da recuperare. Non sono fermate: non hanno una
+    // fascia, non entrano nel percorso e non fanno avanzare nessun ordine.
+    // `soloVisibili` tiene fuori i rientri programmati di chi ha disdetto ma
+    // è ancora servito fino al rinnovo.
+    compitiDaFare({ riderId: profile?.id ?? "", soloVisibili: true }),
   ]);
 
 
@@ -179,8 +186,38 @@ export default async function CourierToday() {
       <PageTitle
         kicker="Il tuo giro"
         title="Oggi"
-        sub={`${pickups.length} ritiri · ${deliveries.length} consegne${daCaricare.length > 0 ? ` · ${daCaricare.length} da caricare` : ""}${piuAvanti > 0 ? ` · ${piuAvanti} ${piuAvanti === 1 ? "fermata" : "fermate"} nei prossimi giorni, non ${piuAvanti === 1 ? "è" : "sono"} da fare oggi` : ""}`}
+        sub={`${pickups.length} ritiri · ${deliveries.length} consegne${compiti.length > 0 ? ` · ${compiti.length} ${compiti.length === 1 ? "compito" : "compiti"}` : ""}${daCaricare.length > 0 ? ` · ${daCaricare.length} da caricare` : ""}${piuAvanti > 0 ? ` · ${piuAvanti} ${piuAvanti === 1 ? "fermata" : "fermate"} nei prossimi giorni, non ${piuAvanti === 1 ? "è" : "sono"} da fare oggi` : ""}`}
       />
+
+      {compiti.length > 0 && (
+        <section className="mb-6">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-display text-base font-extrabold text-navy">
+              Materiale da portare o recuperare ({compiti.length})
+            </h2>
+            <span className="text-xs font-medium text-muted">Caricalo prima di partire.</span>
+          </div>
+          <div className="space-y-3">
+            {compiti.map((c) => (
+              <CompitoCard
+                key={c.id}
+                compito={{
+                  id: c.id,
+                  tipo: c.tipo,
+                  cliente: c.cliente,
+                  clientCode: c.clientCode,
+                  indirizzo: c.indirizzo,
+                  zona: c.zona,
+                  telefono: c.telefono,
+                  scadeIl: c.scadeIl,
+                  inRitardo: c.inRitardo,
+                  manca: c.manca,
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {daCaricare.length > 0 && (
         <section className="mb-6">
@@ -271,7 +308,9 @@ export default async function CourierToday() {
               ? "Il giro vero comincia quando carichi: premi «Ho caricato i sacchi» qui sopra e la consegna compare qui."
               : piuAvanti > 0
                 ? "Niente da fare oggi. Le fermate dei prossimi giorni compaiono qui la mattina stessa."
-                : "Nessuna fermata assegnata."}
+                : compiti.length > 0
+                  ? "Nessuna fermata oggi: resta il materiale da portare o recuperare qui sopra."
+                  : "Nessuna fermata assegnata."}
           </p>
         </Card>
       )}

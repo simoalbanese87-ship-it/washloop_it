@@ -24,6 +24,7 @@ import { paracadute, tetto } from "@/lib/prova";
 import { ricorrenza, settimaneValide } from "@/lib/durata-abbonamento";
 import { oreDiLavorazione } from "@/lib/turnaround";
 import { incassaSubito } from "@/lib/incasso-subito";
+import { allineaCompiti } from "@/lib/compiti-sync";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -912,6 +913,13 @@ export async function changeSubscription(formData: FormData) {
     else if (action === "resume") { patch.canceled_at = null; patch.cancel_at_period_end = false; }
     await svc.from("subscriptions").update(patch).eq("id", subId);
   }
+
+  // I compiti del rider seguono lo stato, e questa azione è l'unico posto da
+  // cui lo stato cambia per gli abbonamenti manuali — che da Stripe non
+  // passano mai. Qui nasce il rientro di chi disdice e, soprattutto, qui si
+  // annulla quello di chi ci ripensa: senza questa riga il rider si
+  // presenterebbe a riprendersi il sacco di un cliente tornato attivo.
+  await allineaCompiti(sub.user_id, "pannello");
 
   const fine = sub.current_period_end
     ? new Date(sub.current_period_end).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" })

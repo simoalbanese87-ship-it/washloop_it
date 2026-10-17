@@ -32,6 +32,7 @@ export type Job = {
 export const JOBS: Job[] = [
   { nome: "funnel-import", cosaFa: "Porta dentro i lead del funnel", quando: "ogni giorno alle 7:15", sogliaOre: 26 },
   { nome: "recurring", cosaFa: "Crea i ritiri delle ricorrenze settimanali", quando: "ogni giorno alle 8:00", sogliaOre: 26 },
+  { nome: "compiti", cosaFa: "Materiale da portare e da recuperare, e l'avviso al rider", quando: "ogni giorno alle 8:20", sogliaOre: 26 },
   { nome: "daily-digest", cosaFa: "Manda il riepilogo del mattino", quando: "ogni giorno alle 8:30", sogliaOre: 26 },
   { nome: "dunning", cosaFa: "Solleciti dei pagamenti falliti", quando: "ogni giorno alle 10:00", sogliaOre: 26 },
   { nome: "reminders", cosaFa: "Promemoria del ritiro di domani", quando: "ogni giorno alle 18:00", sogliaOre: 26 },
