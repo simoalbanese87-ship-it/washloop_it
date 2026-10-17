@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppShell, type NavItem } from "@/components/app/AppShell";
+import { NotificationPrompt } from "@/components/app/NotificationPrompt";
 import { getCurrentProfile } from "@/lib/auth";
 import { roleHome } from "@/lib/orders";
 
@@ -32,6 +33,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <AppShell nav={adminNav} userName={profile.full_name ?? "Ops"} badge="Ops">
       {children}
+      {/* Gli avvisi che arrivano qui sono i guasti e i pagamenti falliti
+          (`notify.ts`): roba che non può aspettare il prossimo accesso. */}
+      <NotificationPrompt
+        subtitle="Ti avvisiamo dei guasti e dei pagamenti falliti."
+        sopraLaBarra={false}
+      />
     </AppShell>
   );
 }

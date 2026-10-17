@@ -1,6 +1,7 @@
 import Link from "next/link";
 import QRCode from "qrcode";
 import { ChangePassword } from "@/components/app/ChangePassword";
+import { StatoNotifiche } from "@/components/app/StatoNotifiche";
 import { getCurrentProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { updateProfile } from "@/lib/actions/profile";
@@ -68,6 +69,11 @@ export default async function ProfiloPage() {
           {email && <div className="truncate text-sm font-medium text-muted">{email}</div>}
         </div>
       </section>
+
+      {/* Le notifiche, dette in chiaro.
+          Il popup che le chiede passa una volta sola e lo si chiude per
+          sbaglio: da qui si vede se arrivano su questo telefono, e si prova. */}
+      <StatoNotifiche perche="Ti diciamo quando passiamo a ritirare e quando il bucato torna." />
 
       {/* Codice cliente + QR del sacco */}
       {clientCode && (

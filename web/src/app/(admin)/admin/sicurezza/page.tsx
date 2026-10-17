@@ -1,8 +1,10 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
+import { StatoNotifiche } from "@/components/app/StatoNotifiche";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { statoStripe } from "@/lib/stato-stripe";
 import { METODI_CHECKOUT, metodiOffertiDaStripe, nomeMetodo } from "@/lib/metodi-accettati";
 import { statoClausolaRider } from "@/lib/rider-predefinito";
+import { coperturaNotifiche } from "@/lib/notifiche-copertura";
 import { daRisistemare } from "@/lib/riconsegna";
 import { romeHHMM, romeWeekday } from "@/lib/format";
 import { STATI_CHIUSI, type OrderStatus } from "@/lib/orders";
@@ -39,6 +41,9 @@ export default async function SicurezzaPage() {
     { label: "Stripe webhook secret", status: has(process.env.STRIPE_WEBHOOK_SECRET) ? "ok" : "fail", detail: has(process.env.STRIPE_WEBHOOK_SECRET) ? "Configurato" : "Mancante: sync abbonamenti a rischio" },
     { label: "Email SMTP", status: has(process.env.SMTP_HOST) && has(process.env.SMTP_USER) && has(process.env.SMTP_PASS) ? "ok" : "warn", detail: has(process.env.SMTP_HOST) ? "Configurato" : "Non configurato: le email vengono saltate" },
     { label: "URL sito in HTTPS", status: (process.env.NEXT_PUBLIC_SITE_URL ?? "").startsWith("https://") ? "ok" : "warn", detail: process.env.NEXT_PUBLIC_SITE_URL || "Non impostato" },
+    // Senza le due chiavi VAPID le notifiche non partono e non dà errore
+    // nessuno: `sendPush` diventa un'operazione che non fa niente.
+    { label: "Chiavi notifiche (VAPID)", status: has(process.env.VAPID_PRIVATE_KEY) && has(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) ? "ok" : "fail", detail: has(process.env.VAPID_PRIVATE_KEY) && has(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) ? "Configurate" : "Mancanti: nessuna notifica push parte, in silenzio" },
   ];
 
   // --- Audit del database (richiede la function security_audit, migration 0010) ---
@@ -287,6 +292,9 @@ export default async function SicurezzaPage() {
   const overallText =
     overall === "ok" ? "Tutti i controlli superati" : overall === "warn" ? `${warns} avvisi da verificare` : `${fails} problemi critici · ${warns} avvisi`;
 
+  const notifiche = await coperturaNotifiche();
+  const operativiSenza = notifiche.operativi.filter((o) => o.dispositivi === 0);
+
   return (
     <>
       <PageTitle kicker="Admin" title="Sicurezza" sub="Stato di configurazione e protezione del sistema. Aggiornato a ogni apertura." />
@@ -308,6 +316,47 @@ export default async function SicurezzaPage() {
           <h2 className="mb-2 font-display text-base font-extrabold text-navy">Pronti a operare</h2>
           <p className="mb-2 text-xs font-medium text-muted">Non è sicurezza: è se il servizio può girare davvero domani mattina.</p>
           {ops.map((c) => <CheckRow key={c.label} c={c} />)}
+        </Card>
+
+        <Card>
+          <h2 className="mb-2 font-display text-base font-extrabold text-navy">Chi riceve le notifiche</h2>
+          <p className="mb-3 text-xs font-medium text-muted">
+            Un avviso che non arriva non lascia traccia da nessuna parte: si scopre quando qualcuno salta
+            un giro. Le notifiche sono per <strong className="text-navy">dispositivo</strong>, non per persona.
+          </p>
+
+          <div className="mb-3">
+            <StatoNotifiche perche="Qui arrivano i guasti e i pagamenti falliti." />
+          </div>
+
+          {operativiSenza.length > 0 && (
+            <p className="mb-2 text-sm font-semibold text-[#C9881F]">
+              {operativiSenza.length === 1 ? "Una persona non le riceve" : `${operativiSenza.length} persone non le ricevono`}:{" "}
+              {operativiSenza.map((o) => `${o.nome} (${o.ruolo})`).join(", ")}. Devono attivarle loro, dalla
+              propria app: il permesso lo dà il browser di chi lo usa, non si può dare da qui.
+            </p>
+          )}
+
+          <ul className="space-y-1.5">
+            {notifiche.operativi.map((o) => (
+              <li key={`${o.ruolo}-${o.nome}`} className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="font-semibold text-navy">
+                  {o.nome} <span className="font-medium text-muted">· {o.ruolo}</span>
+                </span>
+                <span className={`font-display text-xs font-bold ${o.dispositivi ? "text-[#1F8A5B]" : "text-[#C9881F]"}`}>
+                  {o.dispositivi === 0 ? "nessun dispositivo" : `${o.dispositivi} ${o.dispositivi === 1 ? "dispositivo" : "dispositivi"}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          <p className="mt-3 border-t border-line pt-3 text-sm font-medium text-muted">
+            Clienti con abbonamento in corso:{" "}
+            <strong className="text-navy">
+              {notifiche.clienti.conNotifiche} su {notifiche.clienti.totale}
+            </strong>{" "}
+            ricevono le notifiche. Gli altri le vedono solo aprendo l&apos;app — l&apos;email parte comunque.
+          </p>
         </Card>
 
         <Card>

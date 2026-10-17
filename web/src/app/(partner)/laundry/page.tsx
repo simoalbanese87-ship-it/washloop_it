@@ -1,4 +1,5 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
+import { StatoNotifiche } from "@/components/app/StatoNotifiche";
 import { LaundryBoardDnD, type PartnerOrder } from "@/components/app/LaundryBoardDnD";
 import { createClient } from "@/lib/supabase/server";
 import { segnaRestituito } from "@/lib/actions/partner";
@@ -56,6 +57,12 @@ export default async function LaundryBoard() {
         title="Lavorazioni"
         sub={`${active.length} ordini attivi · trascina le schede tra le colonne per aggiornare lo stato`}
       />
+
+      {/* Gli avvisi dei sacchi in arrivo: qui si vede se questo computer li
+          riceve davvero, invece di scoprirlo quando non arriva niente. */}
+      <div className="mb-6">
+        <StatoNotifiche soloSeServe perche="Ti avvisiamo quando parte un sacco verso di voi." />
+      </div>
 
       {(trattenuti ?? []).length > 0 && (
         <Card className="mb-6 !border-[#C9881F]/40 !bg-[#C9881F]/[0.06]">

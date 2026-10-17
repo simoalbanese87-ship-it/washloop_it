@@ -28,6 +28,10 @@ export type Job = {
    *  stireria di Arluno — il rider deve saperlo **mentre ritira**, non quando
    *  arriva allo scarico e si accorge di avere il sacco sbagliato. */
   laundry?: string | null;
+  /** Quale dei due giri: colora il badge come la mappa, blu la lavanderia e
+   *  ambra il solo stiro. Un colore solo per la destinazione, in mappa e in
+   *  scheda, è una cosa da ricordare invece di due. */
+  servizio?: "lavanderia" | "stiro" | null;
 };
 
 type Action = { label: string; to: OrderStatus; variant?: "primary" | "ghost-navy" };
@@ -113,8 +117,15 @@ export function CourierJobCard({ job, n, kind }: { job: Job; n?: number; kind?: 
           </div>
           {job.when && <div className="mt-0.5 text-xs font-semibold text-blue">{job.when}</div>}
           {job.laundry && (
-            <div className="mt-1 inline-flex rounded-full bg-[#7A4FBF]/12 px-2 py-0.5 font-display text-[11px] font-extrabold text-[#7A4FBF]">
+            <div
+              className="mt-1 inline-flex rounded-full px-2 py-0.5 font-display text-[11px] font-extrabold"
+              style={{
+                background: `${job.servizio === "stiro" ? "#C9881F" : "#2b7fd4"}1F`,
+                color: job.servizio === "stiro" ? "#C9881F" : "#2b7fd4",
+              }}
+            >
               → {job.laundry}
+              {job.servizio === "stiro" ? " · solo stiro" : ""}
             </div>
           )}
           </div>

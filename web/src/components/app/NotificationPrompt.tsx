@@ -1,56 +1,62 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { attiva, iosNonInstallato, iscriviti } from "@/lib/notifiche-browser";
+
+/** Popup basso che chiede di abilitare le notifiche push.
+ *
+ *  Due cose cambiate il 17 ottobre 2026, dopo aver contato tre iscrizioni in
+ *  tutto il sistema:
+ *
+ *  1. **«Più tardi» non significa più «mai più».** Prima bastava chiuderlo una
+ *     volta — anche per sbaglio, anche prima di aver capito cosa fosse — e non
+ *     ricompariva nemmeno dopo mesi. Ora torna dopo una settimana. Non è
+ *     insistenza: è che fra chi legge «avvisi quando il bucato è pronto» e chi
+ *     ha appena finito di installare l'app passano giorni.
+ *
+ *  2. **Non è più l'unica strada.** `StatoNotifiche` è il riquadro stabile che
+ *     dice come stanno le cose e lascia attivarle quando si vuole; qui resta il
+ *     solo invito al momento giusto.
+ *
+ *  La logica del browser — permesso, iscrizione, trappola di iOS — sta tutta in
+ *  `lib/notifiche-browser.ts`, perché serviva anche agli altri due posti. */
 
 const DISMISS_KEY = "wl_notif_prompt";
-const VAPID = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
+/** Quanto si tace dopo un «più tardi». Una settimana: abbastanza per non
+ *  essere molesti, abbastanza poco da ricapitare mentre il servizio è in uso. */
+const SILENZIO_MS = 7 * 24 * 3600_000;
 
-function urlBase64ToUint8Array(base64: string): Uint8Array {
-  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
-  const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(b64);
-  const arr = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
-  return arr;
-}
-
-async function subscribe(): Promise<boolean> {
-  if (!VAPID || !("serviceWorker" in navigator) || !("PushManager" in window)) return false;
+function silenziatoDiRecente(): boolean {
   try {
-    const reg = await navigator.serviceWorker.ready;
-    const sub =
-      (await reg.pushManager.getSubscription()) ??
-      (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID) as BufferSource }));
-    const res = await fetch("/api/push/subscribe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(sub.toJSON()),
-    });
-    return res.ok;
+    const v = localStorage.getItem(DISMISS_KEY);
+    if (!v) return false;
+    // Il vecchio valore era "1", senza data: vale come «chiuso tanto tempo fa»
+    // e quindi non silenzia più niente.
+    const quando = parseInt(v, 10);
+    if (!Number.isFinite(quando) || quando <= 1) return false;
+    return Date.now() - quando < SILENZIO_MS;
   } catch {
     return false;
   }
 }
 
-/** Su iPhone le notifiche web funzionano SOLO se l'app è stata aggiunta alla
- *  schermata Home. Chiederle da Safari non installato non fa comparire nulla di
- *  utile e, peggio, brucia il permesso in modo permanente: dopo l'installazione
- *  non si può più richiedere. Stesso controllo che fa già InstallGuide. */
-function iosNonInstallato(): boolean {
-  if (typeof window === "undefined") return false;
-  const ua = navigator.userAgent;
-  // iPadOS moderno si dichiara Macintosh: si riconosce dal touch.
-  const isIOS = /iphone|ipad|ipod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-  if (!isIOS) return false;
-  const standalone =
-    window.matchMedia("(display-mode: standalone)").matches ||
-    (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-  return !standalone;
+function silenzia() {
+  try {
+    localStorage.setItem(DISMISS_KEY, String(Date.now()));
+  } catch {
+    // Navigazione privata o storage pieno: pazienza, ricomparirà.
+  }
 }
 
-/** Popup basso (solo /app) che chiede di abilitare le notifiche push.
- *  Non ricompare se il permesso è già stato concesso/negato o se chiuso. */
-export function NotificationPrompt({ subtitle = "Ti avvisiamo a ogni passaggio del tuo bucato." }: { subtitle?: string }) {
+export function NotificationPrompt({
+  subtitle = "Ti avvisiamo a ogni passaggio del tuo bucato.",
+  /** Dove sta il bordo basso: nell'app del cliente c'è la barra delle schede,
+   *  nelle aree di lavoro no e il popup deve scendere fino in fondo. */
+  sopraLaBarra = true,
+}: {
+  subtitle?: string;
+  sopraLaBarra?: boolean;
+}) {
   const [show, setShow] = useState(false);
   const [errore, setErrore] = useState("");
 
@@ -58,37 +64,31 @@ export function NotificationPrompt({ subtitle = "Ti avvisiamo a ogni passaggio d
     if (typeof window === "undefined" || !("Notification" in window)) return;
     const perm = Notification.permission;
     if (perm === "granted") {
-      // Già concesso: assicura che l'iscrizione sia salvata, niente popup.
-      void subscribe();
+      // Già concesso: si risalva l'iscrizione — gli endpoint push scadono — e
+      // non si mostra niente.
+      void iscriviti();
       return;
     }
-    if (perm === "denied") return; // non richiedere più
-    if (iosNonInstallato()) return; // su iPhone prima va installata, altrimenti si brucia il permesso
-    if (localStorage.getItem(DISMISS_KEY)) return; // già chiuso
+    if (perm === "denied") return; // non si può più chiedere da qui
+    if (iosNonInstallato()) return; // prima va installata, o il permesso si brucia
+    if (silenziatoDiRecente()) return;
     const t = setTimeout(() => setShow(true), 1500);
     return () => clearTimeout(t);
   }, []);
 
   async function enable() {
     setShow(false);
-    try {
-      const perm = await Notification.requestPermission();
-      if (perm !== "granted") {
-        localStorage.setItem(DISMISS_KEY, "1");
-        return;
-      }
-      // Il valore di ritorno va guardato: senza chiave VAPID o con la POST in
-      // errore la registrazione fallisce e prima l'utente vedeva comunque
-      // "notifiche attive". Meglio dirlo che promettere avvisi che non arrivano.
-      const ok = await subscribe();
-      if (!ok) setErrore("Non siamo riusciti ad attivare le notifiche. Riprova più tardi.");
-    } catch {
-      setErrore("Non siamo riusciti ad attivare le notifiche. Riprova più tardi.");
+    const esito = await attiva();
+    if (esito === "attive") return;
+    if (esito === "bloccate" || esito === "da-attivare") {
+      silenzia();
+      return;
     }
+    setErrore("Non siamo riusciti ad attivare le notifiche. Riprova più tardi.");
   }
 
   function dismiss() {
-    localStorage.setItem(DISMISS_KEY, "1");
+    silenzia();
     setShow(false);
   }
 
@@ -108,7 +108,7 @@ export function NotificationPrompt({ subtitle = "Ti avvisiamo a ogni passaggio d
   if (!show) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-[92px] z-[55] mx-auto max-w-[460px] px-4">
+    <div className={`fixed inset-x-0 z-[55] mx-auto max-w-[460px] px-4 ${sopraLaBarra ? "bottom-[92px]" : "bottom-4"}`}>
       <div className="flex items-center gap-3 rounded-[20px] border border-line bg-white p-4 shadow-[0_12px_40px_-12px_rgba(27,45,94,0.4)]">
         <span className="grid h-11 w-11 flex-none place-items-center rounded-[13px] bg-ice text-xl">🔔</span>
         <div className="min-w-0 flex-1">

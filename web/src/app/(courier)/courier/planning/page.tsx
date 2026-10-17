@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { RiderMapLoader } from "@/components/app/RiderMapLoader";
-import type { Stop, Depot } from "@/components/app/RiderMap";
-import { createClient } from "@/lib/supabase/server";
+import type { Stop, Depot, Punto, Servizio } from "@/components/app/RiderMap";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { puntiLavanderia } from "@/lib/lavanderia";
 import { getCurrentProfile } from "@/lib/auth";
 import { passaggiDellOrdine, type Passaggio } from "@/lib/planning-rider";
 import { primoGiornoDelGiro } from "@/lib/giro-del-giorno";
@@ -77,12 +78,17 @@ export default async function PlanningRider({
   // la lavanderia serve solo quando la giornata apre con una riconsegna — e da
   // quando le lavanderie sono due è **quella di quell'ordine**, non una presa
   // a caso fra le attive.
-  const { data: depotRow } = await supabase
-    .from("depots")
-    .select("lat, lng")
-    .eq("active", true)
-    .limit(1)
-    .maybeSingle<{ lat: number | null; lng: number | null }>();
+  const [{ data: depotRow }, sedi] = await Promise.all([
+    supabase
+      .from("depots")
+      .select("lat, lng")
+      .eq("active", true)
+      .limit(1)
+      .maybeSingle<{ lat: number | null; lng: number | null }>(),
+    // I due capolinea, letti col service client: una policy che nega torna
+    // vuota, e la mappa resterebbe senza destinazioni senza dirlo.
+    puntiLavanderia(createServiceClient()),
+  ]);
 
   const { data } = await supabase
     .from("orders")
@@ -148,9 +154,20 @@ export default async function PlanningRider({
   const lavanderia: Depot = lavPrima?.lat != null && lavPrima?.lng != null ? { lat: lavPrima.lat, lng: lavPrima.lng } : null;
   const partenza = partenzaDelGiro(!!primaPerOrario && primaPerOrario.tipo === "riconsegna", lavanderia, depot);
 
+  // Il giro di ogni fermata: la sede dove quel sacco va. Serve due volte —
+  // all'ottimizzatore, che a parità di fascia finisce un giro prima di
+  // cominciare l'altro, e alla mappa, che lo disegna con il suo colore.
+  const servizioDi = (laundryId: string | null): Servizio | null =>
+    sedi.find((x) => x.id === laundryId)?.servizio ?? null;
+
   const ordine = optimizeOrder(
     partenza,
-    conGeo.map((v) => ({ lat: v.riga.addresses!.lat!, lng: v.riga.addresses!.lng!, deadlineMs: Date.parse(v.quando) })),
+    conGeo.map((v) => ({
+      lat: v.riga.addresses!.lat!,
+      lng: v.riga.addresses!.lng!,
+      deadlineMs: Date.parse(v.quando),
+      gruppo: v.riga.laundry_id,
+    })),
   );
   const fermateOrdinate = ordine.map((i) => conGeo[i]);
   const stops: Stop[] = fermateOrdinate.map((v, i) => ({
@@ -162,29 +179,26 @@ export default async function PlanningRider({
     name: v.riga.customer?.full_name ?? "Cliente",
     address: v.riga.addresses?.street ?? "—",
     when: ora(v.quando),
+    servizio: servizioDi(v.riga.laundry_id),
+    destinazione: sedi.find((x) => x.id === v.riga.laundry_id)?.nome ?? uno(v.riga.laundries)?.name ?? null,
   }));
-  // Gli scarichi della giornata: una fermata per ogni lavanderia dove finiscono
-  // i sacchi ritirati. Con due lavanderie il giro non finisce all'ultimo
-  // cliente, e la mappa deve dirlo.
-  const scarichi = new Map<string, { nome: string; lat: number; lng: number; sacchi: number }>();
+  // I capolinea della giornata, sempre disegnati: con due destinazioni il giro
+  // non finisce all'ultimo cliente, e sapere da che parte cadono è metà
+  // dell'orientamento.
+  const sacchiPerSede = new Map<string, number>();
   for (const v of fermate) {
     if (v.tipo !== "ritiro" || !v.riga.laundry_id) continue;
-    const lav = uno(v.riga.laundries);
-    if (lav?.lat == null || lav?.lng == null) continue;
-    const gia = scarichi.get(v.riga.laundry_id);
-    if (gia) gia.sacchi += v.riga.bags ?? 0;
-    else scarichi.set(v.riga.laundry_id, { nome: lav.name, lat: lav.lat, lng: lav.lng, sacchi: v.riga.bags ?? 0 });
+    sacchiPerSede.set(v.riga.laundry_id, (sacchiPerSede.get(v.riga.laundry_id) ?? 0) + (v.riga.bags ?? 0));
   }
-  const fermateScarico: Stop[] = [...scarichi.values()].map((x, i) => ({
-    id: `scarico-${i}`,
-    kind: "laundry" as const,
-    n: stops.length + i + 1,
+  const punti: Punto[] = sedi.map((x) => ({
+    id: x.id,
+    nome: x.nome,
+    servizio: x.servizio,
     lat: x.lat,
     lng: x.lng,
-    name: x.nome,
-    address: `${x.sacchi} ${x.sacchi === 1 ? "sacco" : "sacchi"} da scaricare`,
-    when: null,
+    sacchi: sacchiPerSede.get(x.id) ?? 0,
   }));
+  const daScaricare = punti.filter((p) => p.sacchi > 0);
 
   const ritiriDelGiro = fermate.filter((v) => v.tipo === "ritiro").length;
 
@@ -215,7 +229,7 @@ export default async function PlanningRider({
 
           {stops.length > 0 && (
             <div className="mt-3">
-              <RiderMapLoader stops={[...stops, ...fermateScarico]} depot={partenza} />
+              <RiderMapLoader stops={stops} depot={partenza} punti={punti} />
             </div>
           )}
 
@@ -237,22 +251,44 @@ export default async function PlanningRider({
                     con due lavanderie un sacco caricato senza saperlo torna
                     indietro. */}
                 {v.tipo === "ritiro" && uno(v.riga.laundries)?.name && (
-                  <span className="rounded-full bg-[#7A4FBF]/12 px-2 py-0.5 font-display text-[11px] font-extrabold text-[#7A4FBF]">
+                  <span
+                    className="rounded-full px-2 py-0.5 font-display text-[11px] font-extrabold"
+                    style={(() => {
+                      // Stesso colore della mappa: blu la lavanderia, ambra il
+                      // solo stiro. Due codici diversi per la stessa cosa
+                      // sarebbero due cose da ricordare invece di una.
+                      const c = servizioDi(v.riga.laundry_id) === "stiro" ? "#C9881F" : "#2b7fd4";
+                      return { background: `${c}1F`, color: c };
+                    })()}
+                  >
                     → {uno(v.riga.laundries)!.name}
                   </span>
                 )}
               </li>
             ))}
-            {fermateScarico.map((f) => (
-              <li key={f.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
-                <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-[#7A4FBF] font-display text-[11px] font-extrabold text-white">{f.n}</span>
-                <span className="rounded-full bg-[#7A4FBF]/12 px-2.5 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-wide text-[#7A4FBF]">
-                  scarico
-                </span>
-                <span className="font-display text-sm font-bold text-navy">{f.name}</span>
-                <span className="text-sm font-medium text-muted">{f.address}</span>
-              </li>
-            ))}
+            {daScaricare.map((p) => {
+              const c = p.servizio === "stiro" ? "#C9881F" : "#2b7fd4";
+              return (
+                <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
+                  <span
+                    className="grid h-6 w-6 flex-none place-items-center rounded-[7px] font-display text-[10px] font-extrabold text-white"
+                    style={{ background: c }}
+                  >
+                    {p.servizio === "stiro" ? "ST" : "LAV"}
+                  </span>
+                  <span
+                    className="rounded-full px-2.5 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-wide"
+                    style={{ background: `${c}1F`, color: c }}
+                  >
+                    scarico
+                  </span>
+                  <span className="font-display text-sm font-bold text-navy">{p.nome}</span>
+                  <span className="text-sm font-medium text-muted">
+                    {p.sacchi} {p.sacchi === 1 ? "sacco" : "sacchi"} da scaricare
+                  </span>
+                </li>
+              );
+            })}
             {/* Senza coordinate non si può disegnare, ma la fermata esiste lo
                 stesso: nasconderla vorrebbe dire far saltare un cliente al
                 rider perché il geocoder non ha trovato la via. */}

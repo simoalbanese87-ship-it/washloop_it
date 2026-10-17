@@ -7,6 +7,10 @@ export type RouteStop = {
   lat: number;
   lng: number;
   deadlineMs: number | null; // slot ends_at in ms (null = nessuna deadline)
+  /** A quale giro appartiene la fermata: oggi è la destinazione del sacco —
+   *  la lavanderia generale o la stireria del solo stiro. A parità di urgenza
+   *  si finisce un giro prima di cominciare l'altro. */
+  gruppo?: string | null;
 };
 
 const WINDOW_MS = 60 * 60 * 1000; // raggruppa deadline entro 60 min
@@ -44,21 +48,43 @@ export function partenzaDelGiro(
   return deposito ?? lavanderia;
 }
 
-/** Ritorna gli indici di `stops` nell'ordine di visita ottimizzato. */
+/** Ritorna gli indici di `stops` nell'ordine di visita ottimizzato.
+ *
+ *  Tre criteri, in quest'ordine — e l'ordine è il punto:
+ *
+ *  1. **La fascia oraria**, sempre per prima. Si guardano solo le fermate la
+ *     cui scadenza è entro un'ora dalla più urgente: nessun raggruppamento può
+ *     far arrivare il rider fuori da una fascia promessa al cliente.
+ *  2. **Il giro**, fra quelle: a parità di urgenza si resta sulle fermate
+ *     dello stesso gruppo. Da quando le destinazioni sono due — la lavanderia
+ *     a Zanica, la stireria a Corsico — alternarle significa non sapere più,
+ *     mentre si ritira, quale sacco sta andando dove.
+ *  3. **La distanza**, come sempre: la più vicina fra quelle rimaste.
+ *
+ *  Se nel gruppo in corso non resta niente di abbastanza urgente, si cambia
+ *  gruppo: il vincolo 1 non si scavalca mai. */
 export function optimizeOrder(depot: { lat: number; lng: number } | null, stops: RouteStop[]): number[] {
   const remaining = stops.map((_, i) => i);
   const order: number[] = [];
   let curLat = depot?.lat ?? null;
   let curLng = depot?.lng ?? null;
+  let curGruppo: string | null = null;
 
   while (remaining.length) {
     const minDeadline = Math.min(...remaining.map((i) => stops[i].deadlineMs ?? Infinity));
     const eligible = remaining.filter((i) => (stops[i].deadlineMs ?? Infinity) <= minDeadline + WINDOW_MS);
 
-    let pick = eligible[0];
+    // Restare sul giro in corso, se lì c'è ancora qualcosa di altrettanto
+    // urgente. Altrimenti si passa all'altro: è la fascia a comandare.
+    // I tipi sono scritti a mano: `curGruppo` viene da `pick`, che viene da
+    // `candidati`, che viene da `curGruppo` — l'inferenza gira in tondo.
+    const stessoGruppo: number[] = curGruppo != null ? eligible.filter((i) => (stops[i].gruppo ?? null) === curGruppo) : [];
+    const candidati: number[] = stessoGruppo.length > 0 ? stessoGruppo : eligible;
+
+    let pick: number = candidati[0];
     if (curLat != null && curLng != null) {
       let bestD = Infinity;
-      for (const i of eligible) {
+      for (const i of candidati) {
         const d = haversineKm(curLat, curLng, stops[i].lat, stops[i].lng);
         if (d < bestD) { bestD = d; pick = i; }
       }
@@ -67,6 +93,7 @@ export function optimizeOrder(depot: { lat: number; lng: number } | null, stops:
     remaining.splice(remaining.indexOf(pick), 1);
     curLat = stops[pick].lat;
     curLng = stops[pick].lng;
+    curGruppo = stops[pick].gruppo ?? null;
   }
   return order;
 }

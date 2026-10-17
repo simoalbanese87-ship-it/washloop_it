@@ -103,3 +103,45 @@ export async function destinazioneOrdine(
     servizioSaccoId: daFascia?.id ?? servizio?.id ?? null,
   };
 }
+
+/** I posti dove i sacchi vanno e da dove tornano, con il servizio che fanno.
+ *
+ *  Serve alla mappa del rider: da ottobre 2026 le destinazioni sono due — la
+ *  lavanderia generale e la stireria del solo stiro — e stanno in due punti
+ *  lontani fra loro. Disegnarle sempre, anche quando in giornata non c'è
+ *  niente da scaricare, è ciò che permette di capire a colpo d'occhio verso
+ *  quale delle due ci si sta allontanando.
+ *
+ *  **Service client**, come il resto del file: su `laundries` e
+ *  `servizi_sacco` le policy fanno leggere solo ad alcuni ruoli, e una lettura
+ *  negata torna vuota — qui significherebbe una mappa senza destinazioni, cioè
+ *  il difetto che questa funzione esiste per evitare. */
+export type PuntoLavanderia = {
+  id: string;
+  nome: string;
+  /** `stiro` quando quella sede è dedicata a un servizio a sacco. */
+  servizio: "lavanderia" | "stiro";
+  lat: number;
+  lng: number;
+};
+
+export async function puntiLavanderia(client: SupabaseClient): Promise<PuntoLavanderia[]> {
+  const [{ data: sedi }, { data: dedicate }] = await Promise.all([
+    client.from("laundries").select("id, name, lat, lng").eq("active", true).returns<{ id: string; name: string; lat: number | null; lng: number | null }[]>(),
+    client.from("servizi_sacco").select("laundry_id, codice, active").eq("active", true).returns<{ laundry_id: string | null; codice: string; active: boolean }[]>(),
+  ]);
+
+  const delloStiro = new Set(
+    (dedicate ?? []).filter((d) => d.codice === "stiro" && d.laundry_id).map((d) => d.laundry_id as string),
+  );
+
+  return (sedi ?? [])
+    .filter((l): l is { id: string; name: string; lat: number; lng: number } => l.lat != null && l.lng != null)
+    .map((l) => ({
+      id: l.id,
+      nome: l.name,
+      servizio: delloStiro.has(l.id) ? ("stiro" as const) : ("lavanderia" as const),
+      lat: l.lat,
+      lng: l.lng,
+    }));
+}

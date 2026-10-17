@@ -3,13 +3,15 @@ import { CourierJobCard, type Job } from "@/components/app/CourierJobCard";
 import { RiderScanner } from "@/components/app/RiderScanner";
 import { RiderLocationPinger } from "@/components/app/RiderLocationPinger";
 import { RiderMapLoader } from "@/components/app/RiderMapLoader";
-import type { Stop, Depot } from "@/components/app/RiderMap";
-import { createClient } from "@/lib/supabase/server";
+import type { Stop, Depot, Punto, Servizio } from "@/components/app/RiderMap";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { puntiLavanderia } from "@/lib/lavanderia";
 import { getCurrentProfile } from "@/lib/auth";
 import { fmtSlot, entroOggiRoma, fineGiornataRomaMs } from "@/lib/format";
 import { AZIONABILI, IN_LAVORAZIONE, daCaricareOggi } from "@/lib/consegne-da-caricare";
 import { ConsegnaDaCaricare } from "@/components/app/ConsegnaDaCaricare";
 import { CompitoCard } from "@/components/app/CompitoCard";
+import { StatoNotifiche } from "@/components/app/StatoNotifiche";
 import { compitiDaFare } from "@/lib/compiti-sync";
 import { ORDER_STATUS_LABEL } from "@/lib/orders";
 import { optimizeOrder, partenzaDelGiro } from "@/lib/route";
@@ -35,7 +37,7 @@ function hhmm(iso: string | null | undefined): string | null {
   try { return new Date(iso).toLocaleTimeString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" }); } catch { return null; }
 }
 
-function toJob(r: Row, kind: "pickup" | "delivery"): Job {
+function toJob(r: Row, kind: "pickup" | "delivery", servizio: Servizio | null): Job {
   return {
     id: r.id, status: r.status,
     customer: r.customer?.full_name ?? "Cliente",
@@ -51,6 +53,7 @@ function toJob(r: Row, kind: "pickup" | "delivery"): Job {
     // Solo sui ritiri: su una consegna il sacco torna al cliente, e da dove
     // viene non gli serve.
     laundry: kind === "pickup" ? uno(r.laundries)?.name ?? null : null,
+    servizio: kind === "pickup" ? servizio : null,
   };
 }
 
@@ -62,7 +65,7 @@ export default async function CourierToday() {
   const profile = await getCurrentProfile();
   const supabase = await createClient();
 
-  const [{ data }, { data: depotRow }, compiti] = await Promise.all([
+  const [{ data }, { data: depotRow }, compiti, sedi] = await Promise.all([
     supabase
       .from("orders")
       .select(
@@ -79,6 +82,11 @@ export default async function CourierToday() {
     // `soloVisibili` tiene fuori i rientri programmati di chi ha disdetto ma
     // è ancora servito fino al rinnovo.
     compitiDaFare({ riderId: profile?.id ?? "", soloVisibili: true }),
+    // I due capolinea: la lavanderia generale e la stireria del solo stiro.
+    // Col service client, non con la sessione: una policy che nega torna
+    // vuota, e una mappa senza destinazioni sembrerebbe una giornata senza
+    // scarichi invece che una lettura rifiutata.
+    puntiLavanderia(createServiceClient()),
   ]);
 
 
@@ -135,9 +143,22 @@ export default async function CourierToday() {
   const siParteConUnaConsegna = !!primaPerOrario && kindOf(primaPerOrario) === "delivery";
   const partenza = partenzaDelGiro(siParteConUnaConsegna, lavanderia, depot);
 
+  // Il giro di ogni fermata: la sede dove quel sacco va (o da cui viene). È
+  // `gruppo` per l'ottimizzatore — a parità di fascia si finisce un giro prima
+  // di cominciare l'altro — ed è il colore sulla mappa.
+  const servizioDi = (r: Row): Servizio | null =>
+    sedi.find((x) => x.id === r.laundry_id)?.servizio ?? null;
+  const nomeSede = (r: Row): string | null =>
+    sedi.find((x) => x.id === r.laundry_id)?.nome ?? uno(r.laundries)?.name ?? null;
+
   const order = optimizeOrder(
     partenza,
-    geo.map((r) => ({ lat: r.addresses!.lat!, lng: r.addresses!.lng!, deadlineMs: slotOf(r)?.ends_at ? Date.parse(slotOf(r)!.ends_at) : null })),
+    geo.map((r) => ({
+      lat: r.addresses!.lat!,
+      lng: r.addresses!.lng!,
+      deadlineMs: slotOf(r)?.ends_at ? Date.parse(slotOf(r)!.ends_at) : null,
+      gruppo: r.laundry_id,
+    })),
   );
   const geoOrdered = order.map((i) => geo[i]);
   const routeRows = [...geoOrdered, ...noGeo];
@@ -149,31 +170,27 @@ export default async function CourierToday() {
     name: r.customer?.full_name ?? "Cliente",
     address: r.addresses?.street ?? "—",
     when: fmt(slotOf(r)),
+    servizio: servizioDi(r),
+    destinazione: nomeSede(r),
   }));
 
-  // Gli scarichi: una fermata per ogni lavanderia dove finiscono i sacchi
-  // ritirati oggi. Senza, il giro si fermava all'ultimo cliente e il rider
-  // doveva sapersi da sé che quei due sacchi vanno ad Arluno e gli altri a
-  // Zanica.
-  const scarichi = new Map<string, { nome: string; lat: number; lng: number; sacchi: number }>();
+  // I capolinea. Prima erano fermate numerate che comparivano solo nei giorni
+  // con qualcosa da scaricare; ora sono due punti fissi, sempre disegnati,
+  // perché servono a orientarsi anche quando oggi non ci si passa.
+  const sacchiPerSede = new Map<string, number>();
   for (const r of rows) {
     if (kindOf(r) !== "pickup" || !r.laundry_id) continue;
-    const lav = uno(r.laundries);
-    if (lav?.lat == null || lav?.lng == null) continue;
-    const gia = scarichi.get(r.laundry_id);
-    if (gia) gia.sacchi += r.bags ?? 0;
-    else scarichi.set(r.laundry_id, { nome: lav.name, lat: lav.lat, lng: lav.lng, sacchi: r.bags ?? 0 });
+    sacchiPerSede.set(r.laundry_id, (sacchiPerSede.get(r.laundry_id) ?? 0) + (r.bags ?? 0));
   }
-  const fermateScarico: Stop[] = [...scarichi.values()].map((s, i) => ({
-    id: `scarico-${i}`,
-    kind: "laundry" as const,
-    n: stops.length + i + 1,
-    lat: s.lat,
-    lng: s.lng,
-    name: s.nome,
-    address: `${s.sacchi} ${s.sacchi === 1 ? "sacco" : "sacchi"} da scaricare`,
-    when: null,
+  const punti: Punto[] = sedi.map((x) => ({
+    id: x.id,
+    nome: x.nome,
+    servizio: x.servizio,
+    lat: x.lat,
+    lng: x.lng,
+    sacchi: sacchiPerSede.get(x.id) ?? 0,
   }));
+  const daScaricare = punti.filter((p) => p.sacchi > 0);
 
   const pickups = rows.filter((r) => r.status === "pickup_scheduled");
   const deliveries = rows.filter((r) => r.status !== "pickup_scheduled");
@@ -248,6 +265,11 @@ export default async function CourierToday() {
         </section>
       )}
 
+      {/* Se gli avvisi non arrivano, il rider scopre un giro nuovo solo
+          aprendo l'app: qui si vede com'è messo questo telefono e da qui si
+          sistema, senza dipendere da un popup che passa una volta sola. */}
+      <div className="mb-4"><StatoNotifiche perche="Senza, un giro nuovo lo scopri solo aprendo l'app." /></div>
+
       <div className="mb-4"><RiderScanner /></div>
       <div className="mb-6"><RiderLocationPinger /></div>
 
@@ -260,21 +282,32 @@ export default async function CourierToday() {
 
       {stops.length > 0 && (
         <Card className="mb-6 overflow-hidden !p-0">
-          <RiderMapLoader stops={[...stops, ...fermateScarico]} depot={partenza} />
+          <RiderMapLoader stops={stops} depot={partenza} punti={punti} />
         </Card>
       )}
 
       {/* Dove finiscono i sacchi di oggi. Si scrive solo quando i posti sono
-          più d'uno: con una lavanderia sola sarebbe una riga che dice una cosa
-          che il rider sa già. */}
-      {fermateScarico.length > 1 && (
+          più d'uno: con una destinazione sola sarebbe una riga che dice una
+          cosa che il rider sa già. */}
+      {daScaricare.length > 1 && (
         <Card className="mb-6">
           <h2 className="font-display text-base font-extrabold text-navy">A fine giro, scarica così</h2>
           <ul className="mt-2 space-y-1.5">
-            {fermateScarico.map((f) => (
-              <li key={f.id} className="flex items-baseline justify-between gap-3 text-sm">
-                <span className="font-display font-bold text-navy">{f.name}</span>
-                <span className="font-medium text-muted">{f.address}</span>
+            {daScaricare.map((p) => (
+              <li key={p.id} className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="font-display font-bold text-navy">
+                  <i
+                    className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full align-middle"
+                    style={{ background: p.servizio === "stiro" ? "#C9881F" : "#2b7fd4" }}
+                  />
+                  {p.nome}
+                  <span className="ml-1.5 font-medium text-muted">
+                    {p.servizio === "stiro" ? "solo stiro" : "lavanderia"}
+                  </span>
+                </span>
+                <span className="font-medium text-muted">
+                  {p.sacchi} {p.sacchi === 1 ? "sacco" : "sacchi"}
+                </span>
               </li>
             ))}
           </ul>
@@ -298,7 +331,7 @@ export default async function CourierToday() {
       {routeRows.length > 0 ? (
         <div className="space-y-3">
           {routeRows.map((r, i) => (
-            <CourierJobCard key={r.id} job={toJob(r, kindOf(r))} n={i + 1} kind={kindOf(r)} />
+            <CourierJobCard key={r.id} job={toJob(r, kindOf(r), servizioDi(r))} n={i + 1} kind={kindOf(r)} />
           ))}
         </div>
       ) : (
