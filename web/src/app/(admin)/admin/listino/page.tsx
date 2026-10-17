@@ -3,7 +3,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { createServiceClient } from "@/lib/supabase/server";
 import { eurCents } from "@/lib/format";
 import { aggiungiIva, scorpora } from "@/lib/iva";
-import { aggiornaVoceListino, aggiornaServizioSacco } from "@/lib/actions/admin";
+import { aggiornaVoceListino, aggiornaServizioSacco, creaVoceListino } from "@/lib/actions/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -132,6 +132,64 @@ export default async function ListinoAdmin({
           da entrambi i lati.
         </p>
       </Card>
+
+      {/* Aggiungere un capo.
+          Il listino si poteva solo correggere: ogni voce nuova passava da una
+          riga di SQL, cioè da me. Un listino che cresce è la cosa più normale
+          che ci sia, e lo allunga chi lo vende. */}
+      <details className="mb-4 rounded-[16px] border border-line bg-white p-4">
+        <summary className="cursor-pointer font-display text-sm font-extrabold text-navy">
+          + Aggiungi un capo al listino
+        </summary>
+        <form action={creaVoceListino} className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="block text-xs font-bold text-muted">
+            Capo
+            <input
+              name="name"
+              required
+              placeholder="es. Maglia"
+              className="mt-1 w-44 rounded-[8px] border border-line bg-white px-2 py-1.5 text-sm font-semibold text-navy outline-none focus:border-blue"
+            />
+          </label>
+          <label className="block text-xs font-bold text-muted">
+            Categoria
+            <select
+              name="category_id"
+              required
+              defaultValue=""
+              className="mt-1 w-56 rounded-[8px] border border-line bg-white px-2 py-1.5 text-sm font-semibold text-navy outline-none focus:border-blue"
+            >
+              <option value="" disabled>Scegli…</option>
+              {(categorie ?? []).map((c) => (
+                <option key={c.id} value={c.id}>{`${c.emoji ?? ""} ${c.name}`.trim()}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs font-bold text-muted">
+            Alla lavanderia € <span className="font-medium">imponibile</span>
+            <input name="comp_lav_eur" type="number" step="0.01" min="0" required className={`${campo} mt-1`} />
+          </label>
+          <label className="block text-xs font-bold text-muted">
+            Al cliente € <span className="font-medium">IVA inclusa</span>
+            <input name="price_cli_eur" type="number" step="0.01" min="0" required className={`${campo} mt-1`} />
+          </label>
+          <label className="block text-xs font-bold text-muted">
+            Incluse per sacco
+            <input name="incluse_per_sacco" type="number" min="0" defaultValue={0} className={`${campo} mt-1 w-20`} />
+          </label>
+          <button
+            type="submit"
+            className="rounded-full bg-navy px-5 py-2 font-display text-sm font-extrabold text-white hover:bg-navy/90"
+          >
+            Aggiungi
+          </button>
+          <p className="w-full text-xs font-medium text-muted">
+            <strong className="text-navy">Incluse per sacco a zero</strong> vuol dire fuori sacco: si paga sempre,
+            anche con l&apos;abbonamento. La camicia ne ha 3 comprese, tutto il resto zero. Il capo nasce attivo e
+            compare subito in app, nel listino della lavanderia e nella pagina dei prezzi.
+          </p>
+        </form>
+      </details>
 
       {ok && <div className="mb-4 rounded-[14px] bg-[#1F8A5B]/10 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
       {warn && <div className="mb-4 rounded-[14px] bg-[#C9881F]/12 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>}

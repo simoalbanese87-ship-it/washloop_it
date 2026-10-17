@@ -475,6 +475,95 @@ export async function generateSlots(formData: FormData) {
   );
 }
 
+/** Aggiunge una voce al listino capi.
+ *
+ *  Finora il listino si poteva solo correggere, non allungare: ogni capo nuovo
+ *  — le maglie, il 17 ottobre 2026 — passava da una riga di SQL scritta a mano.
+ *  Un listino che cresce è la cosa più normale che ci sia, e deve poterlo fare
+ *  chi lo vende.
+ *
+ *  Le guardie sono le stesse della modifica, più una: non si crea un capo che
+ *  esiste già con quel nome, perché due voci uguali in app sono due bottoni
+ *  identici e nessuno sa quale premere.
+ *
+ *  Il compenso alla lavanderia è l'imponibile, il prezzo cliente è ivato: è la
+ *  stessa convenzione del contratto, scritta anche in pagina. */
+export async function creaVoceListino(formData: FormData) {
+  await soloAdmin();
+
+  const nome = String(formData.get("name") ?? "").trim();
+  const categoria = String(formData.get("category_id") ?? "").trim();
+  if (!nome) redirect(`/admin/listino?warn=${encodeURIComponent("Scrivi come si chiama il capo.")}`);
+  if (!categoria) redirect(`/admin/listino?warn=${encodeURIComponent("Scegli la categoria: in app il listino si legge per gruppi.")}`);
+
+  const euroInCents = (v: FormDataEntryValue | null) => {
+    const n = Number(String(v ?? "").trim().replace(",", "."));
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+  };
+  const comp = euroInCents(formData.get("comp_lav_eur"));
+  const cli = euroInCents(formData.get("price_cli_eur"));
+  const incluse = Number(String(formData.get("incluse_per_sacco") ?? "0").trim());
+
+  if (comp === null || cli === null) {
+    redirect(`/admin/listino?warn=${encodeURIComponent("Importi non validi: usa numeri in euro, es. 3,50.")}`);
+  }
+  if (!Number.isFinite(incluse) || incluse < 0) {
+    redirect(`/admin/listino?warn=${encodeURIComponent("Le incluse per sacco devono essere zero o più.")}`);
+  }
+  if (comp! > cli!) {
+    redirect(
+      `/admin/listino?warn=` +
+        encodeURIComponent("Il compenso alla lavanderia supera il prezzo cliente: controlla, ci rimetteresti su ogni capo."),
+    );
+  }
+
+  const svc = createServiceClient();
+  const { data: gia } = await svc
+    .from("special_items")
+    .select("id, name")
+    .ilike("name", nome)
+    .maybeSingle<{ id: string; name: string }>();
+  if (gia) {
+    redirect(
+      `/admin/listino?warn=${encodeURIComponent(
+        `«${gia.name}» c'è già nel listino: correggi quella riga invece di aggiungerne una uguale.`,
+      )}`,
+    );
+  }
+
+  // In coda alla sua categoria: l'ordine di listino è quello con cui i capi si
+  // leggono in app, e un capo nuovo in mezzo agli altri sposta tutto.
+  const { data: ultima } = await svc
+    .from("special_items")
+    .select("sort")
+    .eq("category_id", categoria)
+    .order("sort", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ sort: number | null }>();
+
+  const { error } = await svc.from("special_items").insert({
+    name: nome,
+    category_id: categoria,
+    comp_lav_cents: comp,
+    price_cli_cents: cli,
+    incluse_per_sacco: Math.trunc(incluse),
+    active: true,
+    sort: (ultima?.sort ?? 0) + 1,
+  });
+  if (error) redirect(`/admin/listino?warn=${encodeURIComponent(error.message)}`);
+
+  revalidatePath("/admin/listino");
+  revalidatePath("/laundry");
+  revalidatePath("/prezzi");
+  redirect(
+    `/admin/listino?ok=${encodeURIComponent(
+      `«${nome}» aggiunto al listino: ${(cli! / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })} al cliente${
+        Math.trunc(incluse) > 0 ? `, ${Math.trunc(incluse)} compresi per sacco` : ", fuori sacco"
+      }.`,
+    )}`,
+  );
+}
+
 /** Modifica una voce del listino capi speciali.
  *
  *  Gli importi si scrivono in euro, non in centesimi: chiedere i centesimi a chi
