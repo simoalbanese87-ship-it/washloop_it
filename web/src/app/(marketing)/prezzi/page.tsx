@@ -5,6 +5,7 @@ import { Bubbles } from "@/components/marketing/Bubbles";
 import { JsonLd } from "@/components/marketing/JsonLd";
 import { graficoPagina } from "@/lib/area-servita";
 import { VerificaCap } from "@/components/lead/VerificaCap";
+import { RichiestaCustom } from "@/components/lead/RichiestaCustom";
 import { createClient } from "@/lib/supabase/server";
 import { eurCents as eur } from "@/lib/format";
 import { invitoCorrente } from "@/lib/invito-corrente";
@@ -62,9 +63,15 @@ const PILASTRI = [
   { t: "Nessun vincolo di durata", d: "Nessuna attivazione, nessuna penale." },
 ];
 
-/** Il testo delle tre card, per codice piano. Sta qui e non in `PLAN_COPY`
- *  perché lì le voci servono al recap di una riga sola dell'onboarding: qui
- *  servono a far scegliere, e parlano di persone invece che di funzioni. */
+/** Il testo delle card, per codice piano. Sta qui e non in `PLAN_COPY` perché
+ *  lì le voci servono al recap di una riga sola dell'onboarding: qui servono a
+ *  far scegliere, e parlano di persone invece che di funzioni.
+ *
+ *  Dal 17 ottobre 2026 i piani in vetrina sono due. Medium e Large sono spenti
+ *  in catalogo — in otto mesi non li ha comprati nessuno, e tre colonne di
+ *  prezzi che si somigliano fanno rimandare la decisione invece di aiutarla.
+ *  Il loro testo resta qui sotto: il giorno che si riaccendono, la pagina sa
+ *  già cosa dire. */
 const CARD: Record<string, { per: string; righe: (b: number) => string[]; evidenza?: string }> = {
   essential: {
     per: "Per chi vive da solo, o per una coppia che fa poco bucato.",
@@ -73,7 +80,7 @@ const CARD: Record<string, { per: string; righe: (b: number) => string[]; eviden
       "Lavaggio e stiratura di tutto il contenuto",
       `Fino a ${b * 3} camicie stirate a settimana`,
       "Giorno fisso e fascia oraria a scelta",
-      "Pausa mensile dall'app",
+      "Sospensione quando vai in vacanza",
     ],
   },
   plus: {
@@ -83,9 +90,8 @@ const CARD: Record<string, { per: string; righe: (b: number) => string[]; eviden
       "Tutto quello che è incluso in Small",
       `Fino a ${b * 3} camicie stirate a settimana`,
       "Lenzuola e biancheria di casa senza accumuli",
-      "Pausa mensile dall'app",
+      "Sospensione quando vai in vacanza",
     ],
-    evidenza: "Il piano scelto da 7 clienti su 10",
   },
   family: {
     per: "Famiglie numerose, casa con ospiti, chi vuole margine.",
@@ -94,7 +100,7 @@ const CARD: Record<string, { per: string; righe: (b: number) => string[]; eviden
       "Tutto quello che è incluso in Small",
       `Fino a ${b * 3} camicie stirate a settimana`,
       "Il prezzo per sacco più basso del listino",
-      "Pausa mensile dall'app",
+      "Sospensione quando vai in vacanza",
     ],
   },
 };
@@ -272,16 +278,23 @@ export default async function Prezzi() {
         </div>
       </section>
 
-      {/* ============ I TRE PIANI ============ */}
-      <section className="bg-ice">
+      {/* ============ LE TRE SCELTE ============ */}
+      {/* Tre card, non cinque.
+          Fino al 17 ottobre 2026 qui c'erano tre piani di lavanderia che si
+          somigliavano (160, 280, 390) più il solo stiro in un riquadro a parte.
+          In otto mesi Medium e Large non li ha scelti nessuno: tre colonne di
+          numeri vicini non aiutano a decidere, fanno rimandare. Adesso le
+          scelte sono quelle vere — lavi tu o laviamo noi — più la strada per
+          chi ha bisogno di qualcosa di diverso. */}
+      <section id="scegli" className="scroll-mt-20 bg-ice">
         <div className="mx-auto max-w-6xl px-5 py-20">
-          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">I piani</div>
+          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Le tre scelte</div>
           <h2 className="mt-3 max-w-2xl font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
-            Scegli quanti sacchi.
+            Scegli chi fa il lavoro.
           </h2>
           <p className="mt-4 max-w-2xl text-base font-medium text-muted">
-            Il piano si misura in sacchi a settimana, non in capi. Il giorno del ritiro è fisso e uguale tutti
-            i mesi; la fascia oraria la scegli tu.
+            Due abbonamenti a prezzo fisso e una terza strada per chi ha esigenze sue. In tutti il ritiro ha
+            un giorno fisso, la fascia oraria la scegli tu, e il trasporto è incluso.
           </p>
 
           <div className="mt-12 grid gap-6 lg:grid-cols-3">
@@ -344,6 +357,98 @@ export default async function Prezzi() {
                 </div>
               );
             })}
+
+            {/* Solo stiro: accanto agli altri e non sotto, perché è una scelta
+                dello stesso ordine — «la lavatrice la faccio io» — non un
+                ripiego per chi non si permette il piano intero. */}
+            {pianoStiro && (
+              <div className="flex flex-col rounded-[24px] border border-[#7A4FBF]/40 bg-white p-7">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 className="font-display text-xl font-black text-navy">{pianoStiro.name}</h3>
+                  <span className="rounded-full bg-[#7A4FBF]/12 px-3 py-1 font-display text-[11px] font-extrabold uppercase tracking-wide text-[#7A4FBF]">
+                    Lavi tu
+                  </span>
+                </div>
+                <div className="mt-1 font-display text-sm font-bold text-[#7A4FBF]">1 sacco a settimana</div>
+                <p className="mt-3 text-sm font-medium text-muted">
+                  Per chi la lavatrice la fa in casa e si ferma davanti all&apos;asse da stiro.
+                </p>
+
+                <div className="mt-6">
+                  <span className="font-display text-5xl font-black text-navy">{eur(pianoStiro.price_month_cents)}</span>
+                  <span className="ml-1 font-display text-base font-bold text-muted">/mese</span>
+                </div>
+                <div className="mt-1 text-sm font-medium text-muted">
+                  {eur(perSettimana(pianoStiro))} a settimana · {SETTIMANE_AL_MESE} ritiri al mese
+                </div>
+
+                <ul className="mt-6 space-y-2 text-sm font-medium text-navy/80">
+                  {[
+                    "Ritiro il mercoledì, torna il venerdì",
+                    `Stirato e piegato in ${pianoStiro.turnaround_hours} ore`,
+                    "Camicie, camicette, pantaloni, lenzuola",
+                    "Niente lavaggio: quello lo fai tu",
+                    "Sospensione quando vai in vacanza",
+                  ].map((r) => (
+                    <li key={r} className="flex gap-2">
+                      <span className="text-[#7A4FBF]">·</span>
+                      <span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-7 pt-1">
+                  <ButtonLink href={`/onboarding?plan=${pianoStiro.code}${refQS}`}>Attiva {pianoStiro.name} →</ButtonLink>
+                </div>
+                <Link
+                  href="/servizio-stiro-a-domicilio-milano"
+                  className="mt-4 text-center font-display text-xs font-bold text-blue hover:underline"
+                >
+                  Come funziona il solo stiro →
+                </Link>
+              </div>
+            )}
+
+            {/* La terza strada. Non ha un prezzo perché non ne ha uno: è la
+                card che evita di inventare un piano per ogni caso particolare —
+                due ritiri al mese, un ufficio, un bed and breakfast — e li
+                porta tutti alla stessa conversazione. */}
+            <div className="flex flex-col rounded-[24px] border-2 border-dashed border-navy/25 bg-white p-7">
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 className="font-display text-xl font-black text-navy">Su misura</h3>
+                <span className="rounded-full bg-navy/8 px-3 py-1 font-display text-[11px] font-extrabold uppercase tracking-wide text-navy/70">
+                  Ne parliamo
+                </span>
+              </div>
+              <div className="mt-1 font-display text-sm font-bold text-navy/60">Quanti ritiri vuoi tu</div>
+              <p className="mt-3 text-sm font-medium text-muted">
+                Per chi non sta nei due di sopra: due ritiri al mese invece di quattro, volumi grandi, un
+                ufficio, una casa vacanze.
+              </p>
+
+              <div className="mt-6">
+                <span className="font-display text-5xl font-black text-navy">?</span>
+              </div>
+              <div className="mt-1 text-sm font-medium text-muted">Il prezzo lo costruiamo insieme</div>
+
+              <ul className="mt-6 space-y-2 text-sm font-medium text-navy/80">
+                {[
+                  "Ci dici cosa ti serve, in due righe",
+                  "Scegli tu quando richiamarti",
+                  "Ti proponiamo un abbonamento su misura",
+                  "Lo attivi con un link, quando ti torna",
+                ].map((r) => (
+                  <li key={r} className="flex gap-2">
+                    <span className="text-navy/40">·</span>
+                    <span>{r}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-7 pt-1">
+                <ButtonLink href="#su-misura">Parliamone →</ButtonLink>
+              </div>
+            </div>
           </div>
 
           <div className="mt-10 rounded-[24px] border border-line bg-white p-7">
@@ -358,48 +463,13 @@ export default async function Prezzi() {
             </p>
           </div>
 
-          {/* Il solo stiro. Sta sotto i piani e non in mezzo perché è la
-              risposta a un'altra domanda: non «quanto bucato fai», ma «la
-              lavatrice ce l'hai e il ferro no». Chi arriva qui dalla pagina
-              dello stiro ci trova il prezzo senza doverlo chiedere, che è
-              esattamente quello che prima costava una telefonata. */}
-          {pianoStiro && (
-            <div className="mt-5 overflow-hidden rounded-[24px] border border-[#7A4FBF]/35 bg-white">
-              <div className="grid gap-7 p-7 md:grid-cols-[1.2fr_1fr] md:items-center">
-                <div>
-                  <div className="font-display text-xs font-extrabold uppercase tracking-[0.2em] text-[#7A4FBF]">
-                    Lavi tu, stiriamo noi
-                  </div>
-                  <h3 className="mt-2 font-display text-2xl font-black tracking-[-0.02em] text-navy">
-                    {pianoStiro.name}: solo la pila da stirare.
-                  </h3>
-                  <p className="mt-3 text-sm font-medium leading-relaxed text-muted">
-                    Per chi la lavatrice la fa in casa e si ferma lì. Ritiriamo i capi già lavati, li
-                    stiriamo e li riportiamo piegati in <strong className="font-bold text-navy">{pianoStiro.turnaround_hours} ore</strong>:
-                    niente lavaggio, niente asse. Il ritiro è il mercoledì, la riconsegna il venerdì.
-                  </p>
-                  <ul className="mt-4 space-y-2 text-sm font-medium text-navy/80">
-                    {["Un sacco a settimana di capi già lavati", "Camicie, camicette, pantaloni, lenzuola", "Tornano piegati, pronti da riporre", "Nessun vincolo: in pausa o disdetta dall'app"].map((r) => (
-                      <li key={r} className="flex gap-2"><span className="text-[#7A4FBF]">·</span><span>{r}</span></li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="rounded-[20px] border border-line bg-ice p-6 text-center">
-                  <span className="font-display text-5xl font-black text-navy">{eur(pianoStiro.price_month_cents)}</span>
-                  <span className="ml-1 font-display text-base font-bold text-muted">/mese</span>
-                  <div className="mt-1 text-sm font-medium text-muted">
-                    {eur(perSettimana(pianoStiro))} a settimana · {SETTIMANE_AL_MESE} ritiri al mese
-                  </div>
-                  <div className="mt-5">
-                    <ButtonLink href={`/onboarding?plan=${pianoStiro.code}${refQS}`}>Attiva {pianoStiro.name} →</ButtonLink>
-                  </div>
-                  <Link href="/servizio-stiro-a-domicilio-milano" className="mt-4 inline-block font-display text-sm font-extrabold text-blue hover:underline">
-                    Come funziona il solo stiro →
-                  </Link>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Il modulo di «Su misura». Sta in fondo alla sezione dei prezzi e
+              non in una pagina sua: chi ci arriva ha appena guardato i due
+              abbonamenti e ha deciso che non gli bastano — mandarlo altrove
+              vorrebbe dire perderlo per strada. */}
+          <div id="su-misura" className="mt-5 scroll-mt-24">
+            <RichiestaCustom />
+          </div>
 
           {/* Porta un amico: qui, dove si sta decidendo quanto spendere, una
               settimana gratis è un'informazione sul prezzo, non un banner. */}

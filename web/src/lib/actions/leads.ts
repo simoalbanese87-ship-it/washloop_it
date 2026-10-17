@@ -17,6 +17,8 @@ import { notifyNewCustomer } from "@/lib/notify";
 import { normalizzaNota, destinazioneNota } from "@/lib/nota-persona";
 import { salvaNotaCliente } from "@/lib/note-interne";
 import { CONTACT_STATUS_LABEL, isContactStatus, type ContactStatus } from "@/lib/lead-status";
+import { sendMail, renderEmail } from "@/lib/email";
+import { LEGAL } from "@/lib/legal";
 
 /** Invio del form della landing "/disponibilita" — pubblico e non autenticato.
  *  Fonte di verità: la tabella `leads` su Supabase. Copia sul Google Sheet e mail
@@ -175,6 +177,124 @@ export async function submitLead(_prev: LeadFormState, formData: FormData): Prom
   // non contare chi apre /grazie a mano, e non contare due volte chi ricarica
   // la pagina. Non identifica nessuno: è un numero casuale.
   redirect(`/grazie?c=${covered ? 1 : 0}&ok=${crypto.randomBytes(6).toString("hex")}`);
+}
+
+/** La richiesta di un abbonamento su misura.
+ *
+ *  Perché non è `submitLead` con un campo in più
+ *  ---------------------------------------------
+ *  Chi arriva qui ha già guardato i due abbonamenti e ha deciso che non gli
+ *  bastano: non sta chiedendo «passate da me?», sta chiedendo «parliamone». Le
+ *  cose che servono sono altre — cosa gli serve, e quando lo richiamiamo — e
+ *  l'email qui **non** è obbligatoria, perché il canale è il telefono.
+ *
+ *  Quello che resta identico, perché sono difese e non dettagli: l'esca per i
+ *  bot, il limite per indirizzo IP e il consenso. Il contatto finisce nella
+ *  stessa tabella `leads` con `source = "custom"`: una tabella a parte
+ *  vorrebbe dire una seconda lista da guardare ogni mattina, e `/admin/persone`
+ *  sa già filtrare per fonte.
+ *
+ *  La fascia oraria va in `nota_interna`, che è il campo che l'ops legge
+ *  davvero sulla scheda: è un'indicazione per richiamare, non un appuntamento
+ *  che ci impegna — un appuntamento mancato vale meno di nessun appuntamento. */
+export async function richiestaCustom(_prev: LeadFormState, formData: FormData): Promise<LeadFormState> {
+  if (String(formData.get("azienda") ?? "").trim() !== "") redirect("/grazie?c=1&su-misura=1");
+
+  const fullName = String(formData.get("full_name") ?? "").trim().replace(/\s+/g, " ");
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const phone = String(formData.get("phone") ?? "").trim().replace(/\s+/g, " ");
+  const cap = String(formData.get("cap") ?? "").trim();
+  const esigenza = String(formData.get("esigenza") ?? "").trim().slice(0, 1000);
+  const quando = String(formData.get("quando") ?? "").trim();
+  const consent = formData.get("privacy") != null;
+
+  if (fullName.length < 2) return { error: "Scrivi il tuo nome: al telefono serve sapere chi cercare." };
+  if (!/^\+?[\d\s.\-()]{8,20}$/.test(phone) || (phone.match(/\d/g) ?? []).length < 8) {
+    return { error: "Inserisci un numero di telefono valido: è lì che ti richiamiamo." };
+  }
+  // L'email è facoltativa, ma se c'è dev'essere vera: quella sbagliata è
+  // peggio di quella assente, perché fa credere di avere un secondo canale.
+  if (email !== "" && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
+    return { error: "L'indirizzo email non sembra valido. Puoi anche lasciarlo vuoto." };
+  }
+  if (!formatoCapValido(cap)) return { error: "Il CAP deve essere di 5 cifre." };
+  if (esigenza.length < 10) return { error: "Scrivi in due righe cosa ti serve: è quello che leggiamo prima di chiamarti." };
+  if (!consent) return { error: "Serve il consenso al trattamento dei dati per procedere." };
+
+  const svc = createServiceClient();
+
+  const ipHash = await hashIp();
+  if (ipHash) {
+    const since = new Date(Date.now() - 3600_000).toISOString();
+    const { count } = await svc
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .eq("ip_hash", ipHash)
+      .gte("created_at", since);
+    if ((count ?? 0) >= MAX_PER_HOUR) {
+      return { error: "Hai già inviato una richiesta poco fa. Riprova più tardi o scrivici a info@washloop.it." };
+    }
+  }
+
+  const zoneId = await zoneIdForCap(svc, cap);
+  const covered = capCoperto(cap);
+  const now = new Date().toISOString();
+
+  // Senza email non si può usare l'indice unico per deduplicare: si usa un
+  // indirizzo segnaposto costruito sul telefono, che è il dato che abbiamo
+  // sempre. Resta riconoscibile a colpo d'occhio in elenco.
+  const chiave = email || `telefono+${phone.replace(/\D/g, "")}@washloop.local`;
+
+  const nota = [
+    quando ? `Richiamare: ${quando}.` : null,
+    `Cosa gli serve: ${esigenza}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const { error } = await svc.from("leads").upsert(
+    {
+      full_name: fullName,
+      email: chiave,
+      phone,
+      cap,
+      zone_id: zoneId,
+      covered,
+      source: "custom",
+      consent_at: now,
+      ip_hash: ipHash,
+      nota_interna: nota,
+      contact_status: "da_contattare",
+    },
+    { onConflict: "email" },
+  );
+
+  if (error) {
+    console.error("[leads] richiesta su misura non salvata:", error.message);
+    return { error: "Non siamo riusciti a salvare la richiesta. Riprova tra un attimo." };
+  }
+
+  // L'avviso parte dopo la risposta: chi ha compilato non deve aspettare la
+  // posta, e una casella lenta non può far fallire una richiesta già salvata.
+  after(async () => {
+    await sendMail({
+      to: LEGAL.email,
+      subject: `Richiesta su misura — ${fullName}`,
+      kind: "servizio",
+      html: renderEmail({
+        title: "Qualcuno vuole un abbonamento su misura",
+        emoji: "✍️",
+        preheader: `${fullName} · ${phone}`,
+        body:
+          `<p><strong>${fullName}</strong> · ${phone}${email ? ` · ${email}` : ""}</p>` +
+          `<p>CAP ${cap}${covered ? "" : " — <strong>fuori zona</strong>"}</p>` +
+          (quando ? `<p>Vuole essere richiamato: <strong>${quando}</strong></p>` : "") +
+          `<p>${esigenza}</p>`,
+      }),
+    }).catch(() => {});
+  });
+
+  redirect(`/grazie?c=${covered ? 1 : 0}&su-misura=1&ok=${crypto.randomBytes(6).toString("hex")}`);
 }
 
 // ---------------------------------------------------------------------------
