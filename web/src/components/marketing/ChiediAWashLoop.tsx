@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apriChat, chatDisponibile, quandoChatSiChiude, type ChiScrive } from "@/lib/chat-brevo";
 
 /** «Domande?»: il badge fisso in basso a destra, e dentro due strade.
@@ -35,6 +35,10 @@ export function ChiediAWashLoop({ offsetBasso = false, chi }: { offsetBasso?: bo
   const [turni, setTurni] = useState<{ ruolo: "utente" | "assistente"; testo: string }[]>([]);
   const [errore, setErrore] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
+  // La conversazione scorre dentro un riquadro alto poco più di un dito: senza
+  // questo, la risposta nuova nasce sotto il bordo e sembra che non sia
+  // arrivata — chi scrive riprova, e la seconda domanda sembra ignorata.
+  const fondo = useRef<HTMLDivElement | null>(null);
 
   async function chiedi(e: React.FormEvent) {
     e.preventDefault();
@@ -62,6 +66,10 @@ export function ChiediAWashLoop({ offsetBasso = false, chi }: { offsetBasso?: bo
       setInCorso(false);
     }
   }
+
+  useEffect(() => {
+    fondo.current?.scrollIntoView({ block: "end" });
+  }, [turni, inCorso]);
 
   function nuovaDomanda() {
     setDomanda("");
@@ -206,6 +214,7 @@ export function ChiediAWashLoop({ offsetBasso = false, chi }: { offsetBasso?: bo
                 </p>
               ))}
               {inCorso && <p className="mr-4 rounded-[14px] bg-ice p-3 text-sm font-medium text-muted">Sto leggendo…</p>}
+              <div ref={fondo} />
             </div>
           )}
 
