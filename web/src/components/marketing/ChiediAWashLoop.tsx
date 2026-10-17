@@ -26,24 +26,35 @@ export function ChiediAWashLoop({ offsetBasso = false, chi }: { offsetBasso?: bo
   // Chat Brevo aperta: la nostra pillola si toglie di mezzo.
   const [inChat, setInChat] = useState(false);
   const [domanda, setDomanda] = useState("");
-  const [risposta, setRisposta] = useState<string | null>(null);
+  // La conversazione, non una domanda sola.
+  //
+  // Prima ogni domanda era la prima: chi chiedeva «e per il solo stiro?» dopo
+  // una risposta sui prezzi non veniva capito, e doveva riscrivere tutto. I
+  // turni si mandano al server a ogni domanda — lì vengono ripuliti, perché
+  // arrivano dal browser e di quello che arriva dal browser non ci si fida.
+  const [turni, setTurni] = useState<{ ruolo: "utente" | "assistente"; testo: string }[]>([]);
   const [errore, setErrore] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
 
   async function chiedi(e: React.FormEvent) {
     e.preventDefault();
-    if (domanda.trim().length < 3 || inCorso) return;
+    const testo = domanda.trim();
+    if (testo.length < 3 || inCorso) return;
     setInCorso(true);
-    setRisposta(null);
     setErrore(null);
+    // La domanda compare subito in conversazione: chi scrive deve vedere che
+    // è stata presa, anche se la risposta ci mette due secondi.
+    const storico = turni;
+    setTurni([...storico, { ruolo: "utente", testo }]);
+    setDomanda("");
     try {
       const r = await fetch("/api/assistente", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domanda }),
+        body: JSON.stringify({ domanda: testo, storico }),
       });
       const d = (await r.json()) as { risposta?: string; errore?: string };
-      if (d.risposta) setRisposta(d.risposta);
+      if (d.risposta) setTurni((t) => [...t, { ruolo: "assistente", testo: d.risposta! }]);
       else setErrore(d.errore ?? "Non riesco a rispondere adesso.");
     } catch {
       setErrore("Connessione assente. Riprova, oppure scrivici a info@washloop.it.");
@@ -54,7 +65,7 @@ export function ChiediAWashLoop({ offsetBasso = false, chi }: { offsetBasso?: bo
 
   function nuovaDomanda() {
     setDomanda("");
-    setRisposta(null);
+    setTurni([]);
     setErrore(null);
   }
 
@@ -175,49 +186,78 @@ export function ChiediAWashLoop({ offsetBasso = false, chi }: { offsetBasso?: bo
             </a>
           )}
         </div>
-      ) : risposta ? (
-        <>
-          <p className="mt-3 max-h-56 overflow-y-auto whitespace-pre-line rounded-[14px] bg-ice p-3 text-sm font-medium leading-relaxed text-navy">
-            {risposta}
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={nuovaDomanda}
-              className="rounded-full border-2 border-navy/20 px-4 py-2 font-display text-xs font-bold text-navy"
-            >
-              Un&apos;altra domanda
-            </button>
-            <a href="mailto:info@washloop.it" className="font-display text-xs font-bold text-blue hover:underline">
-              Scrivi a una persona
-            </a>
-          </div>
-        </>
       ) : (
-        <form onSubmit={chiedi} className="mt-3">
-          <input
-            value={domanda}
-            onChange={(e) => setDomanda(e.target.value)}
-            maxLength={500}
-            autoFocus
-            placeholder="Es. posso mettere in pausa ad agosto?"
-            className="h-11 w-full rounded-[14px] border-2 border-line bg-white px-3.5 text-sm font-semibold text-navy outline-none focus:border-cyan"
-          />
-          <button
-            type="submit"
-            disabled={inCorso || domanda.trim().length < 3}
-            className="mt-2 w-full rounded-full bg-gradient-to-br from-blue to-cyan py-2.5 font-display text-sm font-extrabold text-white disabled:opacity-50"
-          >
-            {inCorso ? "Sto leggendo…" : "Chiedi"}
-          </button>
-        </form>
+        <>
+          {/* La conversazione. Prima qui c'era una risposta sola che spariva
+              alla domanda dopo: chi voleva chiedere un dettaglio in più doveva
+              ricominciare, e spesso riscriveva anche la prima domanda. */}
+          {turni.length > 0 && (
+            <div className="mt-3 max-h-64 space-y-2 overflow-y-auto">
+              {turni.map((t, i) => (
+                <p
+                  key={i}
+                  className={
+                    t.ruolo === "utente"
+                      ? "ml-8 rounded-[14px] bg-blue/10 p-2.5 text-sm font-semibold text-navy"
+                      : "mr-4 whitespace-pre-line rounded-[14px] bg-ice p-3 text-sm font-medium leading-relaxed text-navy"
+                  }
+                >
+                  {t.testo}
+                </p>
+              ))}
+              {inCorso && <p className="mr-4 rounded-[14px] bg-ice p-3 text-sm font-medium text-muted">Sto leggendo…</p>}
+            </div>
+          )}
+
+          <form onSubmit={chiedi} className="mt-3">
+            <input
+              value={domanda}
+              onChange={(e) => setDomanda(e.target.value)}
+              maxLength={500}
+              autoFocus
+              placeholder={turni.length ? "Chiedi un'altra cosa…" : "Es. posso sospendere ad agosto?"}
+              className="h-11 w-full rounded-[14px] border-2 border-line bg-white px-3.5 text-sm font-semibold text-navy outline-none focus:border-cyan"
+            />
+            <button
+              type="submit"
+              disabled={inCorso || domanda.trim().length < 3}
+              className="mt-2 w-full rounded-full bg-gradient-to-br from-blue to-cyan py-2.5 font-display text-sm font-extrabold text-white disabled:opacity-50"
+            >
+              {inCorso ? "Sto leggendo…" : "Chiedi"}
+            </button>
+          </form>
+
+          {turni.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={nuovaDomanda}
+                className="rounded-full border-2 border-navy/20 px-4 py-2 font-display text-xs font-bold text-navy"
+              >
+                Ricomincia
+              </button>
+              {/* La via d'uscita verso una persona resta a portata: quando
+                  l'assistente non basta, il momento in cui si capisce è
+                  esattamente questo. */}
+              {chatDisponibile() ? (
+                <button type="button" onClick={scriviANoi} className="font-display text-xs font-bold text-blue hover:underline">
+                  Parla con una persona
+                </button>
+              ) : (
+                <a href="mailto:info@washloop.it" className="font-display text-xs font-bold text-blue hover:underline">
+                  Scrivi a una persona
+                </a>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {errore && <p className="mt-2 text-xs font-semibold text-[#C9881F]">{errore}</p>}
 
       {assistente && (
         <p className="mt-3 text-[11px] font-medium leading-snug text-muted">
-          Risposta automatica generata con l&apos;AI dalle nostre FAQ. Non vede i tuoi ordini e non conserviamo la conversazione.{" "}
+          Risposta automatica generata con l&apos;AI dalle nostre FAQ. Non vede i tuoi ordini. Teniamo traccia delle domande — non di chi le fa — per capire cosa manca nelle risposte.{" "}
           <a href="/privacy" className="underline">Come trattiamo i dati</a>.
         </p>
       )}
