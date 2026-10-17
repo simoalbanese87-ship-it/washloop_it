@@ -6,6 +6,19 @@ import { LEGAL } from "@/lib/legal";
 import { sendPush } from "@/lib/push";
 import { fmtFull, fmtSlot, WEEKDAY_IT } from "@/lib/format";
 import type { OrderStatus } from "@/lib/orders";
+
+/** Dove mandiamo chi vuole lasciare una recensione.
+ *
+ *  Sta in env e non nel codice perché è un indirizzo che può cambiare — il
+ *  giorno che Google Business dà il link breve `g.page/r/.../review`, si
+ *  cambia una variabile e non si fa un rilascio. Senza, l'email «Consegnato»
+ *  resta quella di prima: non si inventa un link.
+ *
+ *  Il link di oggi passa dal CID della scheda, che è pubblico e non dipende
+ *  dall'account di chi l'ha copiato: un indirizzo di Maps preso dalla barra
+ *  del browser porta dietro la sessione di chi stava guardando, e a volte
+ *  smette di funzionare per gli altri. */
+const LINK_RECENSIONE = process.env.GOOGLE_REVIEW_URL?.trim() || null;
 import {
   PROMESSA_TRATTENUTO,
   SEGNALAZIONE_AL_CLIENTE,
@@ -19,7 +32,7 @@ const site = () => (process.env.NEXT_PUBLIC_SITE_URL ?? "https://washloop.it").r
 /** Email + push al CLIENTE per gli stati rilevanti. Gli stati non elencati non
  *  notificano (evita spam). */
 const CUSTOMER: Partial<
-  Record<OrderStatus, { subject: string; title: string; emoji: string; preheader: string; body: (bags: number, fascia: string, giaCliente: boolean) => string; push: string }>
+  Record<OrderStatus, { subject: string; title: string; emoji: string; preheader: string; body: (bags: number, fascia: string, giaCliente: boolean, linkRecensione?: string | null) => string; push: string }>
 > = {
   pickup_scheduled: {
     subject: "Ritiro prenotato ✅",
@@ -99,7 +112,21 @@ const CUSTOMER: Partial<
     title: "Bucato consegnato",
     emoji: "👋",
     preheader: "Grazie per aver scelto WashLoop.",
-    body: () => `Il tuo bucato è stato consegnato. Grazie per aver scelto WashLoop — a presto!`,
+    // Alla **prima** consegna si chiede la recensione, e solo lì.
+    //
+    // Il momento è quello: il bucato è appena tornato, l'impressione è fresca
+    // e la persona ha visto tutto il giro — ritiro, lavorazione, riconsegna.
+    // Chiederla più avanti vuol dire chiederla a freddo; chiederla a ogni
+    // consegna vuol dire non ottenerla più.
+    //
+    // `giaCliente` qui è il contrario del suo significato altrove: su
+    // `pickup_scheduled` dice «ha già ricevuto una consegna» per chiedere
+    // indietro la scatola, qui serve per capire se questa è la prima.
+    body: (_b, _f, giaCliente, linkRecensione) =>
+      `Il tuo bucato è stato consegnato. Grazie per aver scelto WashLoop — a presto!` +
+      (!giaCliente && linkRecensione
+        ? `<br/><br/>Era la tua prima volta con noi: se è andata bene, <strong><a href="${linkRecensione}">lasciaci una recensione su Google</a></strong> — bastano due righe e ci aiutano più di quanto immagini. Se invece qualcosa non è andato, <a href="mailto:info@washloop.it">scrivici</a>: preferiamo saperlo noi.`
+        : ""),
     push: "Bucato consegnato 👋 Grazie!",
   },
 };
@@ -151,17 +178,47 @@ export async function notifyOrderStatus(orderId: string, status: OrderStatus) {
     const ds = Array.isArray(rel) ? rel[0] : rel;
     const fascia = ds ? fmtSlot(ds.starts_at, ds.ends_at) : "";
 
-    // Ha già ricevuto almeno una consegna? Serve al promemoria della scatola:
-    // chiederla a chi non l'ha mai avuta è una richiesta impossibile da
-    // soddisfare. Si guarda solo dove serve, cioè alla prenotazione del ritiro.
+    // Ha già ricevuto almeno una consegna? Serve a due cose diverse, e in due
+    // momenti diversi:
+    //
+    // - al **ritiro**, per il promemoria della scatola: chiederla a chi non
+    //   l'ha mai avuta è una richiesta impossibile da soddisfare;
+    // - alla **consegna**, per sapere se è la prima — ed è l'unica volta in
+    //   cui si chiede una recensione.
+    //
+    // Sulla consegna il conteggio esclude l'ordine in corso: quando questa
+    // funzione gira, lo stato `delivered` è già scritto, quindi senza il
+    // `.neq` la prima consegna risulterebbe la seconda e non si chiederebbe
+    // mai niente a nessuno.
     let giaCliente = false;
-    if (status === "pickup_scheduled" && order.customer_id) {
-      const { count } = await svc
+    if ((status === "pickup_scheduled" || status === "delivered") && order.customer_id) {
+      let q = svc
         .from("orders")
         .select("id", { count: "exact", head: true })
         .eq("customer_id", order.customer_id)
         .in("status", ["delivered", "completed"]);
+      if (status === "delivered") q = q.neq("id", orderId);
+      const { count } = await q;
       giaCliente = (count ?? 0) > 0;
+    }
+
+    // Il link della recensione, e il segno che l'abbiamo chiesta.
+    //
+    // Si scrive PRIMA di mandare l'email, con un update condizionale su
+    // `is null`: se due consegne vengono chiuse nello stesso istante — succede,
+    // il rider preme due volte — solo una delle due scrive, e solo quella
+    // manda l'invito. Il contrario (prima mando, poi segno) è il modo in cui
+    // si chiede due volte la stessa cosa alla stessa persona.
+    let linkRecensione: string | null = null;
+    if (status === "delivered" && !giaCliente && order.customer_id && LINK_RECENSIONE) {
+      const { data: segnato } = await svc
+        .from("profiles")
+        .update({ recensione_chiesta_at: new Date().toISOString() })
+        .eq("id", order.customer_id)
+        .is("recensione_chiesta_at", null)
+        .select("id")
+        .maybeSingle<{ id: string }>();
+      if (segnato) linkRecensione = LINK_RECENSIONE;
     }
 
     // ---- Cliente: email + push ----
@@ -170,7 +227,7 @@ export async function notifyOrderStatus(orderId: string, status: OrderStatus) {
       if (email) {
         const html = renderEmail({
           title: cust.title,
-          body: cust.body(order.bags ?? 1, fascia, giaCliente),
+          body: cust.body(order.bags ?? 1, fascia, giaCliente, linkRecensione),
           emoji: cust.emoji,
           preheader: cust.preheader,
           cta: { label: "Vedi i dettagli", href: `${site()}/app/ordini/${orderId}` },
