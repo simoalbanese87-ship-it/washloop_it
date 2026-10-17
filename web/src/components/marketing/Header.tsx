@@ -16,7 +16,7 @@ import { MobileMenu } from "@/components/marketing/MobileMenu";
  *  vedeva solo dentro l'onboarding, cioè dopo aver deciso di registrarsi — ed è
  *  la prima cosa che si cerca *prima* di decidere. */
 const nav = [
-  { href: "/#come-funziona", label: "Come funziona" },
+  { href: "/come-funziona", label: "Come funziona" },
   { href: "/prezzi", label: "Prezzi" },
   { href: "/#richiesta", label: "Verifica il tuo CAP" },
 ];

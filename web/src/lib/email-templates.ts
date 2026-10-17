@@ -60,10 +60,18 @@ export function welcomeEmailHtml(d: WelcomeEmailData): string {
                 Per sicurezza, dopo il primo accesso cambia la password dal tuo profilo (o usa «Password dimenticata?»).
               </p>
             </td></tr>
-            <tr><td style="padding:14px 36px 32px">
+            <tr><td style="padding:14px 36px 12px">
               <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:40px;background:#0B1F3A">
                 <a href="${site}/login" style="display:inline-block;padding:15px 32px;font-family:'Nunito',Arial,sans-serif;font-size:15px;font-weight:800;color:#7FE3D6;text-decoration:none;border-radius:40px">Accedi a WashLoop &nbsp;&rarr;</a>
               </td></tr></table>
+            </td></tr>
+            <!-- Il percorso completo, per chi si è appena abbonato e non sa
+                 ancora cosa succede adesso: è la domanda che arriva il giorno
+                 dopo, e la risposta sta tutta in una pagina. -->
+            <tr><td style="padding:0 36px 32px">
+              <p style="margin:0;font-size:14px;line-height:1.7;color:#4A5C70;font-family:Arial,sans-serif">
+                Prima volta con noi? <a href="${site}/come-funziona" style="color:#2D7DD2;font-weight:700;text-decoration:none">Come funziona, passo per passo &rarr;</a>
+              </p>
             </td></tr>
           </table>
         </td></tr>

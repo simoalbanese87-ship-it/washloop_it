@@ -21,6 +21,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     // I prezzi cambiano più spesso delle due pagine di servizio, e la pagina li
     // legge dal database: quando cambiano in pannello, cambia anche qui.
     { url: `${base}/prezzi`, changeFrequency: "weekly", priority: 0.9, lastModified: aggiornato },
+    // «Come funziona», dal 17 ottobre 2026: è la pagina che si manda a chi
+    // chiede, e intercetta chi cerca di capire prima di decidere. Priorità
+    // alta quanto le due di servizio, perché risponde a una domanda diversa
+    // dalle loro e non gli toglie posizioni.
+    { url: `${base}/come-funziona`, changeFrequency: "monthly", priority: 0.9, lastModified: new Date("2026-10-17") },
     // «Porta un amico»: la regola scritta per intero, per chi la cerca da fuori.
     // `/invita/[codice]` resta fuori dall'indice ed è voluto — parla di una
     // persona precisa e non ha senso in un motore di ricerca.
