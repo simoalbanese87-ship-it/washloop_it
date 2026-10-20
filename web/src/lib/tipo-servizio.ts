@@ -45,3 +45,24 @@ export function tipoServizioDaForm(v: unknown): TipoServizio | null {
   if (v === "" || v == null) return null;
   return isTipoServizio(v) ? v : null;
 }
+
+/** Il servizio che fa una sede, detto con le parole del cliente.
+ *
+ *  Lato rider il servizio non si legge in anagrafica: si deduce da **dove va
+ *  quel sacco**, cioè dalla lavanderia dell'ordine (`lavanderia.ts`, che
+ *  risponde `"lavanderia" | "stiro"`). Sono due nomi per lo stesso fatto, e
+ *  finché erano due anche le etichette e i colori il rider vedeva ambra dove
+ *  l'ops vedeva viola — con l'aggravante che nell'app del rider l'ambra
+ *  significa già «in ritardo».
+ *
+ *  Qui si traduce, una volta sola, così che etichetta e colore restino quelli
+ *  di `TIPO_SERVIZIO_LABEL` e `TIPO_SERVIZIO_TONO`: una cosa da ricordare
+ *  invece di due.
+ *
+ *  La sede generale fa lavaggio **e** stiro — «lavanderia» è il nome del posto,
+ *  non del servizio — quindi diventa `lava_stira` e non `solo_lavanderia`. */
+export function tipoServizioDellaSede(servizio: "lavanderia" | "stiro" | null | undefined): TipoServizio | null {
+  if (servizio === "stiro") return "solo_stiro";
+  if (servizio === "lavanderia") return "lava_stira";
+  return null;
+}

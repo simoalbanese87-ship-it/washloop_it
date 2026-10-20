@@ -6,6 +6,8 @@ import { RiderMapLoader } from "@/components/app/RiderMapLoader";
 import type { Stop, Depot, Punto, Servizio } from "@/components/app/RiderMap";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { puntiLavanderia } from "@/lib/lavanderia";
+import { TIPO_SERVIZIO_LABEL, TIPO_SERVIZIO_TONO, tipoServizioDellaSede } from "@/lib/tipo-servizio";
+import { nomeBreveLavanderia } from "@/lib/nome-lavanderia";
 import { getCurrentProfile } from "@/lib/auth";
 import { fmtSlot, entroOggiRoma, fineGiornataRomaMs } from "@/lib/format";
 import { AZIONABILI, IN_LAVORAZIONE, daCaricareOggi } from "@/lib/consegne-da-caricare";
@@ -50,10 +52,13 @@ function toJob(r: Row, kind: "pickup" | "delivery", servizio: Servizio | null): 
     when: fmt(kind === "pickup" ? r.pickup_slot : r.delivery_slot),
     accessMode: (r.addresses?.access_mode ?? "door") as AccessMode,
     accessNote: r.addresses?.access_note ?? null,
-    // Solo sui ritiri: su una consegna il sacco torna al cliente, e da dove
-    // viene non gli serve.
-    laundry: kind === "pickup" ? uno(r.laundries)?.name ?? null : null,
-    servizio: kind === "pickup" ? servizio : null,
+    // Anche sulle consegne, da ottobre 2026.
+    //
+    // Prima erano azzerate: «su una consegna il sacco torna al cliente, e da
+    // dove viene non gli serve». Vero per il cliente, falso per il rider —
+    // che i sacchi puliti li carica, e con due sedi deve sapere da quale.
+    laundry: uno(r.laundries)?.name ?? null,
+    servizio,
   };
 }
 
@@ -192,6 +197,20 @@ export default async function CourierToday() {
   }));
   const daScaricare = punti.filter((p) => p.sacchi > 0);
 
+  // Il giro misto, detto prima di tutto il resto.
+  //
+  // Con due destinazioni una giornata può contenere fermate dei due giri, e
+  // finora l'unico modo di accorgersene era leggere la ragione sociale su ogni
+  // riga. Qui si conta: se i giri sono due lo si scrive in cima, se è uno solo
+  // non si scrive niente — un conteggio che dice sempre la stessa cosa è
+  // rumore.
+  const perGiro = new Map<Servizio, number>();
+  for (const r of rows) {
+    const s = servizioDi(r);
+    if (s) perGiro.set(s, (perGiro.get(s) ?? 0) + 1);
+  }
+  const misto = perGiro.size > 1;
+
   const pickups = rows.filter((r) => r.status === "pickup_scheduled");
   const deliveries = rows.filter((r) => r.status !== "pickup_scheduled");
 
@@ -203,8 +222,24 @@ export default async function CourierToday() {
       <PageTitle
         kicker="Il tuo giro"
         title="Oggi"
-        sub={`${pickups.length} ritiri · ${deliveries.length} consegne${compiti.length > 0 ? ` · ${compiti.length} ${compiti.length === 1 ? "compito" : "compiti"}` : ""}${daCaricare.length > 0 ? ` · ${daCaricare.length} da caricare` : ""}${piuAvanti > 0 ? ` · ${piuAvanti} ${piuAvanti === 1 ? "fermata" : "fermate"} nei prossimi giorni, non ${piuAvanti === 1 ? "è" : "sono"} da fare oggi` : ""}`}
+        sub={`${pickups.length} ritiri · ${deliveries.length} consegne${misto ? " · giro misto" : ""}${compiti.length > 0 ? ` · ${compiti.length} ${compiti.length === 1 ? "compito" : "compiti"}` : ""}${daCaricare.length > 0 ? ` · ${daCaricare.length} da caricare` : ""}${piuAvanti > 0 ? ` · ${piuAvanti} ${piuAvanti === 1 ? "fermata" : "fermate"} nei prossimi giorni, non ${piuAvanti === 1 ? "è" : "sono"} da fare oggi` : ""}`}
       />
+
+      {misto && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {[...perGiro.entries()].map(([s, n]) => (
+            <span
+              key={s}
+              className={`rounded-full px-3 py-1 font-display text-xs font-extrabold ${TIPO_SERVIZIO_TONO[tipoServizioDellaSede(s)!]}`}
+            >
+              {n} {TIPO_SERVIZIO_LABEL[tipoServizioDellaSede(s)!].toLowerCase()}
+            </span>
+          ))}
+          <span className="text-xs font-medium text-muted">
+            I sacchi vanno in due posti diversi: guarda il colore su ogni fermata.
+          </span>
+        </div>
+      )}
 
       {compiti.length > 0 && (
         <section className="mb-6">
@@ -298,11 +333,11 @@ export default async function CourierToday() {
                 <span className="font-display font-bold text-navy">
                   <i
                     className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full align-middle"
-                    style={{ background: p.servizio === "stiro" ? "#C9881F" : "#2b7fd4" }}
+                    style={{ background: p.servizio === "stiro" ? "#7A4FBF" : "#2b7fd4" }}
                   />
-                  {p.nome}
+                  {nomeBreveLavanderia(p.nome)}
                   <span className="ml-1.5 font-medium text-muted">
-                    {p.servizio === "stiro" ? "solo stiro" : "lavanderia"}
+                    {TIPO_SERVIZIO_LABEL[tipoServizioDellaSede(p.servizio)!].toLowerCase()}
                   </span>
                 </span>
                 <span className="font-medium text-muted">

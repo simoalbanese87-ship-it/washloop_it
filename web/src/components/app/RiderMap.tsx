@@ -60,10 +60,19 @@ export type Punto = {
 
 export type Depot = { lat: number; lng: number } | null;
 
-const COLORE: Record<Servizio, string> = { lavanderia: "#2b7fd4", stiro: "#C9881F" };
-/** Fermate di cui non sappiamo la destinazione: esistono, e vanno viste. */
-const SENZA = "#7A4FBF";
-const ETICHETTA: Record<Servizio, string> = { lavanderia: "Lavanderia", stiro: "Solo stiro" };
+/** Gli stessi colori del pannello (`lib/tipo-servizio.ts`): blu la lavanderia,
+ *  viola il solo stiro.
+ *
+ *  Erano blu e ambra. Due guai in uno: l'ops vedeva viola dove il rider vedeva
+ *  ambra — due colori per lo stesso fatto — e nell'app del rider l'ambra è già
+ *  il colore di «in ritardo», «senza fascia», «senza posizione». Una fermata
+ *  di solo stiro, puntuale e geolocalizzata, aveva addosso il colore dei
+ *  problemi. */
+const COLORE: Record<Servizio, string> = { lavanderia: "#2b7fd4", stiro: "#7A4FBF" };
+/** Fermate di cui non sappiamo la destinazione: esistono e vanno viste, ma in
+ *  grigio — è il modo in cui tutto il prodotto dice «non lo so». */
+const SENZA = "#6B7A99";
+const ETICHETTA: Record<Servizio, string> = { lavanderia: "Lava e stira", stiro: "Solo stiro" };
 
 const coloreDi = (s: Servizio | null | undefined) => (s ? COLORE[s] : SENZA);
 
@@ -203,7 +212,7 @@ export default function RiderMap({
           stessa mappa bisogna poter leggere quale è quale senza indovinare. */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5 text-[11px] font-semibold text-muted">
         <span className="inline-flex items-center gap-1.5">
-          <i className="inline-block h-3 w-3 rounded-full" style={{ background: COLORE.lavanderia }} /> Lavanderia
+          <i className="inline-block h-3 w-3 rounded-full" style={{ background: COLORE.lavanderia }} /> Lava e stira
         </span>
         <span className="inline-flex items-center gap-1.5">
           <i className="inline-block h-3 w-3 rounded-full" style={{ background: COLORE.stiro }} /> Solo stiro

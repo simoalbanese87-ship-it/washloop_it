@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { RiderScanner } from "@/components/app/RiderScanner";
 import { ACCESS_MODE_LABEL, type OrderStatus, type AccessMode } from "@/lib/orders";
+import { TIPO_SERVIZIO_LABEL, TIPO_SERVIZIO_TONO, tipoServizioDellaSede } from "@/lib/tipo-servizio";
+import { nomeBreveLavanderia } from "@/lib/nome-lavanderia";
 
 export type Job = {
   id: string;
@@ -116,16 +118,28 @@ export function CourierJobCard({ job, n, kind }: { job: Job; n?: number; kind?: 
             {job.address} · {job.zone}
           </div>
           {job.when && <div className="mt-0.5 text-xs font-semibold text-blue">{job.when}</div>}
-          {job.laundry && (
-            <div
-              className="mt-1 inline-flex rounded-full px-2 py-0.5 font-display text-[11px] font-extrabold"
-              style={{
-                background: `${job.servizio === "stiro" ? "#C9881F" : "#2b7fd4"}1F`,
-                color: job.servizio === "stiro" ? "#C9881F" : "#2b7fd4",
-              }}
-            >
-              → {job.laundry}
-              {job.servizio === "stiro" ? " · solo stiro" : ""}
+          {/* Che lavoro è, e dove va quel sacco.
+              Prima c'era solo il secondo, scritto per esteso: «→ Centro
+              Pulitura Bergamo di Narisi Giuseppe & C. Snc», identico su ogni
+              fermata tranne che per il colore. In una giornata mista il rider
+              non aveva modo di vedere a colpo d'occhio quale sacco andava
+              dove. Ora il chip dice il servizio con le stesse parole e lo
+              stesso colore del pannello, e il nome della sede sta sotto,
+              accorciato come lo si dice a voce. */}
+          {tipoServizioDellaSede(job.servizio) && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded-full px-2 py-0.5 font-display text-[10px] font-extrabold uppercase tracking-wide ${
+                  TIPO_SERVIZIO_TONO[tipoServizioDellaSede(job.servizio)!]
+                }`}
+              >
+                {TIPO_SERVIZIO_LABEL[tipoServizioDellaSede(job.servizio)!]}
+              </span>
+              {job.laundry && (
+                <span className="font-display text-[11px] font-bold text-muted">
+                  {kind === "delivery" ? "← da" : "→"} {nomeBreveLavanderia(job.laundry)}
+                </span>
+              )}
             </div>
           )}
           </div>

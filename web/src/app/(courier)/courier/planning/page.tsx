@@ -4,6 +4,8 @@ import { RiderMapLoader } from "@/components/app/RiderMapLoader";
 import type { Stop, Depot, Punto, Servizio } from "@/components/app/RiderMap";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { puntiLavanderia } from "@/lib/lavanderia";
+import { TIPO_SERVIZIO_LABEL, TIPO_SERVIZIO_TONO, tipoServizioDellaSede } from "@/lib/tipo-servizio";
+import { nomeBreveLavanderia } from "@/lib/nome-lavanderia";
 import { getCurrentProfile } from "@/lib/auth";
 import { passaggiDellOrdine, type Passaggio } from "@/lib/planning-rider";
 import { primoGiornoDelGiro } from "@/lib/giro-del-giorno";
@@ -250,24 +252,22 @@ export default async function PlanningRider({
                 {/* Dove va quel sacco. Serve mentre si ritira, non alla fine:
                     con due lavanderie un sacco caricato senza saperlo torna
                     indietro. */}
-                {v.tipo === "ritiro" && uno(v.riga.laundries)?.name && (
-                  <span
-                    className="rounded-full px-2 py-0.5 font-display text-[11px] font-extrabold"
-                    style={(() => {
-                      // Stesso colore della mappa: blu la lavanderia, ambra il
-                      // solo stiro. Due codici diversi per la stessa cosa
-                      // sarebbero due cose da ricordare invece di una.
-                      const c = servizioDi(v.riga.laundry_id) === "stiro" ? "#C9881F" : "#2b7fd4";
-                      return { background: `${c}1F`, color: c };
-                    })()}
-                  >
-                    → {uno(v.riga.laundries)!.name}
-                  </span>
-                )}
+                {/* Che lavoro è, e dove va (o da dove viene) quel sacco.
+                    Il chip usa le parole e i colori del pannello; il nome
+                    della sede lo segue in piccolo, accorciato. Prima c'era
+                    solo la ragione sociale per esteso, uguale su ogni riga, e
+                    solo sui ritiri. */}
+                <ServizioFermata
+                  servizio={servizioDi(v.riga.laundry_id)}
+                  sede={uno(v.riga.laundries)?.name ?? null}
+                  verso={v.tipo === "ritiro" ? "va" : "viene"}
+                />
               </li>
             ))}
             {daScaricare.map((p) => {
-              const c = p.servizio === "stiro" ? "#C9881F" : "#2b7fd4";
+              // Stesso viola del pannello e della mappa: l'ambra qui dentro
+              // significa «in ritardo», e uno scarico non è un problema.
+              const c = p.servizio === "stiro" ? "#7A4FBF" : "#2b7fd4";
               return (
                 <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
                   <span
@@ -376,6 +376,14 @@ export default async function PlanningRider({
                           {v.riga.bags} {v.riga.bags === 1 ? "sacco" : "sacchi"} · {v.riga.addresses?.zones?.name ?? "—"} ·{" "}
                           {v.riga.addresses?.street ?? "—"}
                         </span>
+                        {/* Anche qui: organizzarsi la settimana vuol dire
+                            sapere quanti giri si attraversano, non solo
+                            quante fermate ci sono. */}
+                        <ServizioFermata
+                          servizio={servizioDi(v.riga.laundry_id)}
+                          sede={uno(v.riga.laundries)?.name ?? null}
+                          verso={v.tipo === "ritiro" ? "va" : "viene"}
+                        />
                         {!v.confermato && (
                           <span className="rounded-full border border-[#C9881F]/35 px-2.5 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-wide text-[#C9881F]">
                             prevista
@@ -397,5 +405,37 @@ export default async function PlanningRider({
         <Link href="/courier" className="font-bold text-blue hover:underline">Oggi</Link>.
       </p>
     </>
+  );
+}
+
+/** Il chip del servizio di una fermata, con il nome della sede accanto.
+ *
+ *  Uno solo per tutte e due le liste di questa pagina: scriverlo due volte
+ *  vorrebbe dire vederlo cambiare in una sola delle due, che è il modo in cui
+ *  due schermate cominciano a raccontare cose diverse. */
+function ServizioFermata({
+  servizio,
+  sede,
+  verso,
+}: {
+  servizio: Servizio | null;
+  sede: string | null;
+  verso: "va" | "viene";
+}) {
+  const tipo = tipoServizioDellaSede(servizio);
+  if (!tipo) return null;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className={`rounded-full px-2 py-0.5 font-display text-[10px] font-extrabold uppercase tracking-wide ${TIPO_SERVIZIO_TONO[tipo]}`}
+      >
+        {TIPO_SERVIZIO_LABEL[tipo]}
+      </span>
+      {sede && (
+        <span className="font-display text-[11px] font-bold text-muted">
+          {verso === "va" ? "→" : "← da"} {nomeBreveLavanderia(sede)}
+        </span>
+      )}
+    </span>
   );
 }
