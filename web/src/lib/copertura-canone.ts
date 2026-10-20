@@ -19,6 +19,15 @@ import type { CanoneStorico } from "@/lib/conto-settimanale";
 export type SubCopertura = {
   user_id: string;
   status: string;
+  /** Abbonamento segnato a mano dal pannello, senza Stripe dietro. */
+  manual?: boolean | null;
+  /** Quanti incassi risultano registrati per quel cliente.
+   *
+   *  Serve solo ai manuali, e serve per una ragione precisa: su un
+   *  abbonamento Stripe `activated_at` arriva **dopo** che i soldi sono
+   *  arrivati, su uno manuale lo scrive una persona che preme «Conferma
+   *  pagamento». Le due cose si somigliano e non sono la stessa. */
+  incassiRegistrati?: number | null;
   created_at: string;
   activated_at?: string | null;
   canceled_at?: string | null;
@@ -42,6 +51,24 @@ export function coperturaDelCanone(s: SubCopertura, oggiIso: string): CanoneStor
   // un checkout aperto e abbandonato — mentre `activated_at` è la prima volta
   // che Stripe ha incassato.
   if ((s.status === "incomplete" || s.status === "incomplete_expired") && !s.activated_at) return null;
+
+  // Un abbonamento **manuale** senza nessun incasso registrato non copre
+  // niente.
+  //
+  // Emanuela Dini, 12 ottobre 2026: abbonamento manuale a 50 € al mese,
+  // segnato attivo dal pannello, disdetto otto giorni dopo, zero righe in
+  // `invoices`. Con la sola `activated_at` produceva 25,00 € di ricavi — per
+  // un servizio che nessuno ha pagato.
+  //
+  // Vale solo per i manuali: su Stripe l'attivazione arriva dopo l'incasso, e
+  // pretendere anche lì una riga in `invoices` toglierebbe ricavi veri ogni
+  // volta che il registro resta indietro rispetto a Stripe.
+  //
+  // Il contro, da sapere: un cliente manuale che paga in contanti e di cui non
+  // registriamo l'incasso non compare. Giusto così — quell'incasso oggi non
+  // esiste da nessuna parte, e un ricavo dedotto dal nulla è peggio di un
+  // ricavo mancante. Si registra il pagamento, e ricompare.
+  if (s.manual && !(s.incassiRegistrati && s.incassiRegistrati > 0)) return null;
 
   // L'inizio: il primo giorno in cui quel canone è in vigore **ed è pagato**.
   //

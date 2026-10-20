@@ -5,6 +5,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { scorpora } from "@/lib/iva";
 import { coperturaDelCanone } from "@/lib/copertura-canone";
 import { eRicavoDiCompetenza } from "@/lib/categoria-addebito";
+import { escludiDaCompetenza, rimettiInCompetenza } from "@/lib/actions/competenza";
+import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { sacchiInLavorazione } from "@/lib/sacchi-in-lavorazione";
 import {
   lunediDi,
@@ -67,6 +69,7 @@ const meseVicino = (mese: string, passo: number) => {
 type Sub = {
   user_id: string;
   status: string;
+  manual: boolean | null;
   custom_price_cents: number | null;
   created_at: string;
   activated_at: string | null;
@@ -76,7 +79,10 @@ type Sub = {
   prova_fine_at: string | null;
   termina_dopo_settimane: number | null;
   plans: { price_month_cents: number } | { price_month_cents: number }[] | null;
-  profiles: { full_name: string | null; is_test: boolean } | { full_name: string | null; is_test: boolean }[] | null;
+  profiles:
+    | { full_name: string | null; is_test: boolean; competenza_escluso_at: string | null; competenza_escluso_motivo: string | null }
+    | { full_name: string | null; is_test: boolean; competenza_escluso_at: string | null; competenza_escluso_motivo: string | null }[]
+    | null;
 };
 type Ordine = {
   id: string;
@@ -102,12 +108,14 @@ type Extra = {
 export default async function Competenza({
   searchParams,
 }: {
-  searchParams: Promise<{ mese?: string | string[]; prova?: string | string[] }>;
+  searchParams: Promise<{ mese?: string | string[]; prova?: string | string[]; ok?: string; warn?: string }>;
 }) {
   const sp = await searchParams;
   const grezzo = Array.isArray(sp.mese) ? sp.mese[0] : sp.mese;
   const mese = /^\d{4}-\d{2}$/.test(grezzo ?? "") ? grezzo! : meseOggi();
   const includiProva = (Array.isArray(sp.prova) ? sp.prova[0] : sp.prova) === "1";
+  const ok = typeof sp.ok === "string" ? sp.ok : null;
+  const warn = typeof sp.warn === "string" ? sp.warn : null;
 
   const svc = createServiceClient();
   const [a, m] = mese.split("-").map(Number);
@@ -120,7 +128,7 @@ export default async function Competenza({
     // canone — è il motivo per cui il venerdì tolto a ottobre non crea colonne.
     svc.from("slots").select("starts_at").eq("kind", "pickup").is("archived_at", null).gte("starts_at", dal).lt("starts_at", al)
       .returns<{ starts_at: string }[]>(),
-    svc.from("subscriptions").select("user_id, status, custom_price_cents, created_at, activated_at, canceled_at, cancel_at_period_end, current_period_end, prova_fine_at, termina_dopo_settimane, plans(price_month_cents), profiles(full_name, is_test)")
+    svc.from("subscriptions").select("user_id, status, manual, custom_price_cents, created_at, activated_at, canceled_at, cancel_at_period_end, current_period_end, prova_fine_at, termina_dopo_settimane, plans(price_month_cents), profiles(full_name, is_test, competenza_escluso_at, competenza_escluso_motivo)")
       .order("created_at", { ascending: true }).returns<Sub[]>(),
     svc.from("orders").select("id, customer_id, status, bags, bags_arrivati, created_at, laundry_id, laundries(bag_comp_cents), pickup:slots!orders_pickup_slot_id_fkey(starts_at), profiles!orders_customer_id_fkey(is_test)")
       .neq("status", "cancelled").returns<Ordine[]>(),
@@ -150,12 +158,34 @@ export default async function Competenza({
 
   // Lo storico dei canoni: più righe per cliente quando ha cambiato piano, così
   // una settimana prima del cambio vale il prezzo di allora.
+  // Quanti incassi risultano registrati per ciascun cliente. Serve ai soli
+  // abbonamenti **manuali**: lì «attivo» lo scrive una persona che preme
+  // «Conferma pagamento», e non è la stessa cosa che i soldi siano arrivati.
+  const { data: incassiRighe } = await svc
+    .from("invoices")
+    .select("user_id")
+    .returns<{ user_id: string | null }[]>();
+  const incassiDi = new Map<string, number>();
+  for (const i of incassiRighe ?? []) {
+    if (i.user_id) incassiDi.set(i.user_id, (incassiDi.get(i.user_id) ?? 0) + 1);
+  }
+
   const canoni: CanoneStorico[] = [];
   const nomi = new Map<string, string>();
+  // Chi è stato tolto dal conto a mano, con il suo motivo: resta visibile in
+  // fondo alla pagina, non sparisce.
+  const esclusi = new Map<string, string>();
+  const nomiEsclusi = new Map<string, string>();
   const adesso = new Date().toISOString();
   for (const s of subs ?? []) {
     const prof = uno(s.profiles);
     if (!includiProva && prof?.is_test) continue;
+    if (prof?.competenza_escluso_at) {
+      esclusi.set(s.user_id, prof.competenza_escluso_motivo ?? "senza motivo");
+      // Il nome serve comunque, per poterlo nominare nel blocco in fondo.
+      nomiEsclusi.set(s.user_id, prof.full_name ?? "Cliente");
+      continue;
+    }
     const piano = uno(s.plans);
     // Da quando a quando quell'abbonamento copre, con tutte le distinzioni che
     // non stanno in una riga: prova gratuita, disdetta chiesta contro disdetta
@@ -163,7 +193,11 @@ export default async function Competenza({
     // test — da quando la quota matura anche senza ritiri, un abbonamento
     // contato male diventa un ricavo che non esiste.
     const copertura = coperturaDelCanone(
-      { ...s, prezzoPianoCents: piano?.price_month_cents ?? null },
+      {
+        ...s,
+        prezzoPianoCents: piano?.price_month_cents ?? null,
+        incassiRegistrati: incassiDi.get(s.user_id) ?? 0,
+      },
       adesso,
     );
     nomi.set(s.user_id, prof?.full_name ?? "Cliente");
@@ -257,6 +291,9 @@ export default async function Competenza({
         title="Guadagno per settimana"
         sub={`${etichettaMese(mese)} · ${settimane.length} ${settimane.length === 1 ? "settimana di servizio" : "settimane di servizio"} · ${righe.length} ${righe.length === 1 ? "cliente" : "clienti"}`}
       />
+
+      {ok && <div className="mb-4 rounded-[14px] bg-[#1F8A5B]/10 px-4 py-3 text-sm font-semibold text-[#1F8A5B]">{ok}</div>}
+      {warn && <div className="mb-4 rounded-[14px] bg-[#C9881F]/12 px-4 py-3 text-sm font-semibold text-[#C9881F]">{warn}</div>}
 
       <Card className="mb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -410,6 +447,68 @@ export default async function Competenza({
           })}
         </>
       )}
+
+      {/* Chi sta fuori dal conto, e perché.
+          Un cliente tolto di nascosto è un buco nel totale; tolto e scritto è
+          una decisione. Qui si vede chi è fuori, per quale ragione, e si
+          rimette dentro con un clic. */}
+      <Card className="mt-6">
+        <h2 className="font-display text-sm font-extrabold text-navy">Fuori dal conto</h2>
+        {esclusi.size === 0 ? (
+          <p className="mt-1 text-sm font-medium text-muted">
+            Nessuno: tutti i clienti entrano nei numeri qui sopra.
+          </p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {[...esclusi.entries()].map(([id, motivo]) => (
+              <li key={id} className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line/60 pb-2 text-sm last:border-0">
+                <span>
+                  <Link href={`/admin/abbonati/${id}`} className="font-semibold text-navy hover:underline">
+                    {nomiEsclusi.get(id) ?? "Cliente"}
+                  </Link>
+                  <span className="ml-2 font-medium text-muted">{motivo}</span>
+                </span>
+                <form action={rimettiInCompetenza}>
+                  <input type="hidden" name="cliente_id" value={id} />
+                  <input type="hidden" name="back" value={`/admin/competenza?mese=${mese}`} />
+                  <BottoneInvio attesa="Rimetto…" className="font-display text-xs font-bold text-blue hover:underline">
+                    Rimetti nel conto
+                  </BottoneInvio>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form action={escludiDaCompetenza} className="mt-4 flex flex-wrap items-center gap-2">
+          <input type="hidden" name="back" value={`/admin/competenza?mese=${mese}`} />
+          <select
+            name="cliente_id"
+            aria-label="Chi togliere dal conto"
+            className="h-9 max-w-[220px] rounded-[10px] border border-line bg-white px-2 text-sm font-semibold text-navy"
+          >
+            <option value="">Chi togliere…</option>
+            {[...nomi.entries()].map(([id, nome]) => (
+              <option key={id} value={id}>
+                {nome}
+              </option>
+            ))}
+          </select>
+          <input
+            name="motivo"
+            placeholder="Perché (es. mai pagato, da stralciare)"
+            maxLength={300}
+            className="h-9 w-[280px] max-w-full rounded-[10px] border border-line bg-white px-3 text-sm font-medium text-navy"
+          />
+          <BottoneInvio attesa="Tolgo…" className="rounded-full border-2 border-navy/20 px-3.5 py-1.5 font-display text-xs font-bold text-navy">
+            Togli dal conto
+          </BottoneInvio>
+        </form>
+        <p className="mt-2 text-[11px] font-medium text-muted">
+          Non cancella niente: il cliente resta con i suoi ordini e i suoi incassi, e smette solo di contare in
+          questa pagina. Il motivo serve a te fra sei mesi.
+        </p>
+      </Card>
     </>
   );
 }

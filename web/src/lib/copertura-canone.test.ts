@@ -101,3 +101,25 @@ test("una fine prima dell'inizio non è una copertura", () => {
     null,
   );
 });
+
+test("un abbonamento manuale mai incassato non produce ricavi", () => {
+  // Emanuela Dini: manuale a 50 €/mese, segnato attivo dal pannello il 12
+  // ottobre, disdetto otto giorni dopo, zero righe in `invoices`.
+  const manuale: SubCopertura = {
+    ...base,
+    manual: true,
+    incassiRegistrati: 0,
+    custom_price_cents: 5000,
+    status: "canceled",
+    cancel_at_period_end: false,
+    canceled_at: "2026-10-20T10:00:00.000Z",
+  };
+  assert.equal(coperturaDelCanone(manuale, OGGI), null);
+  // Con un incasso registrato torna a contare: ha pagato.
+  assert.ok(coperturaDelCanone({ ...manuale, incassiRegistrati: 1 }, OGGI));
+});
+
+test("su Stripe l'attivazione basta: l'incasso c'è stato anche se il registro è indietro", () => {
+  const stripe = coperturaDelCanone({ ...base, manual: false, incassiRegistrati: 0 }, OGGI);
+  assert.ok(stripe, "un abbonamento Stripe attivo copre anche senza righe in invoices");
+});
