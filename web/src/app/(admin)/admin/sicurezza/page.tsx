@@ -136,7 +136,31 @@ export default async function SicurezzaPage() {
   // sono configurati e quanto è stato incassato davvero. Le chiavi ce le ha il
   // server, non chi legge questa pagina — ed è l'unico posto da cui la domanda
   // può ricevere una risposta invece di un'ipotesi.
-  const [stato, metodi, clausola] = await Promise.all([statoStripe(), metodiOffertiDaStripe(), statoClausolaRider(svc)]);
+  const [stato, metodi, clausola, { data: abbonamentiVivi }] = await Promise.all([
+    statoStripe(),
+    metodiOffertiDaStripe(),
+    statoClausolaRider(svc),
+    // Un cliente alla volta ha un abbonamento attivo: è l'assunzione su cui
+    // poggiano il saldo dei capi compresi (che legge il più recente) e il
+    // conto di Competenza (che li guarda tutti). Finché è vera i due numeri
+    // coincidono; se un giorno smette di esserlo, divergono in silenzio — ed è
+    // esattamente il tipo di cosa che si scopre da un importo sbagliato tre
+    // mesi dopo. Qui si legge, invece di darla per buona.
+    svc
+      .from("subscriptions")
+      .select("user_id, profiles(full_name, is_test)")
+      .in("status", ["active", "trialing"])
+      .returns<{ user_id: string; profiles: { full_name: string | null; is_test: boolean } | { full_name: string | null; is_test: boolean }[] | null }[]>(),
+  ]);
+
+  const quantiAttivi = new Map<string, { nome: string; n: number }>();
+  for (const a of abbonamentiVivi ?? []) {
+    const prof = Array.isArray(a.profiles) ? a.profiles[0] : a.profiles;
+    if (prof?.is_test) continue;
+    const gia = quantiAttivi.get(a.user_id);
+    quantiAttivi.set(a.user_id, { nome: prof?.full_name ?? "Cliente", n: (gia?.n ?? 0) + 1 });
+  }
+  const doppioni = [...quantiAttivi.values()].filter((x) => x.n > 1);
 
   const senzaRider = (zoneAttive.data ?? []).filter((z) => !z.courier_id).map((z) => z.name);
   const lavIncomplete = (lavanderie.data ?? []).filter((l) => !l.address || !l.email);
@@ -227,6 +251,14 @@ export default async function SicurezzaPage() {
       label: "Rider messo in automatico alla creazione (clausola momentanea)",
       status: clausola.attiva ? "ok" : "warn",
       detail: clausola.motivo,
+    },
+    {
+      label: "Un abbonamento attivo per cliente",
+      status: doppioni.length === 0 ? "ok" : "fail",
+      detail:
+        doppioni.length === 0
+          ? "Nessun cliente ha due abbonamenti attivi insieme: i capi compresi e il conto di Competenza leggono lo stesso canone."
+          : `${doppioni.map((d) => `${d.nome} (${d.n})`).join(", ")}: con due abbonamenti attivi, i capi compresi leggono il più recente e Competenza li guarda tutti. Disdici quello vecchio.`,
     },
     {
       label: "Rider assegnato alle zone attive",
