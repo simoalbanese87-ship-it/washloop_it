@@ -16,7 +16,7 @@ import { CompitoCard } from "@/components/app/CompitoCard";
 import { StatoNotifiche } from "@/components/app/StatoNotifiche";
 import { compitiDaFare } from "@/lib/compiti-sync";
 import { ORDER_STATUS_LABEL } from "@/lib/orders";
-import { optimizeOrder, partenzaDelGiro } from "@/lib/route";
+import { optimizeOrder, partenzaDelGiro, fuoriBlocco } from "@/lib/route";
 import type { OrderStatus, AccessMode } from "@/lib/orders";
 
 type Row = {
@@ -156,6 +156,12 @@ export default async function CourierToday() {
   const nomeSede = (r: Row): string | null =>
     sedi.find((x) => x.id === r.laundry_id)?.nome ?? uno(r.laundries)?.name ?? null;
 
+  // Prima le riconsegne, poi i ritiri: è come si carica il furgone, non una
+  // preferenza grafica. Si parte dalla lavanderia col pulito, si consegna, e
+  // solo dopo si comincia a riempire di sporco — alternandoli, a fine giro
+  // nessuno sa più cosa c'è dentro e cosa va scaricato.
+  const faseDi = (r: Row): number => (kindOf(r) === "delivery" ? 0 : 1);
+
   const order = optimizeOrder(
     partenza,
     geo.map((r) => ({
@@ -163,10 +169,20 @@ export default async function CourierToday() {
       lng: r.addresses!.lng!,
       deadlineMs: slotOf(r)?.ends_at ? Date.parse(slotOf(r)!.ends_at) : null,
       gruppo: r.laundry_id,
+      fase: faseDi(r),
     })),
   );
   const geoOrdered = order.map((i) => geo[i]);
   const routeRows = [...geoOrdered, ...noGeo];
+  // Chi è stato servito fuori dal suo blocco perché aveva un'ora promessa:
+  // va scritto accanto alla fermata, o il giro sembra sbagliato.
+  const scavalca = fuoriBlocco(geoOrdered.map(faseDi));
+  const fuoriBloccoDi = new Map(geoOrdered.map((r, i) => [r.id, scavalca[i]]));
+  // Il numero di visita di ogni fermata: la numerazione resta una sola anche
+  // se l'elenco si legge in due blocchi.
+  const numeroDi = new Map(routeRows.map((r, i) => [r.id, i + 1]));
+  const riconsegneDelGiro = routeRows.filter((r) => kindOf(r) === "delivery");
+  const ritiriDelGiro = routeRows.filter((r) => kindOf(r) === "pickup");
 
   // Fermate mappa (numerate nell'ordine di visita).
   const stops: Stop[] = geoOrdered.map((r, i) => ({
@@ -364,10 +380,56 @@ export default async function CourierToday() {
       )}
 
       {routeRows.length > 0 ? (
-        <div className="space-y-3">
-          {routeRows.map((r, i) => (
-            <CourierJobCard key={r.id} job={toJob(r, kindOf(r), servizioDi(r))} n={i + 1} kind={kindOf(r)} />
-          ))}
+        /* Due blocchi, una numerazione sola.
+           Riconsegne prima, ritiri dopo: è l'ordine in cui si carica il
+           furgone, e con tutte e due le cose nello stesso giorno è quello che
+           decide da dove si parte. I numeri restano quelli del percorso — chi
+           ha un'ora promessa passa avanti lo stesso, e la sua scheda lo dice —
+           così il rider segue i numeri e legge i blocchi. */
+        <div className="space-y-6">
+          {riconsegneDelGiro.length > 0 && (
+            <section className="space-y-3">
+              {ritiriDelGiro.length > 0 && (
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="font-display text-sm font-extrabold uppercase tracking-wide text-[#1F8A5B]">
+                    Prima le riconsegne ({riconsegneDelGiro.length})
+                  </h3>
+                  <span className="text-xs font-medium text-muted">Parti con il pulito caricato.</span>
+                </div>
+              )}
+              {riconsegneDelGiro.map((r) => (
+                <CourierJobCard
+                  key={r.id}
+                  job={toJob(r, kindOf(r), servizioDi(r))}
+                  n={numeroDi.get(r.id)}
+                  kind={kindOf(r)}
+                  fuoriBlocco={fuoriBloccoDi.get(r.id) ?? false}
+                />
+              ))}
+            </section>
+          )}
+
+          {ritiriDelGiro.length > 0 && (
+            <section className="space-y-3">
+              {riconsegneDelGiro.length > 0 && (
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="font-display text-sm font-extrabold uppercase tracking-wide text-blue">
+                    Poi i ritiri ({ritiriDelGiro.length})
+                  </h3>
+                  <span className="text-xs font-medium text-muted">Da qui in poi carichi lo sporco.</span>
+                </div>
+              )}
+              {ritiriDelGiro.map((r) => (
+                <CourierJobCard
+                  key={r.id}
+                  job={toJob(r, kindOf(r), servizioDi(r))}
+                  n={numeroDi.get(r.id)}
+                  kind={kindOf(r)}
+                  fuoriBlocco={fuoriBloccoDi.get(r.id) ?? false}
+                />
+              ))}
+            </section>
+          )}
         </div>
       ) : (
         <Card>

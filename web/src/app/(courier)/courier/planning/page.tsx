@@ -9,7 +9,7 @@ import { nomeBreveLavanderia } from "@/lib/nome-lavanderia";
 import { getCurrentProfile } from "@/lib/auth";
 import { passaggiDellOrdine, type Passaggio } from "@/lib/planning-rider";
 import { primoGiornoDelGiro } from "@/lib/giro-del-giorno";
-import { optimizeOrder, partenzaDelGiro } from "@/lib/route";
+import { optimizeOrder, partenzaDelGiro, fuoriBlocco } from "@/lib/route";
 import { STATI_CHIUSI, type OrderStatus } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
@@ -162,6 +162,8 @@ export default async function PlanningRider({
   const servizioDi = (laundryId: string | null): Servizio | null =>
     sedi.find((x) => x.id === laundryId)?.servizio ?? null;
 
+  // Prima le riconsegne, poi i ritiri: è l'ordine in cui si carica il furgone
+  // — si parte con il pulito, si consegna, e solo dopo si raccoglie lo sporco.
   const ordine = optimizeOrder(
     partenza,
     conGeo.map((v) => ({
@@ -169,9 +171,13 @@ export default async function PlanningRider({
       lng: v.riga.addresses!.lng!,
       deadlineMs: Date.parse(v.quando),
       gruppo: v.riga.laundry_id,
+      fase: v.tipo === "riconsegna" ? 0 : 1,
     })),
   );
   const fermateOrdinate = ordine.map((i) => conGeo[i]);
+  // Chi scavalca il proprio blocco perché ha un'ora promessa: si segnala, o
+  // l'elenco sembra sbagliato.
+  const scavalca = fuoriBlocco(fermateOrdinate.map((v) => (v.tipo === "riconsegna" ? 0 : 1)));
   const stops: Stop[] = fermateOrdinate.map((v, i) => ({
     id: `${v.orderId}-${v.tipo}`,
     kind: v.tipo === "ritiro" ? "pickup" : "delivery",
@@ -238,6 +244,17 @@ export default async function PlanningRider({
           <ol className="divide-y divide-line px-4 pb-4">
             {fermateOrdinate.map((v, i) => (
               <li key={`${v.orderId}-${v.tipo}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
+                {/* Dove finiscono le riconsegne e cominciano i ritiri: da lì in
+                    poi nel furgone sale lo sporco. Si scrive una volta sola,
+                    quando il giro contiene tutte e due le cose. */}
+                {i > 0 &&
+                  fermateOrdinate[i - 1].tipo === "riconsegna" &&
+                  v.tipo === "ritiro" &&
+                  !scavalca[i] && (
+                    <span className="w-full border-t border-dashed border-line pt-2 font-display text-[11px] font-extrabold uppercase tracking-wide text-blue">
+                      da qui i ritiri
+                    </span>
+                  )}
                 <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-navy font-display text-[11px] font-extrabold text-white">{i + 1}</span>
                 <span className="font-display text-sm font-extrabold tabular-nums text-navy">{ora(v.quando)}</span>
                 <span
@@ -249,6 +266,11 @@ export default async function PlanningRider({
                 </span>
                 <span className="font-display text-sm font-bold text-navy">{v.riga.customer?.full_name ?? "Cliente"}</span>
                 <span className="text-sm font-medium text-muted">{v.riga.addresses?.street ?? "—"}</span>
+                {scavalca[i] && (
+                  <span className="rounded-full bg-[#C9881F]/12 px-2 py-0.5 font-display text-[10px] font-extrabold uppercase tracking-wide text-[#C9881F]">
+                    fuori ordine: ha un orario
+                  </span>
+                )}
                 {/* Dove va quel sacco. Serve mentre si ritira, non alla fine:
                     con due lavanderie un sacco caricato senza saperlo torna
                     indietro. */}

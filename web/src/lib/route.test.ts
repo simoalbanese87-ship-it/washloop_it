@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { partenzaDelGiro, haversineKm, optimizeOrder, type RouteStop } from "./route.ts";
+import { partenzaDelGiro, haversineKm, optimizeOrder, fuoriBlocco, type RouteStop } from "./route.ts";
 
 const ZANICA = { lat: 45.641553, lng: 9.6794857 };   // la lavanderia
 const DEPOSITO = { lat: 45.4370615, lng: 9.2029218 }; // Via Pizzi, Milano
@@ -85,4 +85,57 @@ test("una fermata senza giro non trascina dietro le altre", () => {
   const ordine = optimizeOrder(DEPOSITO, stops);
   assert.equal(ordine.length, 3);
   assert.deepEqual([...ordine].sort(), [0, 1, 2]);
+});
+
+// --- Le fasi: prima le riconsegne, poi i ritiri ----------------------------
+
+/** Tre fermate vicine fra loro, stessa fascia larga: a decidere è la fase. */
+const MISTE: RouteStop[] = [
+  { lat: 45.470, lng: 9.150, deadlineMs: DOMANI_13, fase: 1 }, // ritiro
+  { lat: 45.471, lng: 9.151, deadlineMs: DOMANI_13, fase: 0 }, // riconsegna
+  { lat: 45.472, lng: 9.152, deadlineMs: DOMANI_13, fase: 1 }, // ritiro
+];
+
+test("a parità di fascia si consegna prima e si ritira dopo", () => {
+  const ordine = optimizeOrder(DEPOSITO, MISTE);
+  assert.equal(MISTE[ordine[0]].fase, 0, "la riconsegna va servita per prima");
+  assert.deepEqual(ordine.slice(1).map((i) => MISTE[i].fase), [1, 1]);
+});
+
+test("un orario promesso scavalca il blocco: il cliente delle 9 non aspetta", () => {
+  const stops: RouteStop[] = [
+    { lat: 45.470, lng: 9.150, deadlineMs: DOMANI_13, fase: 0 }, // riconsegna, tardi
+    { lat: 45.500, lng: 9.300, deadlineMs: DOMANI_9, fase: 1 },  // ritiro, alle 9
+  ];
+  const ordine = optimizeOrder(DEPOSITO, stops);
+  assert.equal(ordine[0], 1, "la fascia viene prima della fase");
+});
+
+test("le fermate servite fuori dal loro blocco si riconoscono", () => {
+  // Ordine di visita: ritiro, riconsegna, ritiro. Il primo è fuori blocco —
+  // dopo di lui viene una riconsegna — gli altri due no.
+  assert.deepEqual(fuoriBlocco([1, 0, 1]), [true, false, false]);
+  // Un giro regolare non segnala niente.
+  assert.deepEqual(fuoriBlocco([0, 0, 1, 1]), [false, false, false, false]);
+  // Fasi non indicate: valgono zero e non segnalano niente.
+  assert.deepEqual(fuoriBlocco([undefined, null]), [false, false]);
+});
+
+test("senza fasi il giro resta quello di prima", () => {
+  const stops: RouteStop[] = [
+    { lat: 45.600, lng: 9.600, deadlineMs: null },
+    { lat: 45.4375, lng: 9.2030, deadlineMs: null },
+  ];
+  assert.deepEqual(optimizeOrder(DEPOSITO, stops), [1, 0]);
+});
+
+test("la fase viene prima del giro: non si ritira per restare sulla stessa lavanderia", () => {
+  const stops: RouteStop[] = [
+    { lat: 45.470, lng: 9.150, deadlineMs: DOMANI_13, fase: 0, gruppo: "stiro" },
+    { lat: 45.4701, lng: 9.1501, deadlineMs: DOMANI_13, fase: 1, gruppo: "lavanderia" },
+    { lat: 45.4702, lng: 9.1502, deadlineMs: DOMANI_13, fase: 0, gruppo: "lavanderia" },
+  ];
+  const ordine = optimizeOrder(DEPOSITO, stops);
+  // Le due riconsegne prima, in qualunque giro siano; il ritiro per ultimo.
+  assert.deepEqual(ordine.map((i) => stops[i].fase), [0, 0, 1]);
 });

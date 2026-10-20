@@ -11,6 +11,14 @@ export type RouteStop = {
    *  la lavanderia generale o la stireria del solo stiro. A parità di urgenza
    *  si finisce un giro prima di cominciare l'altro. */
   gruppo?: string | null;
+  /** In che momento del giro sta quella fermata: **0 le riconsegne, 1 i
+   *  ritiri**.
+   *
+   *  Non è una preferenza grafica, è come si carica il furgone. Si parte dalla
+   *  lavanderia con i sacchi puliti, si consegnano, e solo dopo si comincia a
+   *  riempire di sporco: alternando le due cose, pulito e sporco viaggiano
+   *  insieme e a fine giro nessuno sa più cosa scaricare. */
+  fase?: number | null;
 };
 
 const WINDOW_MS = 60 * 60 * 1000; // raggruppa deadline entro 60 min
@@ -50,19 +58,24 @@ export function partenzaDelGiro(
 
 /** Ritorna gli indici di `stops` nell'ordine di visita ottimizzato.
  *
- *  Tre criteri, in quest'ordine — e l'ordine è il punto:
+ *  Quattro criteri, in quest'ordine — e l'ordine è il punto:
  *
  *  1. **La fascia oraria**, sempre per prima. Si guardano solo le fermate la
- *     cui scadenza è entro un'ora dalla più urgente: nessun raggruppamento può
- *     far arrivare il rider fuori da una fascia promessa al cliente.
- *  2. **Il giro**, fra quelle: a parità di urgenza si resta sulle fermate
- *     dello stesso gruppo. Da quando le destinazioni sono due — la lavanderia
- *     a Zanica, la stireria a Corsico — alternarle significa non sapere più,
- *     mentre si ritira, quale sacco sta andando dove.
- *  3. **La distanza**, come sempre: la più vicina fra quelle rimaste.
+ *     cui scadenza è entro un'ora dalla più urgente: niente di quello che
+ *     viene dopo può far arrivare il rider fuori da una fascia promessa.
+ *  2. **La fase**: prima le riconsegne, poi i ritiri. Si parte dalla
+ *     lavanderia col pulito, si consegna, e solo dopo si comincia a caricare
+ *     lo sporco — mescolarli vuol dire non sapere più cosa c'è nel furgone.
+ *  3. **Il giro**, fra quelle rimaste: a parità di urgenza e di fase si resta
+ *     sulle fermate della stessa destinazione. Da quando le sedi sono due —
+ *     Zanica e Corsico — alternarle significa non sapere, mentre si ritira,
+ *     quale sacco sta andando dove.
+ *  4. **La distanza**: la più vicina fra quelle rimaste.
  *
- *  Se nel gruppo in corso non resta niente di abbastanza urgente, si cambia
- *  gruppo: il vincolo 1 non si scavalca mai. */
+ *  La fascia resta sopra tutto: se un cliente ha un orario promesso dentro la
+ *  finestra, la sua fermata passa avanti anche se è della fase o del giro
+ *  sbagliato. Quando succede si vede — `fuoriBlocco` lo dice, e a schermo si
+ *  scrive perché. */
 export function optimizeOrder(depot: { lat: number; lng: number } | null, stops: RouteStop[]): number[] {
   const remaining = stops.map((_, i) => i);
   const order: number[] = [];
@@ -74,12 +87,17 @@ export function optimizeOrder(depot: { lat: number; lng: number } | null, stops:
     const minDeadline = Math.min(...remaining.map((i) => stops[i].deadlineMs ?? Infinity));
     const eligible = remaining.filter((i) => (stops[i].deadlineMs ?? Infinity) <= minDeadline + WINDOW_MS);
 
-    // Restare sul giro in corso, se lì c'è ancora qualcosa di altrettanto
-    // urgente. Altrimenti si passa all'altro: è la fascia a comandare.
+    // Prima la fase: fra le fermate altrettanto urgenti si prendono quelle
+    // della fase più bassa, cioè le riconsegne finché ce ne sono.
+    const faseMinima = Math.min(...eligible.map((i) => stops[i].fase ?? 0));
+    const dellaFase: number[] = eligible.filter((i) => (stops[i].fase ?? 0) === faseMinima);
+
+    // Poi il giro, dentro la fase. Se nel giro in corso non resta niente di
+    // altrettanto urgente si passa all'altro: comanda sempre la fascia.
     // I tipi sono scritti a mano: `curGruppo` viene da `pick`, che viene da
     // `candidati`, che viene da `curGruppo` — l'inferenza gira in tondo.
-    const stessoGruppo: number[] = curGruppo != null ? eligible.filter((i) => (stops[i].gruppo ?? null) === curGruppo) : [];
-    const candidati: number[] = stessoGruppo.length > 0 ? stessoGruppo : eligible;
+    const stessoGruppo: number[] = curGruppo != null ? dellaFase.filter((i) => (stops[i].gruppo ?? null) === curGruppo) : [];
+    const candidati: number[] = stessoGruppo.length > 0 ? stessoGruppo : dellaFase;
 
     let pick: number = candidati[0];
     if (curLat != null && curLng != null) {
@@ -96,4 +114,21 @@ export function optimizeOrder(depot: { lat: number; lng: number } | null, stops:
     curGruppo = stops[pick].gruppo ?? null;
   }
   return order;
+}
+
+/** Quali fermate finiscono fuori dal loro blocco, e vanno spiegate.
+ *
+ *  Il giro si legge a blocchi — prima le riconsegne, poi i ritiri — ma la
+ *  fascia oraria viene prima di tutto: un cliente con l'ora promessa alle 8:30
+ *  passa avanti anche se la sua fermata è di un'altra fase. Quando succede, la
+ *  riga a schermo deve dirlo: senza, sembra che il percorso si sia sbagliato.
+ *
+ *  Una fermata è fuori blocco quando **dopo** di lei ne viene una di una fase
+ *  precedente: è il ritiro infilato prima delle riconsegne, non la riconsegna
+ *  che le viene dopo.
+ *
+ *  Prende le fasi **nell'ordine di visita** e risponde nello stesso ordine. */
+export function fuoriBlocco(fasi: (number | null | undefined)[]): boolean[] {
+  const n = (v: number | null | undefined) => (typeof v === "number" ? v : 0);
+  return fasi.map((f, i) => fasi.slice(i + 1).some((dopo) => n(dopo) < n(f)));
 }

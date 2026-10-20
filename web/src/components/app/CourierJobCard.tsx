@@ -66,7 +66,20 @@ async function advance(_prev: AdvanceState, formData: FormData): Promise<Advance
   return res ?? null;
 }
 
-export function CourierJobCard({ job, n, kind }: { job: Job; n?: number; kind?: "pickup" | "delivery" }) {
+export function CourierJobCard({
+  job,
+  n,
+  kind,
+  fuoriBlocco = false,
+}: {
+  job: Job;
+  n?: number;
+  kind?: "pickup" | "delivery";
+  /** Servita fuori dal suo blocco perché aveva un'ora promessa. Senza dirlo,
+   *  il giro sembra sbagliato: un ritiro infilato fra le riconsegne, o il
+   *  contrario, si legge come un errore del percorso. */
+  fuoriBlocco?: boolean;
+}) {
   const [proofUrl, setProofUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -126,6 +139,11 @@ export function CourierJobCard({ job, n, kind }: { job: Job; n?: number; kind?: 
               dove. Ora il chip dice il servizio con le stesse parole e lo
               stesso colore del pannello, e il nome della sede sta sotto,
               accorciato come lo si dice a voce. */}
+          {fuoriBlocco && (
+            <div className="mt-1 inline-flex rounded-full bg-[#C9881F]/12 px-2 py-0.5 font-display text-[10px] font-extrabold uppercase tracking-wide text-[#C9881F]">
+              fuori ordine: ha un orario{job.when ? ` (${job.when})` : ""}
+            </div>
+          )}
           {tipoServizioDellaSede(job.servizio) && (
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <span
