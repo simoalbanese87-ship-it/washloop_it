@@ -148,9 +148,18 @@ export default async function SicurezzaPage() {
     // mesi dopo. Qui si legge, invece di darla per buona.
     svc
       .from("subscriptions")
-      .select("user_id, profiles(full_name, is_test)")
+      .select("user_id, plans(name, servizio), profiles(full_name, is_test, tipo_servizio)")
       .in("status", ["active", "trialing"])
-      .returns<{ user_id: string; profiles: { full_name: string | null; is_test: boolean } | { full_name: string | null; is_test: boolean }[] | null }[]>(),
+      .returns<
+        {
+          user_id: string;
+          plans: { name: string; servizio: string | null } | { name: string; servizio: string | null }[] | null;
+          profiles:
+            | { full_name: string | null; is_test: boolean; tipo_servizio: string | null }
+            | { full_name: string | null; is_test: boolean; tipo_servizio: string | null }[]
+            | null;
+        }[]
+      >(),
   ]);
 
   const quantiAttivi = new Map<string, { nome: string; n: number }>();
@@ -161,6 +170,25 @@ export default async function SicurezzaPage() {
     quantiAttivi.set(a.user_id, { nome: prof?.full_name ?? "Cliente", n: (gia?.n ?? 0) + 1 });
   }
   const doppioni = [...quantiAttivi.values()].filter((x) => x.n > 1);
+
+  // Il piano dice un servizio e l'anagrafica un altro.
+  //
+  // È successo a Federica Corsini: passata al solo stiro il 13 ottobre con
+  // canone e anagrafica giusti, ma con il piano «Lava e stira» rimasto
+  // attaccato. I ritiri andavano alla stireria e l'addebito era corretto —
+  // però la sua scheda ha raccontato per una settimana un servizio che non
+  // aveva, e quello è il genere di dato che si ripete a voce.
+  const incoerenti: string[] = [];
+  for (const a of abbonamentiVivi ?? []) {
+    const prof = Array.isArray(a.profiles) ? a.profiles[0] : a.profiles;
+    const piano = Array.isArray(a.plans) ? a.plans[0] : a.plans;
+    if (!prof || prof.is_test || !piano?.servizio) continue;
+    const stiroDiQua = piano.servizio === "stiro";
+    const stiroDiLa = prof.tipo_servizio === "solo_stiro";
+    if (stiroDiQua !== stiroDiLa && prof.tipo_servizio) {
+      incoerenti.push(`${prof.full_name ?? "Cliente"} (piano ${piano.name}, anagrafica ${prof.tipo_servizio.replace("_", " ")})`);
+    }
+  }
 
   const senzaRider = (zoneAttive.data ?? []).filter((z) => !z.courier_id).map((z) => z.name);
   const lavIncomplete = (lavanderie.data ?? []).filter((l) => !l.address || !l.email);
@@ -251,6 +279,14 @@ export default async function SicurezzaPage() {
       label: "Rider messo in automatico alla creazione (clausola momentanea)",
       status: clausola.attiva ? "ok" : "warn",
       detail: clausola.motivo,
+    },
+    {
+      label: "Piano e servizio dicono la stessa cosa",
+      status: incoerenti.length === 0 ? "ok" : "warn",
+      detail:
+        incoerenti.length === 0
+          ? "Nessun cliente ha un piano che racconta un servizio diverso da quello in anagrafica."
+          : `${incoerenti.join(", ")}. Si sistema dalla scheda del cliente, con «Cambia piano».`,
     },
     {
       label: "Un abbonamento attivo per cliente",

@@ -25,6 +25,7 @@ import { ricorrenza, settimaneValide } from "@/lib/durata-abbonamento";
 import { oreDiLavorazione } from "@/lib/turnaround";
 import { incassaSubito } from "@/lib/incasso-subito";
 import { allineaCompiti } from "@/lib/compiti-sync";
+import { servizioDopoAbbonamento } from "@/lib/piano-servizio";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -1822,4 +1823,74 @@ export async function cambiaQtaCapoCompresa(formData: FormData) {
   revalidatePath(backTo);
   revalidatePath("/app/abbonamento");
   redirect(`${backTo}?ok=${encodeURIComponent(`Aggiornato: ${qty} per periodo.`)}`);
+}
+
+/** Cambia il **piano** collegato all'abbonamento.
+ *
+ *  Perché serve, e perché è una cosa a parte dal canone
+ *  ----------------------------------------------------
+ *  `cambiaCanone` cambia quanto si paga; il piano dice **che servizio è**. Il
+ *  13 ottobre a Federica è stato cambiato il canone — da 160 a 122 — e il
+ *  servizio in anagrafica, ma il piano collegato è rimasto «Lava e stira». I
+ *  suoi ritiri andavano alla stireria giusta e l'addebito era giusto, ma la
+ *  sua scheda ha raccontato per una settimana che era una cliente lava e
+ *  stira. Chi la apriva leggeva una cosa falsa, ed è il tipo di errore che si
+ *  propaga a voce prima che nei dati.
+ *
+ *  Il canone concordato non si tocca: chi ha un prezzo su misura lo tiene
+ *  anche cambiando piano — il piano dice cosa riceve, `custom_price_cents`
+ *  dice quanto paga, e sono due domande diverse.
+ *
+ *  Il servizio in anagrafica segue il piano, se il piano ne dichiara uno e
+ *  l'anagrafica dice un'altra cosa: è esattamente il disallineamento che
+ *  questa funzione esiste per chiudere. La regola sta in `piano-servizio.ts`,
+ *  con i suoi test. */
+export async function cambiaPiano(formData: FormData) {
+  await requireAdmin();
+  const subId = String(formData.get("sub_id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  const planId = String(formData.get("plan_id") ?? "").trim();
+  if (!subId || !customerId) throw new Error("Parametri mancanti");
+  const backTo = `/admin/abbonati/${customerId}`;
+
+  const svc = createServiceClient();
+  const { data: piano } = planId
+    ? await svc
+        .from("plans")
+        .select("id, name, servizio, price_month_cents")
+        .eq("id", planId)
+        .maybeSingle<{ id: string; name: string; servizio: string | null; price_month_cents: number }>()
+    : { data: null };
+  if (planId && !piano) redirect(`${backTo}?warn=${encodeURIComponent("Piano non trovato.")}`);
+
+  const { error } = await svc.from("subscriptions").update({ plan_id: planId || null }).eq("id", subId);
+  if (error) redirect(`${backTo}?warn=${encodeURIComponent(error.message)}`);
+
+  // Il servizio in anagrafica si allinea solo se il piano ne dichiara uno
+  // diverso da quello scritto: un piano di lavanderia non sovrascrive un
+  // accordo preso a mano, un piano di stiro sì — è la stessa regola che vale
+  // all'attivazione.
+  let servizioScritto: string | null = null;
+  if (piano?.servizio) {
+    const { data: prof } = await svc
+      .from("profiles")
+      .select("tipo_servizio")
+      .eq("id", customerId)
+      .maybeSingle<{ tipo_servizio: string | null }>();
+    const nuovo = servizioDopoAbbonamento(piano.servizio, prof?.tipo_servizio);
+    if (nuovo) {
+      await svc.from("profiles").update({ tipo_servizio: nuovo }).eq("id", customerId);
+      servizioScritto = nuovo;
+    }
+  }
+
+  revalidatePath(backTo);
+  revalidatePath("/admin/ordini");
+  redirect(
+    `${backTo}?ok=${encodeURIComponent(
+      piano
+        ? `Piano aggiornato: ${piano.name}.${servizioScritto ? " Anche il tipo di servizio è stato allineato." : ""} Il canone concordato non è cambiato.`
+        : "Piano scollegato: resta il canone concordato.",
+    )}`,
+  );
 }

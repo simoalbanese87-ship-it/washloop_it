@@ -15,6 +15,7 @@ import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionFor
 import { LinkOfferta } from "@/components/admin/LinkOfferta";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { impersonate } from "@/lib/actions/impersonate";
+import { cambiaPiano } from "@/lib/actions/admin-customer";
 import { aggiungiCapoCompreso, togliCapoCompreso, cambiaQtaCapoCompresa } from "@/lib/actions/admin-customer";
 import { TipoServizioSelect } from "@/components/admin/TipoServizioSelect";
 import { isTipoServizio } from "@/lib/tipo-servizio";
@@ -46,7 +47,7 @@ type ServizioSacco = { id: string; codice: string; nome: string; price_cli_cents
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null; tags_delivered_at: string | null; borsa_consegnata_at: string | null; materiale_rientrato_at: string | null;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
-type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; passaggi_per_ciclo: number | null; passaggi_riportati: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null } | null };
+type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; passaggi_per_ciclo: number | null; passaggi_riportati: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null; servizio: string | null } | null };
 type Addr = {
   id: string; label: string | null; street: string; cap: string | null; civico: string | null;
   intercom: string | null; floor: string | null; notes: string | null;
@@ -99,7 +100,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: proposte }, { data: servizi }] = await Promise.all([
     svc.auth.admin.getUserById(id),
-    svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, passaggi_per_ciclo, passaggi_riportati, termina_dopo_settimane, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, passaggi_per_ciclo, passaggi_riportati, termina_dopo_settimane, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week, servizio)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street, cap, civico, intercom, floor, notes, access_mode, access_note, concierge_hours, lat, lng").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, stripe_ref, created_at, categoria").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
@@ -120,7 +121,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   // Verità da Stripe + tutto quello che la scheda non mostrava: incassi
   // registrati (ricevute e fatture) e capi fuori abbonamento.
-  const [stripeSub, incassi, capi, { data: nota }, passaggi, capiCompresi, { data: listinoCapi }, { data: categorieCapi }] = await Promise.all([
+  const [stripeSub, incassi, capi, { data: nota }, passaggi, capiCompresi, { data: listinoCapi }, { data: categorieCapi }, { data: pianiAttivi }] = await Promise.all([
     sub?.stripe_subscription_id ? abbonamentoDaStripe(sub.stripe_subscription_id, sub.stripe_customer_id ?? null) : Promise.resolve(null),
     incassiCliente(id),
     capiSpecialiCliente(id),
@@ -136,6 +137,10 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     saldoCapiCompresi(svc, id),
     svc.from("special_items").select("id, name, category_id").eq("active", true).order("name").returns<{ id: string; name: string; category_id: string | null }[]>(),
     svc.from("special_categories").select("id, name").order("sort").returns<{ id: string; name: string }[]>(),
+    // I piani attivi, per poter correggere quello collegato: il canone si
+    // cambiava già, il piano no — e un piano rimasto indietro racconta un
+    // servizio che il cliente non ha più.
+    svc.from("plans").select("id, name, servizio, price_month_cents").eq("active", true).order("sort").returns<{ id: string; name: string; servizio: string | null; price_month_cents: number }[]>(),
   ]);
 
   const totaleIncassatoCents = incassi.reduce((t, i) => t + i.amount_cents, 0);
@@ -175,6 +180,15 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   // `customer_charges` meno se stessa, e siccome un capo addebitato non ci
   // scrive niente mentre il suo rimborso sì, il numero poteva solo essere zero
   // o negativo. Su Giulia diceva −35,00 € quando il saldo vero era zero.
+  // Il piano dice un servizio, l'anagrafica un altro: è il disallineamento
+  // che ha fatto comparire «Lava e stira» sulla scheda di una cliente passata
+  // al solo stiro. Si guarda qui perché è dove si legge, e si corregge col
+  // menu accanto.
+  const servizioDelPiano = sub?.plans?.servizio ?? null;
+  const disallineato =
+    (servizioDelPiano === "stiro" && profile.tipo_servizio !== "solo_stiro") ||
+    (servizioDelPiano === "lavanderia" && profile.tipo_servizio === "solo_stiro");
+
   const saldo = saldoAddebiti(capi ?? [], charges ?? []);
   const addebitatoCents = saldo.addebitatoCents;
   const stornatoCents = saldo.stornatoCents;
@@ -661,6 +675,37 @@ export default async function CustomerPage({ params, searchParams }: { params: P
             <>
               <div className="mt-3 space-y-1 text-sm font-medium text-muted">
                 <div>Piano: <span className="font-bold text-navy">{sub.plans?.name ?? (sub.termina_dopo_settimane ? `Prova a pagamento di ${sub.termina_dopo_settimane === 1 ? "1 settimana" : `${sub.termina_dopo_settimane} settimane`}` : "—")}</span> · {priceLabel}{cadenza} {sub.manual && <span className="rounded-full bg-navy/10 px-2 py-0.5 text-[11px] font-bold text-navy">manuale</span>}</div>
+
+                {/* Il piano collegato, che finora non si poteva cambiare.
+                    Cambiando canone e servizio a Federica è rimasto indietro:
+                    i suoi ritiri andavano alla stireria giusta, ma la scheda
+                    diceva «Lava e stira». Un dato che si legge e si ripete a
+                    voce vale quanto uno che muove i soldi. */}
+                <form action={cambiaPiano} className="flex flex-wrap items-baseline gap-2">
+                  <input type="hidden" name="sub_id" value={sub.id} />
+                  <input type="hidden" name="customer_id" value={id} />
+                  <label htmlFor="piano-collegato">Cambia piano:</label>
+                  <select
+                    id="piano-collegato"
+                    name="plan_id"
+                    defaultValue={sub.plan_id ?? ""}
+                    className="h-8 max-w-[220px] rounded-[10px] border border-line bg-white px-2 text-sm font-semibold text-navy outline-none focus:border-blue"
+                  >
+                    <option value="">Nessun piano (su misura)</option>
+                    {(pianiAttivi ?? []).map((pl) => (
+                      <option key={pl.id} value={pl.id}>
+                        {pl.name}
+                        {pl.servizio === "stiro" ? " · solo stiro" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="submit" className="font-display text-sm font-bold text-blue hover:underline">Salva</button>
+                  <span className="text-xs">
+                    {disallineato
+                      ? "il piano dice un servizio diverso da quello in anagrafica: sistemalo"
+                      : "dice che servizio riceve; il canone concordato non cambia"}
+                  </span>
+                </form>
                 {/* Il canone concordato. Il servizio di un cliente si cambia
                     con un menu, il prezzo no: finché non c'era questo, passare
                     dalla lavanderia al solo stiro voleva dire disdire e far
