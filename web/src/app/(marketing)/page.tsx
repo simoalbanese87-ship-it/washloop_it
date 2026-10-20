@@ -7,6 +7,7 @@ import { ZonaProvider } from "@/components/home/ZonaContext";
 import { CapCheck } from "@/components/home/CapCheck";
 import { RichiestaZona } from "@/components/home/RichiestaZona";
 import { graficoPagina } from "@/lib/area-servita";
+import { createServiceClient } from "@/lib/supabase/server";
 
 /* ============================================================
    Home — la pagina che raccoglie i contatti.
@@ -125,7 +126,116 @@ const PASSI = [
 
 const NEL_SACCO = ["Camicie", "Magliette", "Asciugamani", "Lenzuola", "Calzini", "Biancheria intima"];
 
-export default function Home() {
+/** I tre passi del solo stiro. Stessa grammatica di «come funziona»: un segno
+ *  a tratto, due parole di titolo, una riga che dice la cosa concreta. */
+const PASSI_STIRO = [
+  {
+    t: "Mercoledì ritiriamo",
+    d: "I capi li hai già lavati tu. Noi passiamo sotto casa nel giorno fisso.",
+    icona: (
+      <>
+        <path d="M5.5 7.5h8v9h-8z" />
+        <path d="M13.5 11h3.5l3 3v2.5h-6.5z" />
+        <circle cx="9" cy="18" r="1.7" />
+        <circle cx="17.5" cy="18" r="1.7" />
+      </>
+    ),
+  },
+  {
+    t: "48 ore, solo stiro",
+    d: "Niente lavaggio: stiratura professionale e piega, capo per capo.",
+    icona: (
+      <>
+        <path d="M12 8a2.2 2.2 0 1 1 2.2-2.2" />
+        <path d="M12 8v2.2L3.6 16.4A1.6 1.6 0 0 0 4.5 19.5h15a1.6 1.6 0 0 0 .9-3.1L12 10.2" />
+      </>
+    ),
+  },
+  {
+    t: "Venerdì tornano",
+    d: "Piegati e pronti per l'armadio, alla porta di casa tua.",
+    icona: (
+      <>
+        <path d="M9 3.5 12 6l3-2.5 4.5 2.2-1.8 4.3-1.7-.6V20H7V9.4l-1.7.6L3.5 5.7z" />
+      </>
+    ),
+  },
+];
+
+/** E i tre di «porta un amico». Il meccanismo in tre righe: finora era una
+ *  frase sola, e «come funziona» era un link da aprire per saperlo. */
+const PASSI_INVITO = [
+  {
+    t: "Mandi il tuo link",
+    d: "Lo trovi in app, nella tua area. È tuo e non scade.",
+    icona: (
+      <>
+        <path d="M10 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 1 0-5.7-5.7l-1.4 1.4" />
+        <path d="M14 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 1 0 5.7 5.7l1.4-1.4" />
+      </>
+    ),
+  },
+  {
+    t: "Il tuo amico si abbona",
+    d: "Attiva un abbonamento passando dal tuo link, come farebbe comunque.",
+    icona: (
+      <>
+        <circle cx="9" cy="8" r="3.2" />
+        <path d="M3.5 20c0-3.2 2.5-5.5 5.5-5.5s5.5 2.3 5.5 5.5" />
+        <path d="M17.5 7.5v5M20 10h-5" />
+      </>
+    ),
+  },
+  {
+    t: "Una settimana in regalo",
+    d: "La scaliamo dalla tua prossima fattura. Senza limite al numero di amici.",
+    icona: (
+      <>
+        <rect x="3" y="8" width="18" height="12" rx="2.5" />
+        <path d="M3 12h18M12 8v12" />
+        <path d="M12 8c-1-2.5-2.5-3.5-4-3s-1.5 3 4 3zM12 8c1-2.5 2.5-3.5 4-3s1.5 3-4 3z" />
+      </>
+    ),
+  },
+];
+
+/** Il prezzo del solo stiro non si scrive a mano.
+ *
+ *  In home non c'era proprio, per una ragione giusta scritta nel codice: un
+ *  numero copiato è il primo a smettere di essere vero. Si risolve leggendolo,
+ *  come fa `/prezzi`, non tacendolo — chi arriva qui vuole sapere quanto
+ *  costa. `revalidate` tiene la pagina veloce: il listino cambia di rado. */
+export const revalidate = 3600;
+
+/** Il prezzo del piano «solo stiro», o `null`.
+ *
+ *  Client **senza sessione**: leggere i cookie renderebbe dinamica la pagina
+ *  più visitata del sito, e qui non c'è niente di personale — solo il listino,
+ *  uguale per tutti.
+ *
+ *  Se non si riesce a leggerlo, la sezione resta senza prezzo e la home si
+ *  costruisce lo stesso. In fase di build le chiavi possono non esserci, e una
+ *  home che non si genera per un numero mancante è un problema molto più
+ *  grande del numero mancante. */
+async function prezzoSoloStiro(): Promise<number | null> {
+  try {
+    const { data } = await createServiceClient()
+      .from("plans")
+      .select("price_month_cents")
+      .eq("servizio", "stiro")
+      .eq("active", true)
+      .order("price_month_cents")
+      .limit(1)
+      .maybeSingle<{ price_month_cents: number }>();
+    return data?.price_month_cents ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export default async function Home() {
+  const prezzoStiro = await prezzoSoloStiro();
+
   return (
     <ZonaProvider>
       {/* Niente `FAQPage` qui: Google accetta quel blocco solo se le domande
@@ -280,23 +390,53 @@ export default function Home() {
           quello che lava. Chi ha la lavatrice e non vuole stirare non si
           riconosceva in nessuna parola di questa pagina e se ne andava.
 
-          Una fascia, non una sezione: una riga di titolo, una di testo e un
-          link, come «Porta un amico». Il prezzo non si scrive qui — sta nella
-          pagina dedicata e in /prezzi, che lo leggono dal database: un numero
-          copiato a mano in home è il primo a smettere di essere vero. */}
+          Era una fascia di tre righe, per non allungare la home. Ma il solo
+          stiro è un servizio che si vende: tre passi e un prezzo sono il
+          minimo per capire se fa al caso proprio, e restano meno di quanto
+          occupava la sezione del borsone. */}
       <section className="bg-ice">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-5 px-5 py-14">
-          <div>
-            <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-[#7A4FBF]">Solo stiro</div>
-            <h2 className="mt-2 font-display text-2xl font-black tracking-[-0.02em] text-navy md:text-3xl">
-              La lavatrice la fai tu, l&apos;asse lo chiudiamo noi<span className="text-[#7A4FBF]">.</span>
-            </h2>
-            <p className="mt-2 max-w-xl text-sm font-medium leading-relaxed text-muted">
-              C&apos;è anche l&apos;abbonamento per la sola stiratura: ritiriamo i capi che hai già lavato il
-              mercoledì e tornano piegati il venerdì, in 48 ore.
-            </p>
+        <div className="mx-auto max-w-6xl px-5 py-16">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-[#7A4FBF]">Solo stiro</div>
+              <h2 className="mt-2 max-w-xl font-display text-2xl font-black tracking-[-0.02em] text-navy md:text-3xl">
+                La lavatrice la fai tu, l&apos;asse lo chiudiamo noi<span className="text-[#7A4FBF]">.</span>
+              </h2>
+              <p className="mt-2 max-w-xl text-sm font-medium leading-relaxed text-muted">
+                L&apos;abbonamento per la sola stiratura: ritiriamo i capi che hai già lavato e tornano piegati, pronti
+                per l&apos;armadio.
+              </p>
+            </div>
+            {prezzoStiro != null && (
+              <div className="rounded-[18px] border border-[#7A4FBF]/25 bg-white px-5 py-3">
+                <div className="font-display text-2xl font-black text-navy">
+                  {(prezzoStiro / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })}
+                  <span className="text-sm font-bold text-muted">/mese</span>
+                </div>
+                <div className="text-xs font-semibold text-muted">ritiro e consegna inclusi</div>
+              </div>
+            )}
           </div>
-          <Link href="/servizio-stiro-a-domicilio-milano" className="font-display text-sm font-extrabold text-[#7A4FBF] hover:underline">
+
+          <div className="mt-8 grid gap-5 sm:grid-cols-3">
+            {PASSI_STIRO.map((p, i) => (
+              <div key={p.t} className="rounded-[18px] border border-[#7A4FBF]/18 bg-white p-5">
+                <div className="flex items-center gap-3 text-[#7A4FBF]">
+                  <Tratto size={28}>{p.icona}</Tratto>
+                  <span className="font-display text-xs font-extrabold uppercase tracking-[0.18em] text-[#7A4FBF]/70">
+                    {i + 1}
+                  </span>
+                </div>
+                <div className="mt-3 font-display text-base font-extrabold text-navy">{p.t}</div>
+                <p className="mt-1 text-sm font-medium leading-relaxed text-muted">{p.d}</p>
+              </div>
+            ))}
+          </div>
+
+          <Link
+            href="/servizio-stiro-a-domicilio-milano"
+            className="mt-6 inline-flex font-display text-sm font-extrabold text-[#7A4FBF] hover:underline"
+          >
             Scopri il solo stiro →
           </Link>
         </div>
@@ -304,22 +444,32 @@ export default function Home() {
 
       {/* ============ 5 · PORTA UN AMICO ============ */}
       {/* Il commento in cima dice «cinque sezioni, e non una di più», e questa
-          è la sesta: scelta consapevole del 6 ottobre 2026. Per non tradire la
-          regola è tenuta a una riga di titolo, una di testo e un link — una
-          fascia, non una sezione. */}
+          è la sesta: scelta consapevole del 6 ottobre 2026. Era tenuta a una
+          riga di titolo e un link, e il meccanismo — che è tutto il punto —
+          bisognava andarselo a leggere altrove. */}
       <section className="bg-white">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-5 px-5 py-14">
-          <div>
-            <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Porta un amico</div>
-            <h2 className="mt-2 font-display text-2xl font-black tracking-[-0.02em] text-navy md:text-3xl">
-              Una settimana in regalo, per ogni amico che porti<span className="text-cyan">.</span>
-            </h2>
-            <p className="mt-2 max-w-xl text-sm font-medium leading-relaxed text-muted">
-              Il tuo amico attiva un abbonamento con il tuo link, e noi scaliamo una settimana dalla tua
-              prossima fattura. Senza limite al numero di amici.
-            </p>
-          </div>
-          <Link href="/porta-un-amico" className="font-display text-sm font-extrabold text-blue hover:underline">
+        <div className="mx-auto max-w-6xl px-5 py-16">
+          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-blue">Porta un amico</div>
+          <h2 className="mt-2 max-w-xl font-display text-2xl font-black tracking-[-0.02em] text-navy md:text-3xl">
+            Una settimana in regalo, per ogni amico che porti<span className="text-cyan">.</span>
+          </h2>
+
+          <ol className="mt-8 grid gap-5 sm:grid-cols-3">
+            {PASSI_INVITO.map((p, i) => (
+              <li key={p.t} className="rounded-[18px] border border-line bg-ice p-5">
+                <div className="flex items-center gap-3 text-blue">
+                  <Tratto size={28}>{p.icona}</Tratto>
+                  <span className="font-display text-xs font-extrabold uppercase tracking-[0.18em] text-blue/60">
+                    {i + 1}
+                  </span>
+                </div>
+                <div className="mt-3 font-display text-base font-extrabold text-navy">{p.t}</div>
+                <p className="mt-1 text-sm font-medium leading-relaxed text-muted">{p.d}</p>
+              </li>
+            ))}
+          </ol>
+
+          <Link href="/porta-un-amico" className="mt-6 inline-flex font-display text-sm font-extrabold text-blue hover:underline">
             Come funziona →
           </Link>
         </div>
