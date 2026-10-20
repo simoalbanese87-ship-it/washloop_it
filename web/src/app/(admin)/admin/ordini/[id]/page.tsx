@@ -7,7 +7,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { advanceStatus, assignOrder, setEta, scheduleDelivery, spostaRitiro, correggiSacchiArrivati } from "@/lib/actions/orders";
 import { setStaffNotes, cancelOrder } from "@/lib/actions/items";
 import { DeleteOrderButton } from "@/components/admin/DeleteOrderButton";
-import { chargeOrderSpecials, addSpecialAdmin } from "@/lib/actions/charge";
+import { chargeOrderSpecials, addSpecialAdmin, ricalcolaCapiCompresiOrdine } from "@/lib/actions/charge";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
 import { AdminItems, type Item } from "@/components/app/AdminItems";
 import { SegnalazioneRiga, type Segnalazione } from "@/components/app/SegnalazioneRiga";
@@ -512,6 +512,26 @@ export default async function AdminOrderPage({ params, searchParams }: { params:
               <div className="mb-2 font-display text-xs font-extrabold uppercase tracking-wide text-blue">Aggiungi capo</div>
               <AddSpecialForm orderId={order.id} items={listItems} action={addSpecialAdmin} customerView conFranchigia={conFranchigiaOrdine} />
             </div>
+            {/* Rifare il conto quando l'accordo arriva dopo i capi.
+                È il caso di chi configura i capi compresi a ritiro già
+                registrato: senza questo bottone l'unico modo sarebbe correggere
+                le quantità a mano, lasciando i compensi scollegati da quello
+                che il cliente paga. Si rifiuta da sé se qualcosa è già in
+                fattura, e lo dice. */}
+            {specialRows.some((s) => !s.charged_at && !s.annullato_at) && (
+              <form action={ricalcolaCapiCompresiOrdine} className="mt-3 flex flex-wrap items-baseline gap-2">
+                <input type="hidden" name="order_id" value={order.id} />
+                <BottoneInvio
+                  attesa="Rifaccio il conto…"
+                  className="rounded-full border-2 border-navy/20 px-3.5 py-1.5 font-display text-xs font-bold text-navy"
+                >
+                  Rifai il conto dei capi compresi
+                </BottoneInvio>
+                <span className="text-xs font-medium text-muted">
+                  Applica la franchigia del sacco e i capi compresi nel canone del cliente.
+                </span>
+              </form>
+            )}
             {specialRows.length === 0 ? (
               <p className="mt-3 text-sm font-medium text-muted">Nessun capo speciale su questo ordine.</p>
             ) : (

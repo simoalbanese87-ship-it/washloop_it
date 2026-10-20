@@ -33,7 +33,7 @@ type Ordine = {
   status: OrderStatus;
   created_at: string;
 };
-type Capo = { id: string; order_id: string; item_name: string; qty: number; comp_lav_cents: number; created_at: string };
+type Capo = { id: string; order_id: string; item_name: string; qty: number; qty_pagata: number | null; comp_lav_cents: number; created_at: string };
 type Compenso = { order_id: string | null; kind: string; amount_cents: number; status: string; created_at: string; paid_at: string | null };
 
 const eur = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
@@ -79,7 +79,7 @@ export default async function StoricoLavanderia({
       .returns<Ordine[]>(),
     supabase
       .from("partner_order_specials")
-      .select("id, order_id, item_name, qty, comp_lav_cents, created_at")
+      .select("id, order_id, item_name, qty, qty_pagata, comp_lav_cents, created_at")
       .gte("created_at", dal)
       .lt("created_at", al)
       .order("created_at")
@@ -275,7 +275,8 @@ export default async function StoricoLavanderia({
               <tbody>
                 {righe.map((o) => {
                   const suoi = capiPerOrdine.get(o.order_id) ?? [];
-                  const capiCents = suoi.reduce((t, c) => t + c.comp_lav_cents * c.qty, 0);
+                  // `qty_pagata`: comprende i capi coperti dal canone del cliente, lavorati qui.
+                  const capiCents = suoi.reduce((t, c) => t + c.comp_lav_cents * (c.qty_pagata ?? c.qty), 0);
                   return (
                     <tr key={o.order_id} className="border-b border-line/60 last:border-0 align-top">
                       <td className="px-4 py-3 font-medium text-muted">{fmtDate(o.created_at)}</td>
@@ -301,8 +302,8 @@ export default async function StoricoLavanderia({
                           <ul className="space-y-0.5">
                             {suoi.map((c) => (
                               <li key={c.id} className="font-medium text-navy">
-                                {c.qty}× {c.item_name}
-                                <span className="ml-1 text-xs text-muted">{eur(c.comp_lav_cents * c.qty)}</span>
+                                {c.qty_pagata ?? c.qty}× {c.item_name}
+                                <span className="ml-1 text-xs text-muted">{eur(c.comp_lav_cents * (c.qty_pagata ?? c.qty))}</span>
                               </li>
                             ))}
                           </ul>

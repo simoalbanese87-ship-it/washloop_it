@@ -10,7 +10,8 @@ import { notifySpecialAdded } from "@/lib/notify";
 import { metodoDiPagamento } from "@/lib/metodo-pagamento";
 import { origineDelPagamento } from "@/lib/pagamento-fattura";
 import { METODI_FATTURA } from "@/lib/metodi-accettati";
-import { dataServizio } from "@/lib/periodo-servizio";
+import { registraCapoSpeciale } from "@/lib/registra-capo";
+import { ricalcolaCapiOrdine } from "@/lib/ricalcolo-capi";
 
 /** `redirect()` di Next **lancia** un'eccezione per interrompere l'esecuzione.
  *
@@ -83,41 +84,30 @@ export async function addSpecialAdmin(formData: FormData) {
   if (!orderId || !itemId) throw new Error("Ordine e capo obbligatori");
 
   const svc = createServiceClient();
-  const { data: item } = await svc
-    .from("special_items")
-    .select("id, name, comp_lav_cents, price_cli_cents, active")
-    .eq("id", itemId)
-    .single();
-  if (!item || !item.active) throw new Error("Capo non a listino");
 
-  const { data: inserted, error } = await svc
-    .from("order_specials")
-    .insert({
-      order_id: orderId,
-      item_id: item.id,
-      item_name: item.name,
-      qty,
-      comp_lav_cents: item.comp_lav_cents,
-      price_cli_cents: item.price_cli_cents,
-      added_by: profile.id,
-    })
-    .select("id")
-    .single<{ id: string }>();
-  if (error || !inserted) throw new Error(error?.message ?? "Errore inserimento capo");
+  // Stessa strada del portale (`registra-capo.ts`), e non una copia che
+  // addebita tutto.
+  //
+  // Questo percorso non applicava nessuna franchigia: un capo aggiunto dal
+  // pannello veniva addebitato intero anche quando l'abbonamento lo
+  // comprendeva, e scriveva righe senza `qty_totale` — che il ricalcolo poi
+  // rileggeva come «tutte da addebitare». Due strade per lo stesso fatto
+  // divergono alla prima regola nuova, e i capi compresi nel canone sono
+  // esattamente una regola nuova.
+  const { data: ord } = await svc
+    .from("orders")
+    .select("laundry_id")
+    .eq("id", orderId)
+    .maybeSingle<{ laundry_id: string | null }>();
 
-  // Ledger payout lavanderia (comp_lav, IVA escl.), se l'ordine ha una lavanderia.
-  const { data: ord } = await svc.from("orders").select("laundry_id").eq("id", orderId).maybeSingle<{ laundry_id: string | null }>();
-  if (ord?.laundry_id) {
-    await svc.from("laundry_payouts").insert({
-      laundry_id: ord.laundry_id,
-      order_id: orderId,
-      special_id: inserted.id,
-      kind: "special",
-      amount_cents: item.comp_lav_cents * qty,
-      status: "pending",
-      servizio_il: await dataServizio(svc, orderId),
-    });
-  }
+  await registraCapoSpeciale(svc, {
+    orderId,
+    itemId,
+    qty,
+    addedBy: profile.id,
+    laundryId: ord?.laundry_id ?? null,
+  });
+
   revalidatePath(`/admin/ordini/${orderId}`);
 }
 
@@ -823,4 +813,34 @@ export async function stornaCapoSpeciale(formData: FormData) {
         : `${sp!.item_name} stornato: ${importo} tolti al cliente e alla lavanderia.`,
     )}`,
   );
+}
+
+/** Rifà il conto dei capi compresi su un ritiro, dal pannello.
+ *
+ *  Serve quando l'accordo arriva dopo i capi: Savino aveva già sei maglie e un
+ *  cappotto registrati quando abbiamo scritto che il suo canone ne comprende
+ *  quattro e uno. Senza questo bottone l'unico modo di sistemare sarebbe una
+ *  query a mano, che lascerebbe i compensi scollegati dalle quantità — il tipo
+ *  di dato che fra sei mesi nessuno sa più difendere.
+ *
+ *  Si rifiuta se qualcosa è già stato messo in fattura, e lo dice: a soldi
+ *  mossi si ripara con uno storno «offerto», che rende i soldi al cliente e
+ *  lascia pagata la lavanderia. */
+export async function ricalcolaCapiCompresiOrdine(formData: FormData) {
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "admin") throw new Error("Solo admin");
+  const orderId = String(formData.get("order_id") ?? "");
+  if (!orderId) throw new Error("Ordine obbligatorio");
+
+  const svc = createServiceClient();
+  const esito = await ricalcolaCapiOrdine(svc, orderId);
+
+  revalidatePath(`/admin/ordini/${orderId}`);
+  revalidatePath("/admin/extra");
+  revalidatePath("/admin/lavanderia");
+  revalidatePath(`/laundry/${orderId}`);
+
+  const chiave = esito.bloccato ? "warn" : "ok";
+  const testo = esito.bloccato ?? esito.frase ?? "Niente da ricalcolare.";
+  redirect(`/admin/ordini/${orderId}?${chiave}=${encodeURIComponent(testo)}`);
 }

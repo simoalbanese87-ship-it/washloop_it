@@ -190,6 +190,10 @@ export type CapoSpeciale = {
    *  Nulle sulle righe registrate prima che il sistema applicasse la franchigia. */
   qty_totale?: number | null;
   qty_inclusa?: number | null;
+  /** Quante le ha coperte il canone del cliente: lui non le paga, la
+   *  lavanderia sì. Separata da `qty_inclusa` perché è la differenza fra le
+   *  due a dire chi paga. */
+  qty_inclusa_canone?: number | null;
   id: string;
   item_name: string;
   qty: number;
@@ -235,7 +239,7 @@ export async function capiSpecialiCliente(userId: string): Promise<CapoSpeciale[
 
   const { data } = await svc
     .from("order_specials")
-    .select("id, item_name, qty, qty_totale, qty_inclusa, price_cli_cents, created_at, charged_at, refunded_at, refund_ref, incassato_at, incasso_fallito_at, incasso_errore, link_pagamento, annullato_at, annullato_motivo, order_id")
+    .select("id, item_name, qty, qty_totale, qty_inclusa, qty_inclusa_canone, price_cli_cents, created_at, charged_at, refunded_at, refund_ref, incassato_at, incasso_fallito_at, incasso_errore, link_pagamento, annullato_at, annullato_motivo, order_id")
     .in("order_id", ids)
     .order("created_at", { ascending: false })
     .returns<CapoSpeciale[]>();

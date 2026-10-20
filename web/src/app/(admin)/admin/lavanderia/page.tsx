@@ -74,9 +74,9 @@ export default async function LavanderiaPage({
     ordiniCitati.length
       ? svc
           .from("order_specials")
-          .select("order_id, item_name, qty, comp_lav_cents")
+          .select("order_id, item_name, qty, qty_pagata, comp_lav_cents")
           .in("order_id", ordiniCitati)
-          .returns<{ order_id: string; item_name: string; qty: number; comp_lav_cents: number }[]>()
+          .returns<{ order_id: string; item_name: string; qty: number; qty_pagata: number | null; comp_lav_cents: number }[]>()
       : Promise.resolve({ data: [] as never[] }),
   ]);
 
@@ -93,7 +93,12 @@ export default async function LavanderiaPage({
   const extraPerOrdine = new Map<string, string[]>();
   for (const e of extra ?? []) {
     const lista = extraPerOrdine.get(e.order_id) ?? [];
-    lista.push(`${e.qty}× ${e.item_name} ${eur(e.comp_lav_cents * e.qty)}`);
+    // Le unità pagate, non quelle addebitate: un capo compreso nel canone del
+    // cliente qui vale, perché la lavanderia l'ha lavorato. Scrivendo `qty` la
+    // riga direbbe «0× Maglia 0,00 €» accanto a un compenso da 17,22 €, e chi
+    // firma il bonifico leggerebbe due numeri che si contraddicono.
+    const pagate = e.qty_pagata ?? e.qty;
+    lista.push(`${pagate}× ${e.item_name} ${eur(e.comp_lav_cents * pagate)}`);
     extraPerOrdine.set(e.order_id, lista);
   }
 

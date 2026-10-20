@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cicloCorrente, contoPassaggi, frasePassaggi, type ContoPassaggi } from "@/lib/passaggi-inclusi";
+import { ordiniDelCiclo } from "@/lib/ciclo-ordini";
 
 /** Il saldo dei passaggi di un cliente, letto dal database.
  *
@@ -45,7 +46,7 @@ export async function saldoPassaggi(svc: SupabaseClient, customerId: string): Pr
   if (!sub) return null;
 
   const ciclo = cicloCorrente(sub.current_period_end);
-  const usati = ciclo ? await passaggiUsati(svc, customerId, ciclo) : 0;
+  const usati = ciclo ? (await ordiniDelCiclo(svc, customerId, ciclo)).length : 0;
   const conto = contoPassaggi({
     perCiclo: sub.passaggi_per_ciclo,
     riportati: sub.passaggi_riportati,
@@ -53,35 +54,4 @@ export async function saldoPassaggi(svc: SupabaseClient, customerId: string): Pr
   });
 
   return { ...conto, scadeIl: sub.current_period_end, frase: frasePassaggi(conto, sub.current_period_end) };
-}
-
-/** Gli ordini che consumano un passaggio in questo ciclo.
- *
- *  Due query invece di una: PostgREST non sa filtrare su una colonna della
- *  tabella collegata e insieme tenere le righe che quella tabella non ce
- *  l'hanno. Quindi si prendono gli ordini vivi del cliente con la data del loro
- *  ritiro e si filtra qui, dove la regola si legge. */
-async function passaggiUsati(
-  svc: SupabaseClient,
-  customerId: string,
-  ciclo: { dalIso: string; alIso: string },
-): Promise<number> {
-  const { data } = await svc
-    .from("orders")
-    .select("id, created_at, status, ritiro:slots!orders_pickup_slot_id_fkey(starts_at)")
-    .eq("customer_id", customerId)
-    .neq("status", "cancelled")
-    // Un margine indietro sulla creazione: un ordine creato prima del ciclo ma
-    // con il ritiro dentro conta lo stesso, ed è il caso normale di chi prenota
-    // con una settimana di anticipo.
-    .gte("created_at", new Date(new Date(ciclo.dalIso).getTime() - 60 * 24 * 3600 * 1000).toISOString())
-    .returns<{ id: string; created_at: string; status: string; ritiro: { starts_at: string } | { starts_at: string }[] | null }[]>();
-
-  const dentro = (iso: string) => iso >= ciclo.dalIso && iso < ciclo.alIso;
-
-  return (data ?? []).filter((o) => {
-    const rel = o.ritiro;
-    const slot = Array.isArray(rel) ? rel[0] ?? null : rel;
-    return dentro(slot?.starts_at ?? o.created_at);
-  }).length;
 }

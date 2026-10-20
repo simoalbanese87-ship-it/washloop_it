@@ -29,6 +29,7 @@ export function AddSpecialForm({
   action = addSpecial,
   customerView = false,
   conFranchigia = true,
+  capiCompresi = [],
 }: {
   orderId: string;
   items: ListItem[];
@@ -37,6 +38,10 @@ export function AddSpecialForm({
   /** Il cliente ha un abbonamento attivo. Senza, niente capi compresi: le
    *  camicie comprese le paga il canone, e chi lavora a consumo non ce l'ha. */
   conFranchigia?: boolean;
+  /** Quali capi comprende il canone di QUESTO cliente, e quanti ne restano nel
+   *  periodo. Serve a spiegare una riga che esce a zero euro: senza, chi
+   *  registra sei maglie e vede 0,00 € pensa che il modulo sia rotto. */
+  capiCompresi?: { itemId: string | null; categoryId: string | null; nome: string; residue: number }[];
 }) {
   const [itemId, setItemId] = useState("");
   const priceOf = (it: ListItem) => (customerView ? it.price_cli_cents ?? it.comp_lav_cents : it.comp_lav_cents);
@@ -51,6 +56,13 @@ export function AddSpecialForm({
   }, [items]);
 
   const selected = items.find((i) => i.id === itemId);
+  // Il diritto che copre il capo scelto: prima quello sulla voce di listino,
+  // poi quello sulla categoria — «un cappotto» copre anche l'impermeabile.
+  const dirittoDelCapo = selected
+    ? capiCompresi.find((d) => d.itemId === selected.id) ??
+      capiCompresi.find((d) => d.categoryId && d.categoryId === selected.category_id) ??
+      null
+    : null;
 
   return (
     <form action={action} className="space-y-3">
@@ -81,6 +93,20 @@ export function AddSpecialForm({
             <>
               {" "}Le prime <strong className="text-navy">{selected.incluse_per_sacco} per sacco</strong>{" "}sono
               comprese nell&apos;abbonamento: le toglie il sistema.
+            </>
+          ) : null}
+          {conFranchigia && dirittoDelCapo ? (
+            <>
+              {" "}Il canone di questo cliente comprende{" "}
+              <strong className="text-navy">{dirittoDelCapo.nome}</strong>:{" "}
+              {dirittoDelCapo.residue > 0 ? (
+                <>
+                  ne {dirittoDelCapo.residue === 1 ? "resta 1" : `restano ${dirittoDelCapo.residue}`} in questo
+                  periodo, {dirittoDelCapo.residue === 1 ? "la toglie" : "le toglie"} il sistema.
+                </>
+              ) : (
+                <>in questo periodo sono finite, quindi si addebitano.</>
+              )}
             </>
           ) : null}
           {!conFranchigia ? (

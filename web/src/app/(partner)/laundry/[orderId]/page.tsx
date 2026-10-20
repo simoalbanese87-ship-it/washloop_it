@@ -14,6 +14,7 @@ import { SEGNALABILE } from "@/lib/segnalazioni";
 import { fmtFull } from "@/lib/format";
 import { createServiceClient } from "@/lib/supabase/server";
 import { sacchiPerFranchigia, sacchiOsservati } from "@/lib/franchigia";
+import { saldoCapiCompresi } from "@/lib/capi-compresi-abbonamento";
 import { haAbbonamentoAttivoPerOrdine } from "@/lib/abbonamento-sacchi";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,9 @@ type Special = {
   item_name: string;
   qty: number;
   comp_lav_cents: number;
+  /** Quante se ne pagano: addebitate al cliente **più** quelle comprese nel
+   *  suo canone, che il cliente non paga ma che qui sono state lavorate. */
+  qty_pagata: number | null;
   charged_at: string | null;
   /** L'ha scritto il cliente prenotando, con il capo ancora in casa sua.
    *  Qui dentro vuol dire: da verificare col capo in mano, e se nel sacco non
@@ -83,7 +87,7 @@ export default async function LaundryOrderDetail({
       .maybeSingle<PartnerOrder>(),
     supabase
       .from("partner_order_specials")
-      .select("id, item_name, qty, comp_lav_cents, charged_at, dichiarato_dal_cliente")
+      .select("id, item_name, qty, qty_pagata, comp_lav_cents, charged_at, dichiarato_dal_cliente")
       .eq("order_id", orderId)
       .order("created_at", { ascending: true })
       .returns<Special[]>(),
@@ -117,7 +121,9 @@ export default async function LaundryOrderDetail({
   const osservati = sacchiOsservati(order.bags_arrivati, order.bags_scansionati, order.bags);
   const sacchiFranchigia = sacchiPerFranchigia(order.bags_arrivati, order.bags_scansionati, order.bags);
   const items = specials ?? [];
-  const totComp = items.reduce((s, i) => s + i.comp_lav_cents * i.qty, 0);
+  // Il compenso segue il lavoro, non l'addebito: `qty_pagata` comprende i capi
+  // che il canone del cliente copre, che lui non paga e noi sì.
+  const totComp = items.reduce((s, i) => s + i.comp_lav_cents * (i.qty_pagata ?? i.qty), 0);
 
   // Il bucket delle foto è privato: le URL si firmano qui, lato server. Si usa
   // il service client di proposito — chi guarda ha già superato il controllo
@@ -127,6 +133,21 @@ export default async function LaundryOrderDetail({
   // Senza abbonamento non c'è niente di compreso: il modulo deve dirlo prima
   // che qualcuno registri i capi pensando che tre siano gratis.
   const conFranchigia = await haAbbonamentoAttivoPerOrdine(svc, order.order_id);
+  // I capi che il canone di questo cliente comprende, e quanti ne restano. Il
+  // numero lo calcola il server: al portale arriva già fatto, perché la
+  // lavanderia su `capi_compresi` non ha e non deve avere accesso.
+  const { data: ordCliente } = await svc
+    .from("orders")
+    .select("customer_id")
+    .eq("id", order.order_id)
+    .maybeSingle<{ customer_id: string | null }>();
+  const saldoCanone = ordCliente?.customer_id ? await saldoCapiCompresi(svc, ordCliente.customer_id) : null;
+  const capiCompresiDelCliente = (saldoCanone?.diritti ?? []).map((d) => ({
+    itemId: d.itemId,
+    categoryId: d.categoryId,
+    nome: d.nome,
+    residue: d.residue,
+  }));
   const segnalazioni = await Promise.all(
     (issues ?? []).map(async (s) => ({ ...s, fotoUrl: await signedProofUrl(svc, s.photo_url) })),
   );
@@ -258,7 +279,12 @@ export default async function LaundryOrderDetail({
                 </span>
               </p>
               <div className="mt-4">
-                <AddSpecialForm orderId={order.order_id} items={listino ?? []} conFranchigia={conFranchigia} />
+                <AddSpecialForm
+                  orderId={order.order_id}
+                  items={listino ?? []}
+                  conFranchigia={conFranchigia}
+                  capiCompresi={capiCompresiDelCliente}
+                />
               </div>
             </>
           )}
@@ -282,7 +308,7 @@ export default async function LaundryOrderDetail({
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="font-display text-sm font-extrabold text-navy">{eur(s.comp_lav_cents * s.qty)}</span>
+                    <span className="font-display text-sm font-extrabold text-navy">{eur(s.comp_lav_cents * (s.qty_pagata ?? s.qty))}</span>
                     {!s.charged_at && (
                       <form action={removeSpecial}>
                         <input type="hidden" name="order_id" value={order.order_id} />

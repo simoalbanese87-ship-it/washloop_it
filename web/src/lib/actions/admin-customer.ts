@@ -1727,3 +1727,99 @@ export async function aggiornaIndirizzo(formData: FormData) {
   revalidatePath(`/admin/abbonati/${customerId}`);
   redirect(back({ ok: viaCambiata ? "Indirizzo aggiornato e rigeocodificato." : "Indirizzo aggiornato." }));
 }
+
+/** I capi che il canone comprende: aggiungerne uno.
+ *
+ *  Il capo si indica **o** per voce di listino **o** per categoria. La seconda
+ *  non è un vezzo: l'accordo di Savino dice «un cappotto» e lui ha portato un
+ *  impermeabile. Scrivere «impermeabile» sarebbe una bugia sull'accordo, e il
+ *  mese in cui arriva un cappotto vero la franchigia non scatterebbe senza
+ *  dirlo a nessuno.
+ *
+ *  Vale per ciclo pagato e quello che avanza scade, come i passaggi: il saldo
+ *  si conta dalle righe dei capi, non da un contatore che diverge. */
+export async function aggiungiCapoCompreso(formData: FormData) {
+  const me = await requireAdmin();
+  const subId = String(formData.get("sub_id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  // Il valore arriva come `item:<uuid>` o `cat:<codice>`: una select sola con
+  // due gruppi, perché per chi configura è una scelta sola.
+  const scelta = String(formData.get("capo") ?? "").trim();
+  const qtyGrezza = String(formData.get("qty") ?? "").trim();
+  if (!subId || !customerId) throw new Error("Parametri mancanti");
+  const backTo = `/admin/abbonati/${customerId}`;
+
+  const qty = Number(qtyGrezza);
+  if (!Number.isInteger(qty) || qty <= 0) {
+    redirect(`${backTo}?warn=${encodeURIComponent("Quante ne comprende il canone? Serve un numero intero maggiore di zero.")}`);
+  }
+  const [tipo, valore] = scelta.split(":");
+  if ((tipo !== "item" && tipo !== "cat") || !valore) {
+    redirect(`${backTo}?warn=${encodeURIComponent("Scegli un capo del listino o una categoria.")}`);
+  }
+
+  const svc = createServiceClient();
+  const { error } = await svc.from("capi_compresi").insert({
+    subscription_id: subId,
+    item_id: tipo === "item" ? valore : null,
+    category_id: tipo === "cat" ? valore : null,
+    qty_per_ciclo: qty,
+    created_by: me.id,
+  });
+  if (error) {
+    // 23505 = ce n'è già uno per quel capo: si cambia, non si aggiunge.
+    const gia = (error as { code?: string }).code === "23505";
+    redirect(
+      `${backTo}?warn=${encodeURIComponent(
+        gia ? "Questo capo è già compreso: cambia la quantità invece di aggiungerlo di nuovo." : error.message,
+      )}`,
+    );
+  }
+
+  revalidatePath(backTo);
+  revalidatePath("/app/abbonamento");
+  redirect(`${backTo}?ok=${encodeURIComponent(`Compreso nel canone: ${qty} per periodo.`)}`);
+}
+
+/** Toglie un capo compreso. Non tocca i ritiri già registrati: quelli si
+ *  rifanno dall'ordine, dove si vede cosa cambia prima di incassare. */
+export async function togliCapoCompreso(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  if (!id || !customerId) throw new Error("Parametri mancanti");
+  const backTo = `/admin/abbonati/${customerId}`;
+
+  const svc = createServiceClient();
+  const { error } = await svc.from("capi_compresi").delete().eq("id", id);
+  if (error) redirect(`${backTo}?warn=${encodeURIComponent(error.message)}`);
+
+  revalidatePath(backTo);
+  revalidatePath("/app/abbonamento");
+  redirect(
+    `${backTo}?ok=${encodeURIComponent(
+      "Capo tolto dal canone. I ritiri già registrati restano come sono: per rifarli, apri il ritiro e rifai il conto.",
+    )}`,
+  );
+}
+
+/** Cambia quante unità comprende il canone, senza rifare la riga. */
+export async function cambiaQtaCapoCompresa(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  const customerId = String(formData.get("customer_id") ?? "");
+  const qty = Number(String(formData.get("qty") ?? "").trim());
+  if (!id || !customerId) throw new Error("Parametri mancanti");
+  const backTo = `/admin/abbonati/${customerId}`;
+  if (!Number.isInteger(qty) || qty <= 0) {
+    redirect(`${backTo}?warn=${encodeURIComponent("Serve un numero intero maggiore di zero. Per toglierlo del tutto usa «Togli».")}`);
+  }
+
+  const svc = createServiceClient();
+  const { error } = await svc.from("capi_compresi").update({ qty_per_ciclo: qty }).eq("id", id);
+  if (error) redirect(`${backTo}?warn=${encodeURIComponent(error.message)}`);
+
+  revalidatePath(backTo);
+  revalidatePath("/app/abbonamento");
+  redirect(`${backTo}?ok=${encodeURIComponent(`Aggiornato: ${qty} per periodo.`)}`);
+}

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
 import { saldoPassaggi } from "@/lib/passaggi-abbonamento";
+import { saldoCapiCompresi, type SaldoCapiCompresi } from "@/lib/capi-compresi-abbonamento";
 import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco, aggiornaIndirizzo, cambiaCanone, impostaPassaggi, portaAvantiPassaggi } from "@/lib/actions/admin-customer";
 import { ricalcolaCompiti } from "@/lib/actions/compiti";
 import { compitiDaFare } from "@/lib/compiti-sync";
@@ -14,6 +15,7 @@ import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionFor
 import { LinkOfferta } from "@/components/admin/LinkOfferta";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { impersonate } from "@/lib/actions/impersonate";
+import { aggiungiCapoCompreso, togliCapoCompreso, cambiaQtaCapoCompresa } from "@/lib/actions/admin-customer";
 import { TipoServizioSelect } from "@/components/admin/TipoServizioSelect";
 import { isTipoServizio } from "@/lib/tipo-servizio";
 import { isServizioFascia, SERVIZIO_FASCIA_LABEL } from "@/lib/servizio-fascia";
@@ -118,7 +120,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   // Verità da Stripe + tutto quello che la scheda non mostrava: incassi
   // registrati (ricevute e fatture) e capi fuori abbonamento.
-  const [stripeSub, incassi, capi, { data: nota }, passaggi] = await Promise.all([
+  const [stripeSub, incassi, capi, { data: nota }, passaggi, capiCompresi, { data: listinoCapi }, { data: categorieCapi }] = await Promise.all([
     sub?.stripe_subscription_id ? abbonamentoDaStripe(sub.stripe_subscription_id, sub.stripe_customer_id ?? null) : Promise.resolve(null),
     incassiCliente(id),
     capiSpecialiCliente(id),
@@ -129,6 +131,11 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     // ha già usati. La conta sta in `passaggi-abbonamento.ts`, col service
     // client, perché è un numero che si dice a un cliente che paga.
     saldoPassaggi(svc, id),
+    // I capi compresi nel canone e quanti ne restano in questo periodo. Stessa
+    // regola dei passaggi: service client, perché decide cosa si addebita.
+    saldoCapiCompresi(svc, id),
+    svc.from("special_items").select("id, name, category_id").eq("active", true).order("name").returns<{ id: string; name: string; category_id: string | null }[]>(),
+    svc.from("special_categories").select("id, name").order("sort").returns<{ id: string; name: string }[]>(),
   ]);
 
   const totaleIncassatoCents = incassi.reduce((t, i) => t + i.amount_cents, 0);
@@ -291,7 +298,9 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                   {c.qty}× {c.item_name}
                   {c.qty_totale != null && (
                     <span className="ml-2 text-xs font-medium text-muted">
-                      ({c.qty_totale} trovate, {c.qty_inclusa ?? 0} comprese nell&apos;abbonamento)
+                      ({c.qty_totale} trovate
+                      {(c.qty_inclusa ?? 0) > 0 ? `, ${c.qty_inclusa} nel sacco` : ""}
+                      {(c.qty_inclusa_canone ?? 0) > 0 ? `, ${c.qty_inclusa_canone} nel canone` : ""})
                     </span>
                   )}
                   <a href={`/admin/ordini/${c.order_id}`} className="ml-2 text-xs font-bold text-blue hover:underline">
@@ -756,6 +765,20 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                     </span>
                   </form>
                 )}
+                {/* I capi che il canone comprende.
+                    «4 maglioni e 1 cappotto» era un accordo in chat, e alla
+                    consegna il pannello proponeva di addebitare tutto. Qui
+                    diventa un numero: il cliente paga la differenza, la
+                    lavanderia resta pagata per intero — il lavoro l'ha fatto.
+                    Si consumano nel periodo pagato e quello che avanza scade,
+                    come i passaggi. */}
+                <CapiCompresiAbbonamento
+                  subId={sub.id}
+                  clienteId={id}
+                  saldo={capiCompresi}
+                  listino={listinoCapi}
+                  categorie={categorieCapi}
+                />
                 {passaggi && passaggi.oltre > 0 && (
                   <div className="rounded-[10px] bg-[#C9881F]/10 px-3 py-2 text-xs font-semibold text-[#C9881F]">
                     {passaggi.oltre === 1 ? "Un passaggio" : `${passaggi.oltre} passaggi`} oltre il piano in questo
@@ -1814,6 +1837,142 @@ async function CompitiDelCliente({ clienteId }: { clienteId: string }) {
       )}
       <p className="mt-2 text-[11px] font-medium text-muted">
         Si gestiscono tutti insieme in <Link href="/admin/compiti" className="font-bold text-blue hover:underline">Materiale</Link>.
+      </p>
+    </div>
+  );
+}
+
+/** I capi che il canone comprende, con quanti ne restano in questo periodo.
+ *
+ *  Il periodo si dichiara sempre, e **si dice da dove viene**: su un
+ *  abbonamento senza data di rinnovo lo deduciamo dal giorno di attivazione, e
+ *  un periodo dedotto senza dirlo è peggio di nessun periodo — chi legge il
+ *  saldo deve poter capire perché quei numeri si azzerano quel giorno lì. */
+function CapiCompresiAbbonamento({
+  subId,
+  clienteId,
+  saldo,
+  listino,
+  categorie,
+}: {
+  subId: string;
+  clienteId: string;
+  saldo: SaldoCapiCompresi | null;
+  listino: { id: string; name: string; category_id: string | null }[] | null;
+  categorie: { id: string; name: string }[] | null;
+}) {
+  const diritti = saldo?.diritti ?? [];
+  const fmtGiorno = (iso: string) =>
+    new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", day: "2-digit", month: "2-digit" }).format(new Date(iso));
+
+  return (
+    <div className="rounded-[12px] border border-line bg-ice/60 px-3 py-2.5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="font-display text-sm font-extrabold text-navy">Capi compresi nel canone</span>
+        {saldo && (
+          <span className="text-[11px] font-medium text-muted">
+            periodo {fmtGiorno(saldo.periodo.dalIso)} → {fmtGiorno(saldo.periodo.alIso)}
+            {saldo.periodo.fonte !== "rinnovo" && (
+              <>
+                {" "}
+                · calcolato {saldo.periodo.fonte === "attivazione" ? "sul giorno di attivazione" : "sul mese solare"},
+                questo abbonamento non ha una data di rinnovo
+              </>
+            )}
+          </span>
+        )}
+      </div>
+
+      {diritti.length === 0 ? (
+        <p className="mt-1 text-xs font-medium text-muted">
+          Nessuno: ogni capo speciale si addebita. Aggiungine uno se il canone ne comprende — al cliente non si
+          addebita, alla lavanderia si paga lo stesso.
+        </p>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {diritti.map((d) => (
+            <li key={d.id} className="flex flex-wrap items-center gap-2">
+              <form action={cambiaQtaCapoCompresa} className="flex items-center gap-1.5">
+                <input type="hidden" name="id" value={d.id} />
+                <input type="hidden" name="customer_id" value={clienteId} />
+                <input
+                  name="qty"
+                  type="number"
+                  min={1}
+                  max={99}
+                  step={1}
+                  defaultValue={d.spettanti}
+                  aria-label={`Quante ${d.nome} comprende il canone`}
+                  className="w-14 rounded-[10px] border border-line bg-white px-2 py-1 text-sm font-bold text-navy outline-none focus:border-blue"
+                />
+                <button type="submit" className="font-display text-[11px] font-bold text-blue hover:underline">
+                  Salva
+                </button>
+              </form>
+              <span className="text-sm font-semibold text-navy">{d.nome}</span>
+              <span
+                className={`text-xs font-bold ${d.residue === 0 ? "text-[#C9881F]" : "text-[#1F8A5B]"}`}
+              >
+                {d.usate} usate su {d.spettanti}
+                {d.residue > 0 ? ` · ${d.residue === 1 ? "ne resta 1" : `ne restano ${d.residue}`}` : " · finite"}
+              </span>
+              <form action={togliCapoCompreso}>
+                <input type="hidden" name="id" value={d.id} />
+                <input type="hidden" name="customer_id" value={clienteId} />
+                <button type="submit" className="font-display text-[11px] font-bold text-muted hover:text-[#C0392B]">
+                  Togli
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form action={aggiungiCapoCompreso} className="mt-2.5 flex flex-wrap items-center gap-2">
+        <input type="hidden" name="sub_id" value={subId} />
+        <input type="hidden" name="customer_id" value={clienteId} />
+        <input
+          name="qty"
+          type="number"
+          min={1}
+          max={99}
+          step={1}
+          defaultValue={1}
+          aria-label="Quante ne comprende il canone"
+          className="w-14 rounded-[10px] border border-line bg-white px-2 py-1 text-sm font-bold text-navy outline-none focus:border-blue"
+        />
+        <select
+          name="capo"
+          aria-label="Quale capo"
+          className="h-8 max-w-[260px] rounded-[10px] border border-line bg-white px-2 text-sm font-semibold text-navy outline-none focus:border-blue"
+        >
+          <option value="">Scegli…</option>
+          {/* Un capo preciso quando l'accordo è su quello, una categoria
+              quando è sul tipo: «un cappotto» copre anche l'impermeabile. */}
+          <optgroup label="Un capo preciso">
+            {(listino ?? []).map((i) => (
+              <option key={i.id} value={`item:${i.id}`}>
+                {i.name}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Un capo di una categoria">
+            {(categorie ?? []).map((c) => (
+              <option key={c.id} value={`cat:${c.id}`}>
+                {c.name}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+        <button type="submit" className="font-display text-xs font-bold text-blue hover:underline">
+          Aggiungi
+        </button>
+      </form>
+
+      <p className="mt-1.5 text-[11px] font-medium text-muted">
+        Si consumano nel periodo e quello che avanza scade. Vanno messi{" "}
+        <strong className="text-navy">prima del primo ritiro</strong>: sui capi già registrati si rifà il conto
+        dalla pagina del ritiro, e dopo l&apos;incasso non si rifà più.
       </p>
     </div>
   );
