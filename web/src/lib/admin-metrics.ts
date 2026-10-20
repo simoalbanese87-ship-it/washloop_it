@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { sacchiInLavorazione } from "@/lib/sacchi-in-lavorazione";
 import { incassiStripePerMese, rimborsiPerMese } from "@/lib/incassi-stripe";
 import { waitlistLeads } from "@/lib/waitlist";
+import { eRicavoDiCompetenza } from "@/lib/categoria-addebito";
 
 /** Aggregatori per la dashboard admin. Tutti gli importi sono in cent EUR.
  *  Le finestre mese/anno usano i confini locali (Europe/Rome, approssimati
@@ -137,8 +138,8 @@ export async function revenueMetrics(includiProva = false): Promise<RevenueMetri
     abbonamentiAttivi(includiProva),
     svc.from("order_specials").select("price_cli_cents, qty, created_at, refunded_at, orders(status)").gte("created_at", yearStart)
       .returns<{ price_cli_cents: number; qty: number; created_at: string; refunded_at: string | null; orders: { status: string } | null }[]>(),
-    svc.from("customer_charges").select("amount_cents, kind, created_at").neq("status", "void").gte("created_at", yearStart)
-      .returns<{ amount_cents: number; kind: string; created_at: string }[]>(),
+    svc.from("customer_charges").select("amount_cents, kind, status, categoria, created_at").neq("status", "void").gte("created_at", yearStart)
+      .returns<{ amount_cents: number; kind: string; status: string; categoria: string | null; created_at: string }[]>(),
     svc.from("invoices").select("amount_cents, created_at, profiles(is_test)").gte("created_at", yearStart)
       .returns<{ amount_cents: number; created_at: string; profiles: { is_test: boolean } | null }[]>(),
   ]);
@@ -172,8 +173,12 @@ export async function revenueMetrics(includiProva = false): Promise<RevenueMetri
   }
   for (const c of charges ?? []) {
     // Gli storni dei capi speciali sono già stati esclusi sopra togliendo il
-    // capo: qui si contano solo gli addebiti e gli storni a sé stanti.
-    if (c.kind === "refund") continue;
+    // capo; gli aggiustamenti di canone — il conguaglio di un cambio piano —
+    // non sono un ricavo in più, perché quel canone lo conta già il
+    // ricorrente. La regola sta in `categoria-addebito.ts`, insieme a quella
+    // di Competenza: con due copie, il conguaglio sarebbe sparito da una
+    // pagina e rimasto nell'altra.
+    if (!eRicavoDiCompetenza(c)) continue;
     const v = c.amount_cents ?? 0;
     extraYearCents += v;
     if (c.created_at >= monthStart) extraMonthCents += v;

@@ -66,9 +66,10 @@ test("il lunedì si calcola in ora di Roma", () => {
   assert.equal(lunediDi("2026-09-20T21:30:00.000Z"), "2026-09-14");
 });
 
-test("il canone matura solo nelle settimane con una presa in carico", () => {
-  // federica arriva a metà mese: le prime due caselle restano vuote, non zero
-  // spalmato sulle altre.
+test("il canone matura da quando l'abbonamento parte, anche nelle settimane senza ritiro", () => {
+  // federica arriva a metà mese: le settimane prima restano vuote, quelle dopo
+  // valgono anche se non ha fatto ritiri. Ha comprato il servizio, che lo usi
+  // o no — ed è la regola cambiata il 20 ottobre 2026.
   const righe = contoDelMese({
     clienti: [{ clienteId: "federica", nome: "federica" }],
     settimane: ["2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21"],
@@ -81,9 +82,91 @@ test("il canone matura solo nelle settimane con una presa in carico", () => {
     extra: [],
   });
   assert.equal(righe.length, 1);
-  assert.equal(Object.keys(righe[0].celle).length, 2);
+  // Tre settimane coperte su quattro: il 10 settembre cade nella settimana del 7.
+  assert.equal(Object.keys(righe[0].celle).length, 3);
+  assert.equal(righe[0].celle["2026-08-31"], undefined, "prima non era cliente");
+  assert.equal(righe[0].celle["2026-09-07"].ricavoCanoneCents, 1500);
   assert.equal(righe[0].celle["2026-09-14"].ricavoCanoneCents, 1500);
-  assert.equal(righe[0].totale.ricavoCanoneCents, 3000);
+  assert.equal(righe[0].totale.ricavoCanoneCents, 4500);
+});
+
+test("il caso Federica, con i numeri veri di ottobre 2026", () => {
+  // Abbonata dal 13 ottobre a 122,00 €/mese, due ritiri **nella stessa
+  // settimana**. Prima la sua riga valeva 30,50 €: tre settimane pagate
+  // sparivano perché in quelle non aveva ritirato niente.
+  const righe = contoDelMese({
+    clienti: [{ clienteId: "federica", nome: "Federica Corsini" }],
+    settimane: ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"],
+    canoni: [
+      { clienteId: "federica", canoneCents: 12200, daIso: "2026-10-13T07:36:59.000Z", aIso: "2026-11-13T07:36:25.000Z" },
+    ],
+    ordini: [
+      { clienteId: "federica", settimana: "2026-10-19", sacchi: 1 },
+      { clienteId: "federica", settimana: "2026-10-19", sacchi: 1 },
+    ],
+    payouts: [],
+    extra: [],
+  });
+  assert.equal(righe[0].celle["2026-10-05"], undefined);
+  assert.equal(righe[0].celle["2026-10-12"].ricavoCanoneCents, 3050);
+  assert.equal(righe[0].celle["2026-10-19"].ricavoCanoneCents, 3050, "due ritiri non raddoppiano il canone");
+  assert.equal(righe[0].celle["2026-10-26"].ricavoCanoneCents, 3050);
+  assert.equal(righe[0].totale.ricavoCanoneCents, 9150);
+});
+
+test("chi disdice a metà mese smette di maturare", () => {
+  const righe = contoDelMese({
+    clienti: [{ clienteId: "x", nome: "x" }],
+    settimane: ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"],
+    canoni: [{ clienteId: "x", canoneCents: 16000, daIso: "2026-09-01T00:00:00.000Z", aIso: "2026-10-14T00:00:00.000Z" }],
+    ordini: [],
+    payouts: [],
+    extra: [],
+  });
+  assert.equal(Object.keys(righe[0].celle).length, 2);
+  assert.equal(righe[0].totale.ricavoCanoneCents, 8000);
+});
+
+test("chi si abbona il 28 prende una settimana sola, non il mese", () => {
+  const righe = contoDelMese({
+    clienti: [{ clienteId: "x", nome: "x" }],
+    settimane: ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"],
+    canoni: [{ clienteId: "x", canoneCents: 12200, daIso: "2026-10-28T00:00:00.000Z", aIso: null }],
+    ordini: [],
+    payouts: [],
+    extra: [],
+  });
+  assert.deepEqual(Object.keys(righe[0].celle), ["2026-10-26"]);
+  assert.equal(righe[0].totale.ricavoCanoneCents, 3050);
+});
+
+test("un ex cliente non resuscita il mese dopo", () => {
+  const righe = contoDelMese({
+    clienti: [{ clienteId: "x", nome: "x" }],
+    settimane: ["2026-10-05", "2026-10-12"],
+    canoni: [{ clienteId: "x", canoneCents: 16000, daIso: "2026-07-23T00:00:00.000Z", aIso: "2026-09-23T00:00:00.000Z" }],
+    ordini: [],
+    payouts: [],
+    extra: [],
+  });
+  assert.equal(righe.length, 0, "nessuna cella: non compare proprio");
+});
+
+test("un pacchetto a termine matura solo dove c'è un ritiro, anche adesso", () => {
+  // La rete di sicurezza contro il moltiplicatore: spalmando per date, 40 €
+  // per una settimana varrebbero 40 € in ogni settimana coperta.
+  const righe = contoDelMese({
+    clienti: [{ clienteId: "maura", nome: "maura" }],
+    settimane: ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"],
+    canoni: [
+      { clienteId: "maura", canoneCents: 4000, daIso: "2026-10-01T00:00:00.000Z", aIso: "2026-10-08T00:00:00.000Z", settimaneCoperte: 1 },
+    ],
+    ordini: [{ clienteId: "maura", settimana: "2026-10-05", sacchi: 1 }],
+    payouts: [],
+    extra: [],
+  });
+  assert.equal(righe[0].celle["2026-10-05"].ricavoCanoneCents, 4000);
+  assert.equal(righe[0].totale.ricavoCanoneCents, 4000);
 });
 
 test("costi separati: il sacco da una parte, i capi dall'altra", () => {

@@ -47,6 +47,8 @@ export type AddebitoManuale = {
   status: string;
   /** Riferimento del rimborso su Stripe. Vuoto = nessun soldo si è mosso. */
   stripe_ref?: string | null;
+  /** `canone` = aggiustamento del canone, fuori dal saldo degli extra. */
+  categoria?: string | null;
 };
 
 export type SaldoAddebiti = {
@@ -58,6 +60,13 @@ export type SaldoAddebiti = {
   nettoCents: number;
   /** Annullamenti: tolti dal conto senza che nessun soldo sia uscito. */
   annullatoCents: number;
+  /** Rimborsi e conguagli di un cambio piano, in valore assoluto.
+   *
+   *  Stanno fuori dal saldo perché non sono extra: sono il canone che si
+   *  aggiusta. Su Federica il saldo diceva −38,00 € sotto l'etichetta «quanto
+   *  ha pagato in più del canone», che è falsa due volte — quei soldi *sono*
+   *  il canone, e il canone l'ha pagato per intero. */
+  aggiustamentiCanoneCents: number;
 };
 
 /** Il saldo degli extra di un cliente.
@@ -92,8 +101,22 @@ export function saldoAddebiti(capi: CapoExtra[], manuali: AddebitoManuale[]): Sa
   // è l'errore che questo modulo esiste per non rifare.
   const refDeiCapi = new Set(capi.map((c) => c.refund_ref).filter((r): r is string => !!r));
 
+  let aggiustamentiCanoneCents = 0;
+
   for (const m of manuali) {
     if (m.status === "void") continue;
+    // Gli aggiustamenti di canone non sono extra: il cliente non ha pagato
+    // niente in più, ha pagato il canone nuovo. Si contano a parte e si
+    // mostrano a parte.
+    //
+    // La condizione è scritta qui invece di chiamare `categoria-addebito.ts`
+    // perché questo modulo è puro e lo esegue `node --test`, che non risolve
+    // gli alias di TypeScript: l'unica alternativa sarebbe un import che fa
+    // fallire o i test o la compilazione.
+    if (m.categoria === "canone") {
+      aggiustamentiCanoneCents += Math.abs(m.amount_cents);
+      continue;
+    }
     if (m.kind === "refund") {
       // Gemella di un rimborso già contato dal capo.
       if (m.stripe_ref && refDeiCapi.has(m.stripe_ref)) continue;
@@ -112,5 +135,6 @@ export function saldoAddebiti(capi: CapoExtra[], manuali: AddebitoManuale[]): Sa
     stornatoCents,
     nettoCents: addebitatoCents - stornatoCents,
     annullatoCents,
+    aggiustamentiCanoneCents,
   };
 }

@@ -1,6 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentiAttivi } from "@/lib/admin-metrics";
+import { eAggiustamentoDiCanone } from "@/lib/categoria-addebito";
 
 /** Le righe che compongono un numero della Home.
  *
@@ -150,8 +151,8 @@ export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false, 
       const [{ data: specials }, { data: charges }] = await Promise.all([
         svc.from("order_specials").select("id, item_name, qty, price_cli_cents, created_at, refunded_at, order_id, orders(status, customer_id, profiles!orders_customer_id_fkey(full_name, is_test))").gte("created_at", monthStart)
           .returns<{ id: string; item_name: string; qty: number; price_cli_cents: number; created_at: string; refunded_at: string | null; order_id: string; orders: { status: string; customer_id: string | null; profiles: { full_name: string | null; is_test: boolean } | null } | null }[]>(),
-        svc.from("customer_charges").select("id, description, amount_cents, kind, created_at, customer_id, profiles(full_name, is_test)").neq("status", "void").gte("created_at", monthStart)
-          .returns<{ id: string; description: string; amount_cents: number; kind: string; created_at: string; customer_id: string; profiles: { full_name: string | null; is_test: boolean } | null }[]>(),
+        svc.from("customer_charges").select("id, description, amount_cents, kind, status, categoria, created_at, customer_id, profiles(full_name, is_test)").neq("status", "void").gte("created_at", monthStart)
+          .returns<{ id: string; description: string; amount_cents: number; kind: string; status: string; categoria: string | null; created_at: string; customer_id: string; profiles: { full_name: string | null; is_test: boolean } | null }[]>(),
       ]);
 
       const righe: RigaMetrica[] = [];
@@ -166,12 +167,20 @@ export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false, 
         });
       }
       for (const c of charges ?? []) {
-        if (c.kind === "refund") continue;
+        if (c.kind === "refund" && !eAggiustamentoDiCanone(c)) continue;
         if (!includiProva && c.profiles?.is_test) continue;
+        // Un aggiustamento di canone non è un ricavo — quel canone lo conta
+        // già il ricorrente — ma qui si mostra lo stesso, a zero e con la sua
+        // nota: questa pagina promette che le righe sommano al totale, e un
+        // movimento da 110 € che non compare da nessuna parte è peggio di uno
+        // spiegato.
+        const aggiustamento = eAggiustamentoDiCanone(c);
         righe.push({
           etichetta: c.description,
-          dettaglio: `${c.profiles?.full_name ?? "—"} · ${data(c.created_at)}`,
-          importoCents: c.amount_cents,
+          dettaglio: `${c.profiles?.full_name ?? "—"} · ${data(c.created_at)}${
+            aggiustamento ? " · aggiustamento di canone: lo conta il ricorrente" : ""
+          }`,
+          importoCents: aggiustamento ? 0 : c.amount_cents,
           href: `/admin/abbonati/${c.customer_id}`,
         });
       }

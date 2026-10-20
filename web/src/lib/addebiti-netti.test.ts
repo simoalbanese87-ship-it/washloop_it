@@ -76,3 +76,27 @@ test("il caso vero di Giulia deve dare zero, non −35,00 €", () => {
   assert.equal(s.nettoCents, 0);
   assert.equal(s.annullatoCents, 2100);
 });
+
+test("gli aggiustamenti di canone stanno fuori dal saldo degli extra", () => {
+  // Federica: 110,00 € resi e 72,00 € di conguaglio per il passaggio al solo
+  // stiro. Prima il saldo diceva −38,00 € sotto l'etichetta «quanto ha pagato
+  // in più del canone»: falsa due volte, perché quei soldi *sono* il canone e
+  // il canone l'ha pagato per intero.
+  const s = saldoAddebiti(
+    [],
+    [
+      { amount_cents: 7200, kind: "charge", status: "settled", categoria: "canone" },
+      { amount_cents: 11000, kind: "refund", status: "settled", stripe_ref: "re_1", categoria: "canone" },
+    ],
+  );
+  assert.equal(s.addebitatoCents, 0);
+  assert.equal(s.stornatoCents, 0);
+  assert.equal(s.nettoCents, 0);
+  assert.equal(s.aggiustamentiCanoneCents, 18200);
+});
+
+test("un addebito di servizio resta un extra", () => {
+  const s = saldoAddebiti([], [{ amount_cents: 2000, kind: "charge", status: "settled", categoria: "servizio" }]);
+  assert.equal(s.addebitatoCents, 2000);
+  assert.equal(s.aggiustamentiCanoneCents, 0);
+});

@@ -3,6 +3,8 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Fisarmonica } from "@/components/ui/Fisarmonica";
 import { createServiceClient } from "@/lib/supabase/server";
 import { scorpora } from "@/lib/iva";
+import { coperturaDelCanone } from "@/lib/copertura-canone";
+import { eRicavoDiCompetenza } from "@/lib/categoria-addebito";
 import { sacchiInLavorazione } from "@/lib/sacchi-in-lavorazione";
 import {
   lunediDi,
@@ -67,6 +69,11 @@ type Sub = {
   status: string;
   custom_price_cents: number | null;
   created_at: string;
+  activated_at: string | null;
+  canceled_at: string | null;
+  cancel_at_period_end: boolean | null;
+  current_period_end: string | null;
+  prova_fine_at: string | null;
   termina_dopo_settimane: number | null;
   plans: { price_month_cents: number } | { price_month_cents: number }[] | null;
   profiles: { full_name: string | null; is_test: boolean } | { full_name: string | null; is_test: boolean }[] | null;
@@ -84,7 +91,7 @@ type Ordine = {
   profiles: { is_test: boolean } | { is_test: boolean }[] | null;
 };
 type Payout = { order_id: string | null; amount_cents: number; kind: string; servizio_il: string; orders: { customer_id: string | null } | { customer_id: string | null }[] | null };
-type Addebito = { customer_id: string; amount_cents: number; created_at: string; description: string };
+type Addebito = { customer_id: string; amount_cents: number; created_at: string; description: string; kind: string; status: string; categoria: string | null };
 type Extra = {
   qty: number;
   price_cli_cents: number;
@@ -113,7 +120,7 @@ export default async function Competenza({
     // canone — è il motivo per cui il venerdì tolto a ottobre non crea colonne.
     svc.from("slots").select("starts_at").eq("kind", "pickup").is("archived_at", null).gte("starts_at", dal).lt("starts_at", al)
       .returns<{ starts_at: string }[]>(),
-    svc.from("subscriptions").select("user_id, status, custom_price_cents, created_at, termina_dopo_settimane, plans(price_month_cents), profiles(full_name, is_test)")
+    svc.from("subscriptions").select("user_id, status, custom_price_cents, created_at, activated_at, canceled_at, cancel_at_period_end, current_period_end, prova_fine_at, termina_dopo_settimane, plans(price_month_cents), profiles(full_name, is_test)")
       .order("created_at", { ascending: true }).returns<Sub[]>(),
     svc.from("orders").select("id, customer_id, status, bags, bags_arrivati, created_at, laundry_id, laundries(bag_comp_cents), pickup:slots!orders_pickup_slot_id_fkey(starts_at), profiles!orders_customer_id_fkey(is_test)")
       .neq("status", "cancelled").returns<Ordine[]>(),
@@ -128,12 +135,15 @@ export default async function Competenza({
     // finora non comparivano da nessuna parte in questo conto — quel cliente
     // sembrava rendere meno di quanto rendeva.
     //
-    // Solo `charge`: le righe `refund` di questa tabella sono gli storni dei
-    // capi, e quei capi sono già fuori dal conto perché la query sopra li
-    // esclude. Sottrarli di nuovo li conterebbe due volte. Un addebito a mano
-    // da annullare si annulla, e diventa `void`.
-    svc.from("customer_charges").select("customer_id, amount_cents, created_at, description")
-      .eq("kind", "charge").neq("status", "void").returns<Addebito[]>(),
+    // Si prendono tutti e si classificano qui, con `categoria-addebito.ts`.
+    //
+    // Prima il filtro era `kind = 'charge'`, con la convinzione che ogni
+    // `refund` fosse lo storno di un capo. Due errori in uno: il conguaglio di
+    // un cambio piano è un `charge` e passava — contato sopra il canone che
+    // questa pagina già spalma — e gli incassi a sacco, che scrivono
+    // `kind = 'sacco'`, non sarebbero mai entrati.
+    svc.from("customer_charges").select("customer_id, amount_cents, created_at, description, kind, status, categoria")
+      .neq("status", "void").returns<Addebito[]>(),
   ]);
 
   const settimane = settimaneDelMese((fasce ?? []).map((f) => f.starts_at), mese);
@@ -142,19 +152,22 @@ export default async function Competenza({
   // una settimana prima del cambio vale il prezzo di allora.
   const canoni: CanoneStorico[] = [];
   const nomi = new Map<string, string>();
+  const adesso = new Date().toISOString();
   for (const s of subs ?? []) {
     const prof = uno(s.profiles);
     if (!includiProva && prof?.is_test) continue;
     const piano = uno(s.plans);
-    canoni.push({
-      clienteId: s.user_id,
-      canoneCents: s.custom_price_cents ?? piano?.price_month_cents ?? 0,
-      daIso: s.created_at,
-      // Un pacchetto a termine copre le sue settimane, non un mese: 40 € per
-      // una settimana valgono 40 € in quella settimana.
-      settimaneCoperte: s.termina_dopo_settimane,
-    });
+    // Da quando a quando quell'abbonamento copre, con tutte le distinzioni che
+    // non stanno in una riga: prova gratuita, disdetta chiesta contro disdetta
+    // avvenuta, checkout mai pagato. Sta in `copertura-canone.ts`, che ha i
+    // test — da quando la quota matura anche senza ritiri, un abbonamento
+    // contato male diventa un ricavo che non esiste.
+    const copertura = coperturaDelCanone(
+      { ...s, prezzoPianoCents: piano?.price_month_cents ?? null },
+      adesso,
+    );
     nomi.set(s.user_id, prof?.full_name ?? "Cliente");
+    if (copertura) canoni.push(copertura);
   }
 
   const giornoOrdine = (o: Ordine) => uno(o.pickup)?.starts_at ?? o.created_at;
@@ -197,6 +210,10 @@ export default async function Competenza({
 
   const addebitiConto: AddebitoConto[] = (addebiti ?? [])
     .filter((a) => nomi.has(a.customer_id))
+    // Chi è un ricavo lo dice `categoria-addebito.ts`, che risponde anche per
+    // la Home e per il dettaglio delle metriche: una regola sola, o il
+    // conguaglio sparisce da una pagina e resta nell'altra.
+    .filter(eRicavoDiCompetenza)
     .map((a) => ({ clienteId: a.customer_id, settimana: lunediDi(a.created_at), cents: a.amount_cents }));
 
   const righe = contoDelMese({
@@ -257,9 +274,11 @@ export default async function Competenza({
         </div>
         <p className="mt-3 text-sm font-medium text-muted">
           Il canone si divide per le <strong className="text-navy">settimane di servizio del mese</strong> — un mese con
-          cinque ritiri vale cinque settimane, e ciascuna vale meno — e matura solo nelle settimane in cui il cliente è
-          stato servito davvero. I ricavi sono IVA inclusa, il costo della lavanderia è imponibile: il guadagno si
-          calcola sul <strong className="text-navy">netto</strong>.
+          cinque ritiri vale cinque settimane, e ciascuna vale meno — e matura in{" "}
+          <strong className="text-navy">tutte le settimane coperte dall&apos;abbonamento</strong>, anche in quelle senza
+          ritiri: il cliente ha comprato il servizio, che lo usi o no. Rimborsi e conguagli di un cambio piano restano
+          fuori dai ricavi, perché quei soldi il canone li conta già. I ricavi sono IVA inclusa, il costo della
+          lavanderia è imponibile: il guadagno si calcola sul <strong className="text-navy">netto</strong>.
         </p>
         <p className="mt-2 text-sm font-medium text-muted">
           Il costo del sacco si imputa alla settimana del ritiro, anche se la riconsegna non c&apos;è ancora stata:

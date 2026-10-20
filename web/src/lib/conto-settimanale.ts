@@ -52,7 +52,15 @@ export function lunediDi(iso: string): Settimana {
 export type CanoneStorico = {
   clienteId: string;
   canoneCents: number;
+  /** Primo giorno in cui quel canone è in vigore **ed è pagato**. */
   daIso: string;
+  /** Ultimo giorno coperto. `null` = ancora in corso.
+   *
+   *  Senza questa data la quota si spalmerebbe anche dopo la fine: chi ha
+   *  disdetto a settembre tornerebbe a produrre ricavi a ottobre. La calcola
+   *  `copertura-canone.ts`, che sa distinguere una disdetta chiesta da una
+   *  disdetta avvenuta. */
+  aIso?: string | null;
   /** Quante settimane copre quell'importo. `null` = mensile, e allora si divide
    *  per le settimane del mese.
    *
@@ -141,17 +149,33 @@ export function quotaSettimanale(canoneCents: number, quanteSettimane: number): 
   return Math.round(canoneCents / quanteSettimane);
 }
 
-/** Il canone in vigore per quel cliente in quella settimana: l'ultimo che è
- *  cominciato entro la fine della settimana. `null` se allora non era cliente. */
+/** Quell'abbonamento copre quella settimana?
+ *
+ *  Basta un giorno: la settimana è l'unità minima di questo foglio, e non si
+ *  spacca in giorni perché la quota è già un quarto arrotondato di un mese.
+ *  Chi parte martedì 13 prende la settimana del 12 intera, chi disdice
+ *  mercoledì prende la sua ultima settimana intera. */
+export function copreLaSettimana(c: CanoneStorico, settimana: Settimana): boolean {
+  const lunedi = Date.parse(`${settimana}T00:00:00Z`);
+  const domenica = lunedi + 6 * 86_400_000 + (86_400_000 - 1);
+  const da = Date.parse(c.daIso);
+  if (!Number.isFinite(da) || da > domenica) return false;
+  if (!c.aIso) return true;
+  const a = Date.parse(c.aIso);
+  return !Number.isFinite(a) || a >= lunedi;
+}
+
+/** Il canone in vigore per quel cliente in quella settimana.
+ *
+ *  Fra le righe che **coprono** quella settimana, la più recente. Prima si
+ *  guardava solo l'inizio: bastava per sapere quanto costava, non per sapere
+ *  se in quella settimana il cliente fosse ancora servito — e da quando la
+ *  quota matura anche senza ritiri, quella differenza è tutto. */
 export function canoneInVigore(storico: CanoneStorico[], clienteId: string, settimana: Settimana): CanoneStorico | null {
-  const fine = new Date(`${settimana}T12:00:00Z`);
-  fine.setUTCDate(fine.getUTCDate() + 6);
-  const limite = fine.getTime();
   let scelto: CanoneStorico | null = null;
   for (const c of storico) {
     if (c.clienteId !== clienteId) continue;
-    const da = Date.parse(c.daIso);
-    if (!Number.isFinite(da) || da > limite) continue;
+    if (!copreLaSettimana(c, settimana)) continue;
     if (!scelto || Date.parse(c.daIso) > Date.parse(scelto.daIso)) scelto = c;
   }
   return scelto;
@@ -208,10 +232,28 @@ export function contoDelMese(input: {
     c.ritiri += 1;
     c.sacchi += Math.max(0, o.sacchi);
   }
+  // Il canone matura in **tutte** le settimane coperte dall'abbonamento, non
+  // solo in quelle con un ritiro.
+  //
+  // La regola di prima — «una settimana senza ritiro resta vuota» — teneva
+  // ricavo e costo nella stessa casella, ma faceva sparire il servizio che il
+  // cliente ha comprato e non ha usato. Su Federica, che ha fatto entrambi i
+  // suoi ritiri di ottobre nella stessa settimana, tre settimane di
+  // abbonamento pagato valevano zero.
+  //
+  // L'eccezione sono i **pacchetti a termine**: un canone mensile compra un
+  // mese, lo si usi o no; un pacchetto di N settimane compra N settimane *di
+  // servizio*, e quando cominciano lo dice il primo ritiro, non la data del
+  // pagamento. Spalmandoli per date, i 40 € di una prova di una settimana
+  // varrebbero 40 € in ogni settimana che toccano.
   for (const r of righe.values()) {
-    for (const settimana of Object.keys(r.celle)) {
-      if (r.celle[settimana].ritiri === 0) continue;
-      r.celle[settimana].ricavoCanoneCents = quotaDellaSettimana(canoni, r.clienteId, settimana, settimane.length);
+    for (const settimana of settimane) {
+      const c = canoneInVigore(canoni, r.clienteId, settimana);
+      if (!c) continue;
+      const aTermine = c.settimaneCoperte != null;
+      if (aTermine && (r.celle[settimana]?.ritiri ?? 0) === 0) continue;
+      const cella = r.celle[settimana] ?? (r.celle[settimana] = cellaVuota());
+      cella.ricavoCanoneCents = quotaSettimanale(c.canoneCents, c.settimaneCoperte ?? settimane.length);
     }
   }
 
