@@ -67,8 +67,19 @@ export async function GET(req: Request) {
     let skippedFull = 0;
     const turnaroundCache = new Map<string, number>();
 
+    // I giorni della settimana che cadono davvero nella finestra guardata.
+    // Serve per non gridare al guasto quando non c'è niente che non va: una
+    // ricorrenza al martedì, controllata di mercoledì, non trova il martedì
+    // perché il martedì non è nei prossimi quattro giorni — e per mesi ha
+    // riempito il registro di allarmi falsi, che è il modo più sicuro di far
+    // ignorare quelli veri.
+    const giorniGuardati = new Set<number>();
+    for (let t = now.getTime(); t <= until.getTime(); t += 86_400_000) giorniGuardati.add(romeWeekday(new Date(t)));
+    giorniGuardati.add(romeWeekday(until));
+
     for (const rec of recs ?? []) {
       const matches = (slots ?? []).filter((s) => romeWeekday(s.starts_at) === rec.weekday && romeHHMM(s.starts_at) === rec.hhmm);
+      if (matches.length === 0 && !giorniGuardati.has(rec.weekday)) continue;
       if (matches.length === 0) {
         // Questo `continue` è stato muto per giorni ed è costato un cliente.
         // Saverio ha il ritiro ricorrente al martedì alle 09:00; il calendario è

@@ -19,9 +19,10 @@ import { cambiaPiano } from "@/lib/actions/admin-customer";
 import { aggiungiCapoCompreso, togliCapoCompreso, cambiaQtaCapoCompresa } from "@/lib/actions/admin-customer";
 import { TipoServizioSelect } from "@/components/admin/TipoServizioSelect";
 import { isTipoServizio } from "@/lib/tipo-servizio";
-import { isServizioFascia, SERVIZIO_FASCIA_LABEL } from "@/lib/servizio-fascia";
+import { fasciaPermessa, isServizioFascia, SERVIZIO_FASCIA_LABEL } from "@/lib/servizio-fascia";
+import { chiaveFascia, fasceDisponibili, oreDiConsegna } from "@/lib/fasce-ricorrenti";
 import { cancelOrder } from "@/lib/actions/orders";
-import { fmtDate, fmtDateTime, WEEKDAY_IT } from "@/lib/format";
+import { fmtDate, fmtDateTime, romeHHMM, romeWeekday, WEEKDAY_IT } from "@/lib/format";
 import { ACCESS_MODE_LABEL, ORDER_STATUS_LABEL, ordineAperto, type AccessMode, type OrderStatus } from "@/lib/orders";
 import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
 import { cadenzaTesto } from "@/lib/durata-abbonamento";
@@ -88,7 +89,6 @@ type Rec = {
 };
 
 // Ordine di visualizzazione dei giorni: lun→dom.
-const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 export default async function CustomerPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ ok?: string; warn?: string }> }) {
   const { id } = await params;
@@ -197,6 +197,21 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   // Le fasce future, divise per tipo: servono al ritiro creato dall'amministrazione.
   const slotRitiro = (slots ?? []).filter((sl) => sl.kind === "pickup");
   const slotConsegna = (slots ?? []).filter((sl) => sl.kind === "delivery");
+  // Le fasce su cui una ricorrenza può davvero posarsi. Il cron abbina per
+  // giorno **e ora esatta**: finché il form chiedeva un'ora libera si poteva
+  // scrivere «lunedì 08:30» dove il lunedì ha le 08:00 e le 09:00, e il ritiro
+  // non nasceva mai — senza un errore, finché non arrivava il giorno e non
+  // passava nessuno. Qui si mostrano solo le combinazioni che esistono, già
+  // filtrate per il servizio del cliente: a chi fa solo stiro il martedì della
+  // lavanderia non serve.
+  const fasceRicorrenza = fasceDisponibili(
+    slotRitiro
+      .filter((sl) => fasciaPermessa(sl.servizio, tipoServizio))
+      .map((sl) => ({ weekday: romeWeekday(sl.starts_at), hhmm: romeHHMM(sl.starts_at), servizio: sl.servizio })),
+  );
+  const oreConsegna = oreDiConsegna(
+    slotConsegna.map((sl) => ({ weekday: romeWeekday(sl.starts_at), hhmm: romeHHMM(sl.starts_at) })),
+  );
 
   const active = sub?.status === "active" || sub?.status === "trialing";
   const inSofferenza = sub?.status === "past_due" || sub?.status === "unpaid";
@@ -1383,16 +1398,33 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                     Proposta in sospeso: Ogni {WEEKDAY_IT[r.pending_weekday ?? r.weekday]} · {r.pending_hhmm} · {r.pending_bags} {r.pending_bags === 1 ? "sacco" : "sacchi"}{r.pending_delivery_hhmm ? ` · consegna ${r.pending_delivery_hhmm}` : ""} — in attesa che il cliente confermi.
                   </p>
                 )}
-                <form action={updateRecurringPickup} className="grid gap-2 sm:grid-cols-[1fr_0.8fr_0.8fr_0.6fr_auto] sm:items-end">
+                <form action={updateRecurringPickup} className="grid gap-2 sm:grid-cols-[1.4fr_0.8fr_0.6fr_auto] sm:items-end">
                   <input type="hidden" name="rec_id" value={r.id} />
                   <input type="hidden" name="customer_id" value={id} />
-                  <label className="text-xs font-bold text-muted">Giorno
-                    <select name="weekday" defaultValue={r.pending_weekday ?? r.weekday} className={input}>
-                      {WEEKDAY_ORDER.map((w) => (<option key={w} value={w}>{WEEKDAY_IT[w]}</option>))}
+                  <label className="text-xs font-bold text-muted">Ritiro
+                    <select name="fascia" required defaultValue={chiaveFascia({ weekday: r.pending_weekday ?? r.weekday, hhmm: r.pending_hhmm ?? r.hhmm })} className={input}>
+                      {/* La fascia di adesso può non essere più nel calendario:
+                          resta in elenco, detta, invece di sparire e far
+                          sembrare che il cliente non avesse un orario. */}
+                      {!fasceRicorrenza.some((f) => chiaveFascia(f) === chiaveFascia({ weekday: r.pending_weekday ?? r.weekday, hhmm: r.pending_hhmm ?? r.hhmm })) && (
+                        <option value={chiaveFascia({ weekday: r.pending_weekday ?? r.weekday, hhmm: r.pending_hhmm ?? r.hhmm })}>
+                          {WEEKDAY_IT[r.pending_weekday ?? r.weekday]} · {r.pending_hhmm ?? r.hhmm} — non è più in calendario
+                        </option>
+                      )}
+                      {fasceRicorrenza.map((f) => (
+                        <option key={chiaveFascia(f)} value={chiaveFascia(f)}>
+                          {WEEKDAY_IT[f.weekday]} · {f.hhmm}
+                          {isServizioFascia(f.servizio) ? ` · ${SERVIZIO_FASCIA_LABEL[f.servizio]}` : ""}
+                        </option>
+                      ))}
                     </select>
                   </label>
-                  <label className="text-xs font-bold text-muted">Ritiro<input name="hhmm" type="time" required defaultValue={r.pending_hhmm ?? r.hhmm} className={input} /></label>
-                  <label className="text-xs font-bold text-muted">Consegna<input name="delivery_hhmm" type="time" defaultValue={r.pending_delivery_hhmm ?? r.delivery_hhmm ?? ""} className={input} /></label>
+                  <label className="text-xs font-bold text-muted">Consegna
+                    <select name="delivery_hhmm" defaultValue={r.pending_delivery_hhmm ?? r.delivery_hhmm ?? ""} className={input}>
+                      <option value="">la programma l&apos;ops</option>
+                      {oreConsegna.map((o) => (<option key={o} value={o}>{o}</option>))}
+                    </select>
+                  </label>
                   <label className="text-xs font-bold text-muted">Sacchi<input name="bags" type="number" min="1" required defaultValue={r.pending_bags ?? r.bags} className={input} /></label>
                   <Button type="submit" size="md">Proponi modifica</Button>
                 </form>
@@ -1411,7 +1443,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
         {(addresses ?? []).length > 0 ? (
           <details className="mt-4">
             <summary className="cursor-pointer font-display text-sm font-bold text-blue">+ Aggiungi ritiro ricorrente</summary>
-            <form action={addRecurringPickup} className="mt-3 grid gap-2 sm:grid-cols-[1.2fr_1fr_0.8fr_0.8fr_0.6fr_auto] sm:items-end">
+            <form action={addRecurringPickup} className="mt-3 grid gap-2 sm:grid-cols-[1.2fr_1.4fr_0.8fr_0.6fr_auto] sm:items-end">
               <input type="hidden" name="customer_id" value={id} />
               <label className="text-xs font-bold text-muted">Indirizzo
                 <select name="address_id" required className={input} defaultValue="">
@@ -1419,13 +1451,23 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                   {(addresses ?? []).map((a) => (<option key={a.id} value={a.id}>{a.label ?? a.street}</option>))}
                 </select>
               </label>
-              <label className="text-xs font-bold text-muted">Giorno
-                <select name="weekday" className={input} defaultValue={1}>
-                  {WEEKDAY_ORDER.map((w) => (<option key={w} value={w}>{WEEKDAY_IT[w]}</option>))}
+              <label className="text-xs font-bold text-muted">Ritiro
+                <select name="fascia" required className={input} defaultValue="">
+                  <option value="" disabled>Scegli…</option>
+                  {fasceRicorrenza.map((f) => (
+                    <option key={chiaveFascia(f)} value={chiaveFascia(f)}>
+                      {WEEKDAY_IT[f.weekday]} · {f.hhmm}
+                      {isServizioFascia(f.servizio) ? ` · ${SERVIZIO_FASCIA_LABEL[f.servizio]}` : ""}
+                    </option>
+                  ))}
                 </select>
               </label>
-              <label className="text-xs font-bold text-muted">Ritiro<input name="hhmm" type="time" required defaultValue="09:00" className={input} /></label>
-              <label className="text-xs font-bold text-muted">Consegna<input name="delivery_hhmm" type="time" className={input} /></label>
+              <label className="text-xs font-bold text-muted">Consegna
+                <select name="delivery_hhmm" className={input} defaultValue="">
+                  <option value="">la programma l&apos;ops</option>
+                  {oreConsegna.map((o) => (<option key={o} value={o}>{o}</option>))}
+                </select>
+              </label>
               <label className="text-xs font-bold text-muted">Sacchi<input name="bags" type="number" min="1" required defaultValue={1} className={input} /></label>
               <Button type="submit" size="md">Proponi</Button>
             </form>

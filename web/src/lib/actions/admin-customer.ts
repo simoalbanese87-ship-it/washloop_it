@@ -26,6 +26,8 @@ import { oreDiLavorazione } from "@/lib/turnaround";
 import { incassaSubito } from "@/lib/incasso-subito";
 import { allineaCompiti } from "@/lib/compiti-sync";
 import { servizioDopoAbbonamento } from "@/lib/piano-servizio";
+import { fasceDisponibili, fasciaEsiste, leggiChiave, type Fascia } from "@/lib/fasce-ricorrenti";
+import { romeWeekday, romeHHMM, WEEKDAY_IT } from "@/lib/format";
 
 const eur = (c: number) => "€" + (c / 100).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -1136,8 +1138,12 @@ const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Valida e normalizza i campi di una ricorrenza dal form. `delivery` (orario di
  *  consegna preferito) è opzionale. */
 function parseRecurring(formData: FormData): { weekday: number; hhmm: string; bags: number; delivery: string | null } {
-  const weekday = parseInt(String(formData.get("weekday") ?? ""), 10);
-  const hhmm = String(formData.get("hhmm") ?? "").trim();
+  // Giorno e ora arrivano insieme in un campo solo («1|08:00»): separati erano
+  // due campi liberi, e due campi liberi si combinano in un appuntamento che
+  // nel calendario non esiste. I form vecchi mandano ancora i due campi.
+  const dallaFascia = leggiChiave(String(formData.get("fascia") ?? ""));
+  const weekday = dallaFascia?.weekday ?? parseInt(String(formData.get("weekday") ?? ""), 10);
+  const hhmm = dallaFascia?.hhmm ?? String(formData.get("hhmm") ?? "").trim();
   const bags = parseInt(String(formData.get("bags") ?? "1"), 10);
   const deliveryRaw = String(formData.get("delivery_hhmm") ?? "").trim();
   if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) throw new Error("Giorno non valido");
@@ -1145,6 +1151,39 @@ function parseRecurring(formData: FormData): { weekday: number; hhmm: string; ba
   if (!Number.isInteger(bags) || bags < 1) throw new Error("Numero sacchi non valido");
   if (deliveryRaw && !HHMM_RE.test(deliveryRaw)) throw new Error("Orario di consegna non valido (usa HH:MM)");
   return { weekday, hhmm, bags, delivery: deliveryRaw || null };
+}
+
+/** Le fasce di ritiro che esistono davvero, lette dal calendario.
+ *
+ *  Serve prima di scrivere una ricorrenza, non dopo: il cron abbina per giorno
+ *  **e ora esatta**, e una ricorrenza al lunedì alle 08:30, dove il lunedì ha
+ *  le 08:00 e le 09:00, non produce nessun ritiro — in silenzio. Lo si è
+ *  scoperto a cose fatte più di una volta. */
+export async function fasceRitiroDisponibili(): Promise<Fascia[]> {
+  const svc = createServiceClient();
+  const { data } = await svc
+    .from("slots")
+    .select("starts_at, servizio")
+    .eq("kind", "pickup")
+    .is("archived_at", null)
+    .gte("starts_at", new Date().toISOString())
+    .order("starts_at")
+    .limit(200)
+    .returns<{ starts_at: string; servizio: string | null }[]>();
+  return fasceDisponibili(
+    (data ?? []).map((s) => ({ weekday: romeWeekday(s.starts_at), hhmm: romeHHMM(s.starts_at), servizio: s.servizio })),
+  );
+}
+
+/** Ferma una ricorrenza che nascerebbe su un'ora inesistente, e dice quali
+ *  sono le ore buone invece di limitarsi a un «non valido». */
+async function esigiFasciaEsistente(weekday: number, hhmm: string): Promise<string | null> {
+  const fasce = await fasceRitiroDisponibili();
+  if (fasce.length === 0 || fasciaEsiste(weekday, hhmm, fasce)) return null;
+  const delGiorno = fasce.filter((f) => f.weekday === weekday).map((f) => f.hhmm);
+  return delGiorno.length > 0
+    ? `Il ${WEEKDAY_IT[weekday]} non c'è nessuna fascia alle ${hhmm}: ci sono le ${delGiorno.join(", le ")}. Senza una fascia a quell'ora il ritiro non verrebbe mai creato.`
+    : `Il ${WEEKDAY_IT[weekday]} non ci sono fasce di ritiro. Aprile dal calendario, oppure scegli un altro giorno.`;
 }
 
 /** Admin: propone una modifica a un ritiro ricorrente. La modifica NON è subito
@@ -1156,6 +1195,8 @@ export async function updateRecurringPickup(formData: FormData) {
   const customerId = String(formData.get("customer_id") ?? "");
   if (!id || !customerId) throw new Error("Parametri mancanti");
   const { weekday, hhmm, bags, delivery } = parseRecurring(formData);
+  const senzaFascia = await esigiFasciaEsistente(weekday, hhmm);
+  if (senzaFascia) redirect(`/admin/abbonati/${customerId}?warn=${encodeURIComponent(senzaFascia)}`);
 
   const svc = createServiceClient();
   const { error } = await svc
@@ -1185,6 +1226,8 @@ export async function addRecurringPickup(formData: FormData) {
   const addressId = String(formData.get("address_id") ?? "");
   if (!customerId || !addressId) throw new Error("Cliente o indirizzo mancante");
   const { weekday, hhmm, bags, delivery } = parseRecurring(formData);
+  const senzaFascia = await esigiFasciaEsistente(weekday, hhmm);
+  if (senzaFascia) redirect(`/admin/abbonati/${customerId}?warn=${encodeURIComponent(senzaFascia)}`);
 
   const svc = createServiceClient();
   const { error } = await svc.from("recurring_pickups").insert({
