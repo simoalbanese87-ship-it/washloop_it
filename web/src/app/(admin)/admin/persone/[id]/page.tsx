@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { createServiceClient } from "@/lib/supabase/server";
+import { provenienzaDove } from "@/lib/provenienza";
 import { capCoperto } from "@/lib/copertura";
 import { fmtFull } from "@/lib/format";
 import { LeadStatusSelect } from "@/components/admin/LeadStatusSelect";
@@ -113,7 +114,7 @@ export default async function SchedaContatto({
                 {zona && <span className={zona === "fuori zona" ? " font-bold text-[#C0392B]" : " font-bold text-[#1F8A5B]"}> · {zona}</span>}
               </dd>
             </div>
-            <div><dt className="inline font-bold text-navy">Da dove arriva: </dt><dd className="inline">{lead.source ?? "landing"}</dd></div>
+            <div><dt className="inline font-bold text-navy">Da dove arriva: </dt><dd className="inline">{provenienzaDove(lead.source ?? "landing")}</dd></div>
             {lead.archiviato_at && (
               <div><dt className="inline font-bold text-navy">Archiviato il: </dt><dd className="inline">{fmtFull(lead.archiviato_at)}</dd></div>
             )}

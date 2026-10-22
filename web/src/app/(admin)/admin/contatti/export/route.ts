@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { provenienzaNome } from "@/lib/provenienza";
 import { getCurrentProfile } from "@/lib/auth";
 import { CONTACT_STATUS_LABEL, isContactStatus } from "@/lib/lead-status";
 
@@ -87,7 +88,7 @@ export async function GET(req: Request) {
         l.covered ? "In zona" : "Fuori zona",
         l.plan ? `Piano ${l.plan}` : "",
         isContactStatus(l.contact_status) ? CONTACT_STATUS_LABEL[l.contact_status] : l.contact_status,
-        l.source ?? "landing",
+        provenienzaNome(l.source ?? "landing") ?? "",
         l.utm?.source ?? "",
         l.utm?.medium ?? "",
         l.utm?.campaign ?? "",

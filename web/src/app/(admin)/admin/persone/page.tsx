@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { elencoPersone, STADI, STADIO_LABEL, STADIO_TONO, type Stadio } from "@/lib/persone";
+import { PROVENIENZE, provenienzaInEvidenza, provenienzaNome } from "@/lib/provenienza";
 import { importaFunnelSeServe } from "@/lib/funnel-import";
 import { fmtDate, eurCents } from "@/lib/format";
 import { LeadStatusSelect } from "@/components/admin/LeadStatusSelect";
@@ -35,7 +36,7 @@ const campo = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm
 export default async function PersonePage({
   searchParams,
 }: {
-  searchParams: Promise<{ stadio?: string | string[]; contatto?: string | string[]; zona?: string | string[]; q?: string | string[]; prova?: string | string[]; disiscritti?: string | string[]; archiviati?: string | string[]; ok?: string | string[]; warn?: string | string[] }>;
+  searchParams: Promise<{ stadio?: string | string[]; contatto?: string | string[]; zona?: string | string[]; fonte?: string | string[]; q?: string | string[]; prova?: string | string[]; disiscritti?: string | string[]; archiviati?: string | string[]; ok?: string | string[]; warn?: string | string[] }>;
 }) {
   const sp = await searchParams;
   const q = uno(sp.q);
@@ -59,6 +60,11 @@ export default async function PersonePage({
   // Chi ha chiesto di non ricevere più email. Il dato c'era in due tabelle e
   // non si vedeva da nessuna parte: senza questo filtro, per sapere a chi non
   // scrivere bisognava aprire Brevo.
+  // Da dove arriva: senza questo filtro una richiesta «su misura» — una
+  // persona che ha scritto cosa le serve e aspetta una telefonata — si cercava
+  // a occhio in mezzo a tutti gli indirizzi lasciati di passaggio.
+  const fonteGrezza = uno(sp.fonte);
+  const fonte = fonteGrezza && Object.keys(PROVENIENZE).includes(fonteGrezza) ? fonteGrezza : undefined;
   const disiscrittiSolo = uno(sp.disiscritti) === "1";
   // Gli archiviati stanno fuori dall'elenco di lavoro, e si rivedono solo
   // chiedendolo: è il senso dell'archivio. Il chip li mostra da soli, perché
@@ -88,7 +94,13 @@ export default async function PersonePage({
   // due filtri, altrimenti «fuori zona» diventerebbe un cestino.
   const inZonaDi = (p: (typeof tutte)[number]) => (zona === "in" ? p.inZona === true : p.inZona === false);
   const base = tutte.filter(
-    (p) => cerca(p) && (!contatto || statoDi(p) === contatto) && (!zona || inZonaDi(p)) && (!disiscrittiSolo || p.disiscritto) && (archiviatiSolo ? p.archiviato : true),
+    (p) =>
+      cerca(p) &&
+      (!contatto || statoDi(p) === contatto) &&
+      (!zona || inZonaDi(p)) &&
+      (!fonte || p.provenienza === fonte) &&
+      (!disiscrittiSolo || p.disiscritto) &&
+      (archiviatiSolo ? p.archiviato : true),
   );
   const lista = stadio ? base.filter((p) => p.stadio === stadio) : base;
 
@@ -97,13 +109,19 @@ export default async function PersonePage({
   // gia' scelto, altrimenti tutti gli altri direbbero zero.
   const senzaZona = tutte.filter((p) => cerca(p) && (!contatto || statoDi(p) === contatto) && (!stadio || p.stadio === stadio));
   const senzaContatto = tutte.filter((p) => cerca(p) && (!zona || inZonaDi(p)) && (!stadio || p.stadio === stadio));
+  // Come per gli altri chip: il conteggio di una provenienza non risente della
+  // provenienza già scelta, o tutte le altre direbbero zero.
+  const senzaFonte = tutte.filter(
+    (p) => cerca(p) && (!contatto || statoDi(p) === contatto) && (!zona || inZonaDi(p)) && (!stadio || p.stadio === stadio),
+  );
+  const contaFonte = (f: string) => senzaFonte.filter((p) => p.provenienza === f).length;
   const contaContatto = (c: string) => senzaContatto.filter((p) => statoDi(p) === c).length;
   // «Ricorrente» vuol dire che torna ogni mese: un pacchetto a termine, o un
   // abbonamento gia' disdetto, il mese prossimo non c'e' piu'.
   const ricorrente = base.reduce((t, p) => t + (p.settimane || p.disdetto ? 0 : p.valoreMensileCents), 0);
   const qs = (patch: Record<string, string | undefined>) => {
     const u = new URLSearchParams();
-    const correnti = { stadio, contatto, zona, q, prova, disiscritti: disiscrittiSolo ? "1" : undefined, archiviati: archiviatiSolo ? "1" : undefined };
+    const correnti = { stadio, contatto, zona, fonte, q, prova, disiscritti: disiscrittiSolo ? "1" : undefined, archiviati: archiviatiSolo ? "1" : undefined };
     for (const [k, v] of Object.entries({ ...correnti, ...patch })) if (v) u.set(k, v);
     return u.toString() ? `?${u}` : "";
   };
@@ -187,6 +205,25 @@ export default async function PersonePage({
               {CONTACT_STATUS_LABEL[c]} ({contaContatto(c)})
             </Link>
           ))}
+        </div>
+
+        {/* Da dove arrivano. «Su misura» è la riga che vale di più: chi ha
+            compilato quel modulo ha scritto cosa gli serve e aspetta una
+            telefonata, e finora si cercava a occhio in mezzo a tutti gli
+            indirizzi lasciati di passaggio. Si mostrano solo le provenienze
+            che esistono davvero: un chip a zero è un filtro che non serve. */}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="font-display text-xs font-bold uppercase tracking-wider text-navy/40">Arriva da</span>
+          <Link href={`/admin/persone${qs({ fonte: undefined })}`} className={pill(!fonte)}>
+            Tutte
+          </Link>
+          {Object.entries(PROVENIENZE)
+            .filter(([k]) => contaFonte(k) > 0 || fonte === k)
+            .map(([k, v]) => (
+              <Link key={k} href={`/admin/persone${qs({ fonte: k })}`} className={pill(fonte === k)} title={v.dove}>
+                {v.nome} ({contaFonte(k)})
+              </Link>
+            ))}
         </div>
 
         {/* Il filtro della copertura, staccato dai chip dello stadio: sono due
@@ -357,7 +394,21 @@ export default async function PersonePage({
                       {p.inZona === false ? " · fuori zona" : p.zona ? ` · ${p.zona}` : ""}
                     </span>
                   )}
-                  {p.provenienza && <span>da {p.provenienza}</span>}
+                  {/* «da custom» non voleva dire niente a chi legge l'elenco
+                      per decidere chi richiamare. Il su misura è l'unica
+                      provenienza evidenziata: è una persona che ha scritto cosa
+                      le serve e aspetta una telefonata. */}
+                  {p.provenienza && (
+                    <span
+                      className={
+                        provenienzaInEvidenza(p.provenienza)
+                          ? "rounded-full bg-[#7A4FBF]/12 px-2 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-wide text-[#7A4FBF]"
+                          : ""
+                      }
+                    >
+                      {provenienzaInEvidenza(p.provenienza) ? provenienzaNome(p.provenienza) : `da ${provenienzaNome(p.provenienza)}`}
+                    </span>
+                  )}
                   <span>dal {fmtDate(p.creatoIl)}</span>
                   <span>
                     {p.ordini} {p.ordini === 1 ? "ordine" : "ordini"}
@@ -446,6 +497,11 @@ export default async function PersonePage({
         <br />
         Gli stadi seguono i soldi: <strong>Contatto</strong> non ha mai pagato · <strong>Cliente attivo</strong>{" "}paga
         · <strong>Pagamento fallito</strong> ha una fattura rimasta aperta · <strong>Cliente perso</strong> ha disdetto.
+        <br />
+        «Arriva da» dice da quale porta è entrato: <strong>Su misura</strong> ha compilato «Raccontaci cosa ti serve»
+        in fondo a /prezzi e aspetta una telefonata · <strong>Verifica CAP</strong> ha lasciato i dati sulla pagina
+        /disponibilita · <strong>Vecchio funnel</strong> arriva dall&apos;import del funnel esterno ·{" "}
+        <strong>Registrato dal sito</strong> si è aperto un account da solo.
       </p>
     </>
   );
