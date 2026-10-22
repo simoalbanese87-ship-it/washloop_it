@@ -1,6 +1,9 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/server";
+import { daRiequilibrare, scadenzaTesto } from "@/lib/fasce-spot";
+import { isServizioFascia, SERVIZIO_FASCIA_LABEL } from "@/lib/servizio-fascia";
+import { fmtDateTime } from "@/lib/format";
 import {
   createZone,
   toggleZone,
@@ -24,7 +27,7 @@ type Zone = { id: string; name: string; active: boolean; courier_id: string | nu
 type Courier = { id: string; full_name: string | null };
 type DepotRow = { id: string; name: string; address: string | null; lat: number | null; lng: number | null };
 type Laundry = { id: string; name: string; zone_id: string | null; address: string | null; phone: string | null; email: string | null; active: boolean; bag_comp_cents: number | null };
-type Slot = { id: string; kind: string; starts_at: string; ends_at: string; capacity: number | null; servizio: string | null; laundries: { name: string } | null };
+type Slot = { id: string; kind: string; starts_at: string; ends_at: string; capacity: number | null; servizio: string | null; spot: boolean | null; nota: string | null; vale_fino_al: string | null; laundries: { name: string } | null };
 type Plan = { id: string; name: string; price_month_cents: number; turnaround_hours: number; pickups_per_week: number; bags_per_week: number; active: boolean; stripe_price_id: string | null };
 
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
@@ -52,7 +55,7 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
     // tolte apposta.
     supabase
       .from("slots")
-      .select("id, kind, starts_at, ends_at, capacity, servizio, laundries(name)")
+      .select("id, kind, starts_at, ends_at, capacity, servizio, spot, nota, vale_fino_al, laundries(name)")
       .is("archived_at", null)
       .gte("starts_at", inizioMese)
       .lte("starts_at", fineFinestra)
@@ -72,6 +75,11 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
 
   // L'embed PostgREST della lavanderia arriva come array anche se la relazione
   // è uno-a-uno: si normalizza qui, una volta, invece che nel componente.
+  // Le eccezioni, in cima e separate dal calendario: sono la cosa che va
+  // guardata, non quella che si guarda sempre. Ordinate per data, le scadute
+  // si riconoscono dal colore.
+  const spot = (slots ?? []).filter((s) => s.spot);
+
   const fasceCal: FasciaCal[] = (slots ?? []).map((s) => {
     const rel = s.laundries as unknown as { name: string }[] | { name: string } | null;
     const lav = Array.isArray(rel) ? rel[0] : rel;
@@ -320,6 +328,25 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
               <label className="text-xs font-bold text-muted">alle<input name="w2_to" type="time" className={input} /></label>
               <label className="text-xs font-bold text-muted">Capacità<input name="capacity" type="number" defaultValue={10} className={input} /></label>
             </div>
+            {/* Regola o eccezione. Una fascia non si può assegnare a un
+                cliente — la vedono tutti quelli del suo servizio — quindi la
+                domanda giusta a chi la apre non è «per chi», ma «fino a
+                quando». Senza questa riga un'eccezione aperta per una persona
+                resta accesa per mesi: è così che il lunedì è diventato un
+                giorno di ritiro senza che nessuno lo decidesse. */}
+            <div className="grid gap-3 rounded-[14px] border border-[#C9881F]/30 bg-[#C9881F]/6 p-3 sm:grid-cols-[1.1fr_0.8fr_1.6fr] sm:items-end">
+              <label className="text-xs font-bold text-muted">Quanto vale
+                <select name="durata" className={input} defaultValue="sempre">
+                  <option value="sempre">Per sempre — calendario generale</option>
+                  <option value="settimana">Solo questa settimana</option>
+                  <option value="data">Fino al…</option>
+                </select>
+              </label>
+              <label className="text-xs font-bold text-muted">Fino al<input name="fino_al" type="date" className={input} /></label>
+              <label className="text-xs font-bold text-muted">Perché la apri (nota)
+                <input name="nota" maxLength={300} placeholder="es. la signora Rossi non può il mercoledì" className={input} />
+              </label>
+            </div>
             <Button type="submit" size="md">Genera slot</Button>
           </form>
 
@@ -342,8 +369,53 @@ export default async function CatalogoPage({ searchParams }: { searchParams: Pro
             <input name="from" type="time" className={input} />
             <input name="to" type="time" className={input} />
             <Button type="submit" size="md" variant="ghost-navy">Slot singolo</Button>
+            {/* Una fascia singola è quasi sempre un'eccezione, quindi qui il
+                valore di partenza è «solo questa settimana» e non «per
+                sempre»: il default deve essere la cosa che succede davvero. */}
+            <select name="durata" className={input} defaultValue="settimana">
+              <option value="settimana">Solo questa settimana</option>
+              <option value="data">Fino al…</option>
+              <option value="sempre">Per sempre — calendario generale</option>
+            </select>
+            <input name="fino_al" type="date" className={input} />
+            <input name="nota" maxLength={300} placeholder="Perché la apri" className={`${input} sm:col-span-5`} />
           </form>
         </Card>
+
+        {/* ---------- FASCE SPOT ---------- */}
+        {spot.length > 0 && (
+          <Card>
+            <h2 className="font-display text-base font-extrabold text-navy">Fasce fuori dal calendario generale</h2>
+            <p className="mt-1 text-sm font-medium text-muted">
+              Aperte per un caso singolo. Ricorda che <strong className="text-navy">una fascia non è di un cliente</strong>:
+              la vedono tutti quelli del suo servizio. Quando scade va riequilibrata — tolta, o promossa a
+              calendario generale.
+            </p>
+            <div className="mt-3 space-y-2">
+              {spot.map((f) => {
+                const scaduta = daRiequilibrare({ spot: true, vale_fino_al: f.vale_fino_al }, oggiRoma);
+                return (
+                  <div
+                    key={f.id}
+                    className={`rounded-[12px] border px-3 py-2 ${scaduta ? "border-[#C0392B]/35 bg-[#C0392B]/6" : "border-line bg-white"}`}
+                  >
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="font-display text-sm font-extrabold text-navy">
+                        {f.kind === "pickup" ? "Ritiro" : "Consegna"} · {fmtDateTime(f.starts_at)}
+                        {isServizioFascia(f.servizio) ? ` · ${SERVIZIO_FASCIA_LABEL[f.servizio]}` : " · per tutti"}
+                      </span>
+                      <span className={`font-display text-xs font-bold ${scaduta ? "text-[#C0392B]" : "text-muted"}`}>
+                        {scadenzaTesto(f.vale_fino_al)}
+                        {scaduta ? " · da riequilibrare" : ""}
+                      </span>
+                    </div>
+                    {f.nota && <p className="mt-0.5 text-xs font-medium text-muted">{f.nota}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
 
         {/* ---------- SLOT ESISTENTI ---------- */}
         <Card>

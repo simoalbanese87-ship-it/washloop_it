@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { scadenzaDi, type Durata } from "@/lib/fasce-spot";
 import { getCurrentProfile } from "@/lib/auth";
 import { romeLocalToISO } from "@/lib/format";
 import { geocodeAddress } from "@/lib/geo";
@@ -237,6 +238,23 @@ export async function updatePlan(formData: FormData) {
 }
 
 // ---------- SLOT ----------
+
+/** Una fascia è calendario generale o è un'eccezione, e l'eccezione dice fin
+ *  quando vale. Lo si chiede a chi la apre, perché dopo non se lo ricorda
+ *  nessuno — e una fascia non si può assegnare a una persona: la vedono tutti
+ *  i clienti del suo servizio. */
+function durataDalForm(formData: FormData): { spot: boolean; nota: string | null; vale_fino_al: string | null } {
+  const grezza = String(formData.get("durata") ?? "sempre");
+  const durata: Durata = grezza === "settimana" || grezza === "data" ? grezza : "sempre";
+  const oggi = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+  const nota = String(formData.get("nota") ?? "").trim().slice(0, 300) || null;
+  return {
+    spot: durata !== "sempre",
+    nota,
+    vale_fino_al: scadenzaDi(durata, oggi, String(formData.get("fino_al") ?? "")),
+  };
+}
+
 export async function createSlot(formData: FormData) {
   await soloAdmin();
   const date = String(formData.get("date") ?? "");
@@ -260,6 +278,7 @@ export async function createSlot(formData: FormData) {
   const servizio = isServizioFascia(servizioGrezzo) ? servizioGrezzo : null;
 
   const supabase = await createClient();
+  const durata = durataDalForm(formData);
   const { error } = await supabase.from("slots").insert({
     zone_id: String(formData.get("zone_id") ?? "") || lab?.zone_id || null,
     laundry_id,
@@ -268,6 +287,7 @@ export async function createSlot(formData: FormData) {
     starts_at: romeLocalToISO(`${date}T${from}`),
     ends_at: romeLocalToISO(`${date}T${to}`),
     capacity: Number(formData.get("capacity") ?? 15) || 15,
+    ...durata,
   });
   // Il vincolo in database (`slots_senza_doppioni`) impedisce due fasce
   // identiche. Non è un errore da mostrare come tale: è una cosa che capita
@@ -427,6 +447,7 @@ export async function generateSlots(formData: FormData) {
   const end = new Date(`${date_to}T00:00:00Z`);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) throw new Error("Intervallo date non valido");
 
+  const durata = durataDalForm(formData);
   const rows: Array<Record<string, unknown>> = [];
   const d = new Date(start);
   // Il tetto è di 370 giorni e non più di 90: con una fascia a settimana, 90
@@ -437,7 +458,7 @@ export async function generateSlots(formData: FormData) {
     if (!days.includes(String(d.getUTCDay()))) continue;
     const ds = d.toISOString().slice(0, 10);
     for (const [from, to] of windows) {
-      rows.push({ laundry_id, zone_id, kind, servizio, starts_at: romeLocalToISO(`${ds}T${from}`), ends_at: romeLocalToISO(`${ds}T${to}`), capacity });
+      rows.push({ laundry_id, zone_id, kind, servizio, starts_at: romeLocalToISO(`${ds}T${from}`), ends_at: romeLocalToISO(`${ds}T${to}`), capacity, ...durata });
     }
   }
   if (rows.length === 0) throw new Error("Nessuno slot da creare con questi criteri");
