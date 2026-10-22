@@ -22,6 +22,15 @@ test("l'ordine del menu segue il percorso, non l'alfabeto", () => {
   assert.ok(i("in_attesa") < i("convertito"));
 });
 
+test("«abbonamento interrotto» è in fondo, e non è «convertito»", () => {
+  // Chi ha smesso restava «convertito» e si contava fra quelli portati dentro.
+  const i = (s: string) => CONTACT_STATUS.indexOf(s as (typeof CONTACT_STATUS)[number]);
+  assert.ok(isContactStatus("interrotto"));
+  assert.ok(i("convertito") < i("interrotto"));
+  assert.notEqual(CONTACT_STATUS_LABEL.interrotto, CONTACT_STATUS_LABEL.convertito);
+  assert.notEqual(CONTACT_STATUS_TONE.interrotto, CONTACT_STATUS_TONE.non_interessato);
+});
+
 test("uno stato inventato non passa la validazione", () => {
   // È la guardia che tiene allineato il menu al vincolo in database.
   assert.equal(isContactStatus("richiamato_forse"), false);

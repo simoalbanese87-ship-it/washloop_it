@@ -2,11 +2,13 @@
  *  Sta in un modulo suo e non in `actions/leads.ts` perché un file "use server"
  *  può esportare solo funzioni async: le costanti vanno tenute fuori.
  *  I valori devono restare allineati ai check su `leads` e su `profiles`,
- *  l'ultimo dei quali sta in `supabase/migrations/0089_contatto_fuori_zona.sql`.
+ *  l'ultimo dei quali sta in `supabase/migrations/0104_abbonamento_interrotto.sql`.
  *
  *  L'ordine è quello del percorso, non alfabetico: si parte da «da contattare»,
  *  si chiama, si aspetta, e si finisce in uno dei tre esiti. Un menu ordinato
- *  come il lavoro si legge senza pensarci. */
+ *  come il lavoro si legge senza pensarci. «Abbonamento interrotto» sta in
+ *  fondo perché viene dopo tutto il resto: è l'unico stato che si raggiunge
+ *  solo passando da «convertito». */
 
 export const CONTACT_STATUS = [
   "da_contattare",
@@ -16,6 +18,7 @@ export const CONTACT_STATUS = [
   "non_interessato",
   "non_esiste",
   "convertito",
+  "interrotto",
 ] as const;
 
 export type ContactStatus = (typeof CONTACT_STATUS)[number];
@@ -35,6 +38,11 @@ export const CONTACT_STATUS_LABEL: Record<ContactStatus, string> = {
   non_interessato: "Contattato, non interessato",
   non_esiste: "Non esiste",
   convertito: "Convertito",
+  // Era un cliente e ha smesso. Non è un «non interessato» — ci ha già provato
+  // e ci ha già pagato — e non è nemmeno «convertito», che lo lascerebbe nei
+  // conteggi di chi è stato portato dentro. È la lista da richiamare per prima
+  // quando c'è una novità da raccontare.
+  interrotto: "Abbonamento interrotto",
 };
 
 /** Colori dei chip: verde = chiuso bene, rosso = chiuso male, ambra = aperto.
@@ -50,6 +58,9 @@ export const CONTACT_STATUS_TONE: Record<ContactStatus, string> = {
   convertito: "bg-[#1F8A5B]/15 text-[#1F8A5B]",
   non_interessato: "bg-navy/10 text-navy",
   non_esiste: "bg-[#C0392B]/12 text-[#C0392B]",
+  // Ruggine: vicino al rosso dei chiusi male ma non è quello: un abbonamento
+  // interrotto si può riaprire, e il colore non deve dire «finita».
+  interrotto: "bg-[#8A5A3B]/12 text-[#8A5A3B]",
 };
 
 export function isContactStatus(v: string): v is ContactStatus {
