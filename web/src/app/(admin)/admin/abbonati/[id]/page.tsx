@@ -58,6 +58,7 @@ type Offerta = {
   id: string; description: string; amount_cents: number;
   checkout_url: string; expires_at: string | null; created_at: string;
   settimane: number | null; sacchi: number | null;
+  una_tantum: boolean | null; pagato_at: string | null;
 };
 type Ord = { id: string; status: OrderStatus; created_at: string; bags: number; pickup_slot: { starts_at: string } | null };
 type Charge = { id: string; description: string; amount_cents: number; kind: string; status: string; stripe_ref: string | null; created_at: string; categoria: string | null };
@@ -109,7 +110,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     // Le ultime proposte, non solo l'ultima: se la più recente è scaduta ma
     // una di prima è ancora valida, il link buono esiste e va mostrato. Con
     // `limit(1)` si leggeva «scaduto» avendo in casa un link funzionante.
-    svc.from("subscription_offers").select("id, description, amount_cents, checkout_url, expires_at, created_at, settimane, sacchi").eq("user_id", id).order("created_at", { ascending: false }).limit(5).returns<Offerta[]>(),
+    svc.from("subscription_offers").select("id, description, amount_cents, checkout_url, expires_at, created_at, settimane, sacchi, una_tantum, pagato_at").eq("user_id", id).order("created_at", { ascending: false }).limit(5).returns<Offerta[]>(),
     // I servizi a sacco disponibili: li legge il menu qui sotto, e il prezzo
     // mostrato è quello vero del listino, non uno scritto a mano nella pagina.
     svc.from("servizi_sacco").select("id, codice, nome, price_cli_cents, laundries(name)").eq("active", true).order("sort").returns<ServizioSacco[]>(),
@@ -222,10 +223,16 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   // Si mostra la proposta valida più recente; se non ce n'è nessuna valida,
   // l'ultima in assoluto, per poter dire che è scaduta invece di far sparire
   // tutto e lasciare chi guarda a chiedersi dove sia finito il link.
+  //
+  // Una proposta pagata vince su tutte: è la notizia della scheda, e il suo
+  // link non va più mostrato a nessuno. Mostrarlo voleva dire tenere aperta una
+  // cassa — lo si rimanda, o il cliente riapre la mail, e paga due volte.
   const adesso = new Date();
-  const valida = (proposte ?? []).find((o) => !o.expires_at || new Date(o.expires_at) > adesso);
-  const offerta = valida ?? (proposte ?? [])[0] ?? null;
-  const linkScaduto = !!offerta?.expires_at && new Date(offerta.expires_at) < adesso;
+  const pagata = (proposte ?? []).find((o) => o.pagato_at);
+  const valida = (proposte ?? []).find((o) => !o.pagato_at && (!o.expires_at || new Date(o.expires_at) > adesso));
+  const offerta = pagata ?? valida ?? (proposte ?? [])[0] ?? null;
+  const offertaPagata = !!offerta?.pagato_at;
+  const linkScaduto = !offertaPagata && !!offerta?.expires_at && new Date(offerta.expires_at) < adesso;
 
   // Cosa impedisce di eliminare il cliente. Va saputo PRIMA di premere il
   // bottone rosso: si arrivava in fondo alla conferma «sei sicuro» per poi
@@ -1040,31 +1047,56 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               quel caso il link veniva generato, salvato, e poi non lo si
               trovava più da nessuna parte. */}
           {offerta && (
-            <div className="mt-4 rounded-[16px] border border-[#C9881F]/35 bg-[#C9881F]/8 p-4">
+            <div
+              className={`mt-4 rounded-[16px] border p-4 ${
+                offertaPagata ? "border-[#1F8A5B]/35 bg-[#1F8A5B]/8" : "border-[#C9881F]/35 bg-[#C9881F]/8"
+              }`}
+            >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="font-display text-sm font-extrabold text-[#C9881F]">
-                  {active ? "Proposta aperta" : "In attesa di pagamento"}
+                <h3 className={`font-display text-sm font-extrabold ${offertaPagata ? "text-[#1F8A5B]" : "text-[#C9881F]"}`}>
+                  {offertaPagata ? "Pagata" : active ? "Proposta aperta" : "In attesa di pagamento"}
                 </h3>
-                <span className="font-display text-sm font-black text-[#C9881F]">{eur(offerta.amount_cents)}{cadenzaTesto(offerta.settimane)}</span>
+                <span className={`font-display text-sm font-black ${offertaPagata ? "text-[#1F8A5B]" : "text-[#C9881F]"}`}>
+                  {eur(offerta.amount_cents)}
+                  {/* Su un pagamento una tantum non si rinnova niente: scrivere
+                      «/mese» era una promessa di addebito che non esiste. */}
+                  {offerta.una_tantum ? " una tantum" : cadenzaTesto(offerta.settimane)}
+                </span>
               </div>
-              <p className="mt-1 text-xs font-semibold text-[#C9881F]">
+              <p className={`mt-1 text-xs font-semibold ${offertaPagata ? "text-[#1F8A5B]" : "text-[#C9881F]"}`}>
                 {offerta.description}
                 {offerta.sacchi ? ` · ${offerta.sacchi === 1 ? "1 sacco" : `${offerta.sacchi} sacchi`} a settimana` : ""}
                 {offerta.settimane ? " · si chiude da solo, nessun rinnovo" : ""} · link creato il{" "}
                 {fmtDate(offerta.created_at)}
-                {linkScaduto
-                  ? " · il link è scaduto, generane uno nuovo qui sotto"
-                  : offerta.expires_at
-                    ? ` · valido fino al ${fmtDateTime(offerta.expires_at)}`
-                    : ""}
+                {offertaPagata
+                  ? ` · pagata il ${fmtDateTime(offerta.pagato_at!)}`
+                  : linkScaduto
+                    ? " · il link è scaduto, generane uno nuovo qui sotto"
+                    : offerta.expires_at
+                      ? ` · valido fino al ${fmtDateTime(offerta.expires_at)}`
+                      : ""}
               </p>
-              {active && !linkScaduto && (
+              {/* Pagata e una tantum: i soldi sono arrivati e non nasce nessun
+                  abbonamento. È voluto — è il senso del link una tantum — ma
+                  da fuori sembra che il pagamento non sia passato, perché
+                  l'abbonamento resta «nessuno». Lo si dice, invece di lasciare
+                  che lo si scopra dalla telefonata di chi ha pagato. */}
+              {offertaPagata && offerta.una_tantum && !active && (
+                <p className="mt-2 rounded-[10px] bg-white/70 px-2.5 py-1.5 text-[11px] font-bold text-[#1F8A5B]">
+                  I soldi sono arrivati e sono nel registro degli incassi. Un pagamento una tantum
+                  <strong> non apre nessun abbonamento</strong>: se il cliente resta, l&apos;abbonamento si crea qui
+                  sotto, al prezzo concordato.
+                </p>
+              )}
+              {active && !linkScaduto && !offertaPagata && (
                 <p className="mt-2 rounded-[10px] bg-white/70 px-2.5 py-1.5 text-[11px] font-bold text-[#C9881F]">
                   Questo cliente ha già un abbonamento attivo. Se paga anche questo link si ritrova con
                   <strong> due abbonamenti su Stripe</strong>: disdici il vecchio prima, o subito dopo.
                 </p>
               )}
-              {!linkScaduto && <LinkOfferta url={offerta.checkout_url} />}
+              {/* Il link di una proposta pagata non si mostra più: è una cassa
+                  aperta, e chi lo rimanda fa pagare due volte. */}
+              {!linkScaduto && !offertaPagata && <LinkOfferta url={offerta.checkout_url} />}
             </div>
           )}
 

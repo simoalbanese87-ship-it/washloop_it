@@ -52,6 +52,23 @@ export async function POST(request: NextRequest) {
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
+
+      // La proposta è stata pagata: si segna prima di tutto il resto, e vale
+      // per ogni modo di pagamento. Finché non si segnava, la scheda del
+      // cliente continuava a mostrare «In attesa di pagamento» con il link di
+      // Stripe ancora vivo — e quel link è una cassa aperta: lo si rimanda, o
+      // il cliente riapre la mail, e paga una seconda volta. Per i link di
+      // abbonamento l'esito si poteva dedurre dalla subscription che nasceva;
+      // per quelli una tantum non nasce niente, e restavano aperti per sempre.
+      await db
+        .from("subscription_offers")
+        .update({
+          pagato_at: new Date().toISOString(),
+          pagamento_ref: typeof session.payment_intent === "string" ? session.payment_intent : session.id,
+        })
+        .eq("checkout_session_id", session.id)
+        .is("pagato_at", null);
+
       if (session.subscription) {
         const sub = await stripe().subscriptions.retrieve(session.subscription as string);
         if (!sub.metadata?.supabase_user_id && session.metadata?.supabase_user_id) {
