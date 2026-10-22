@@ -41,7 +41,9 @@ export const PLAN_COPY: Record<string, PlanCopy> = {
   stiro: {
     tagline: "Hai la lavatrice, non hai tempo di stirare",
     features: [
-      "Ritiro il mercoledì, torna il venerdì",
+      // Niente giorno fisso: lo stiro si ritira il lunedì e il mercoledì, e
+      // `planRecap` prende le prime tre — una riga falsa finirebbe dritta nel
+      // recap dell'area cliente.
       "Stirato, piegato, pronto da riporre",
       "Un sacco a settimana di capi già lavati",
       "Niente lavaggio: quello lo fai tu",

@@ -155,8 +155,8 @@ export default async function ServizioStiroADomicilioMilano() {
               <ButtonLink href={`/onboarding?plan=${piano.code}`} variant="light">
                 Attiva {piano.name} — {eur(piano.price_month_cents)}/mese →
               </ButtonLink>
-              <span className="text-sm font-semibold text-white/55">
-                Ritiro il mercoled&igrave;, riconsegna il venerd&igrave;
+              <span className="text-base font-semibold text-white/70">
+                Ritiro la mattina, riconsegna entro {piano.turnaround_hours} ore
               </span>
             </div>
           )}

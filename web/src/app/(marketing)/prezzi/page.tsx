@@ -259,7 +259,7 @@ export default async function Prezzi() {
             <VerificaCap />
           </div>
           {minimo != null && (
-            <p className="mt-6 font-display text-sm font-bold text-white/45">
+            <p className="mt-6 font-display text-base font-bold text-white/60">
               Da {eur(minimo)} a settimana, tutto compreso · metti in pausa quando vuoi
             </p>
           )}
@@ -272,7 +272,7 @@ export default async function Prezzi() {
           {PILASTRI.map((p) => (
             <div key={p.t}>
               <div className="font-display text-sm font-extrabold text-navy">{p.t}</div>
-              <p className="mt-1 text-sm font-medium text-muted">{p.d}</p>
+              <p className="mt-1 text-base font-medium text-muted">{p.d}</p>
             </div>
           ))}
         </div>
@@ -321,7 +321,7 @@ export default async function Prezzi() {
                   <div className={`mt-1 font-display text-sm font-bold ${evidenziato ? "text-cyan" : "text-blue"}`}>
                     {p.bags_per_week === 1 ? "1 sacco a settimana" : `${p.bags_per_week} sacchi a settimana`}
                   </div>
-                  <p className={`mt-3 text-sm font-medium ${evidenziato ? "text-white/65" : "text-muted"}`}>
+                  <p className={`mt-3 text-base font-medium ${evidenziato ? "text-white/75" : "text-muted"}`}>
                     {c?.per}
                   </p>
 
@@ -333,11 +333,11 @@ export default async function Prezzi() {
                       /mese
                     </span>
                   </div>
-                  <div className={`mt-1 text-sm font-medium ${evidenziato ? "text-white/55" : "text-muted"}`}>
+                  <div className={`mt-1 text-base font-medium ${evidenziato ? "text-white/70" : "text-muted"}`}>
                     {eur(perSacco(p))} a sacco · {p.bags_per_week * SETTIMANE_AL_MESE} sacchi al mese
                   </div>
 
-                  <ul className={`mt-6 space-y-2 text-sm font-medium ${evidenziato ? "text-white/80" : "text-navy/80"}`}>
+                  <ul className={`mt-6 space-y-3 text-base font-medium leading-relaxed ${evidenziato ? "text-white/90" : "text-navy/85"}`}>
                     {c?.righe(p.bags_per_week).map((r) => (
                       <li key={r} className="flex gap-2">
                         <span className={evidenziato ? "text-cyan" : "text-blue"}>·</span>
@@ -370,7 +370,7 @@ export default async function Prezzi() {
                   </span>
                 </div>
                 <div className="mt-1 font-display text-sm font-bold text-[#7A4FBF]">1 sacco a settimana</div>
-                <p className="mt-3 text-sm font-medium text-muted">
+                <p className="mt-3 text-base font-medium text-muted">
                   Per chi la lavatrice la fa in casa e si ferma davanti all&apos;asse da stiro.
                 </p>
 
@@ -378,13 +378,15 @@ export default async function Prezzi() {
                   <span className="font-display text-5xl font-black text-navy">{eur(pianoStiro.price_month_cents)}</span>
                   <span className="ml-1 font-display text-base font-bold text-muted">/mese</span>
                 </div>
-                <div className="mt-1 text-sm font-medium text-muted">
+                <div className="mt-1 text-base font-medium text-muted">
                   {eur(perSettimana(pianoStiro))} a settimana · {SETTIMANE_AL_MESE} ritiri al mese
                 </div>
 
-                <ul className="mt-6 space-y-2 text-sm font-medium text-navy/80">
+                <ul className="mt-6 space-y-3 text-base font-medium leading-relaxed text-navy/85">
                   {[
-                    "Ritiro il mercoledì, torna il venerdì",
+                    // Il giorno fisso non c'è più: lo stiro si ritira il lunedì
+                    // e il mercoledì, e scriverne uno solo era una promessa che
+                    // il calendario non mantiene.
                     `Stirato e piegato in ${pianoStiro.turnaround_hours} ore`,
                     "Camicie, camicette, pantaloni, lenzuola",
                     "Niente lavaggio: quello lo fai tu",
@@ -421,7 +423,7 @@ export default async function Prezzi() {
                 </span>
               </div>
               <div className="mt-1 font-display text-sm font-bold text-navy/60">Quanti ritiri vuoi tu</div>
-              <p className="mt-3 text-sm font-medium text-muted">
+              <p className="mt-3 text-base font-medium text-muted">
                 Per chi non sta nei due di sopra: due ritiri al mese invece di quattro, volumi grandi, un
                 ufficio, una casa vacanze.
               </p>
@@ -429,9 +431,9 @@ export default async function Prezzi() {
               <div className="mt-6">
                 <span className="font-display text-5xl font-black text-navy">?</span>
               </div>
-              <div className="mt-1 text-sm font-medium text-muted">Il prezzo lo costruiamo insieme</div>
+              <div className="mt-1 text-base font-medium text-muted">Il prezzo lo costruiamo insieme</div>
 
-              <ul className="mt-6 space-y-2 text-sm font-medium text-navy/80">
+              <ul className="mt-6 space-y-3 text-base font-medium leading-relaxed text-navy/85">
                 {[
                   "Ci dici cosa ti serve, in due righe",
                   "Scegli tu quando richiamarti",
@@ -455,7 +457,7 @@ export default async function Prezzi() {
             <h3 className="font-display text-lg font-extrabold text-navy">
               Un sacco = un borsone pieno, quello che caricheresti in lavatrice.
             </h3>
-            <p className="mt-2 text-sm font-medium leading-relaxed text-muted">
+            <p className="mt-2 text-base font-medium leading-relaxed text-muted">
               Non devi contare i capi né pesare: si contano i sacchi. Dentro va tutto quello che finirebbe in
               lavatrice — camicie, magliette, pantaloni, biancheria, asciugamani, lenzuola. Ogni sacchetto
               comprende fino a 3 camicie stirate; oltre quella soglia le camicie si addebitano a listino, con
@@ -476,12 +478,12 @@ export default async function Prezzi() {
           <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-[24px] border border-cyan/40 bg-cyan/[0.07] p-7">
             <div>
               <h3 className="font-display text-lg font-extrabold text-navy">Porta un amico, una settimana in regalo</h3>
-              <p className="mt-1.5 text-sm font-medium leading-relaxed text-muted">
+              <p className="mt-1.5 text-base font-medium leading-relaxed text-muted">
                 Quando un amico attiva un abbonamento con il tuo link, ti regaliamo una settimana del tuo
                 piano. Senza limite al numero di amici.
               </p>
             </div>
-            <Link href="/porta-un-amico" className="font-display text-sm font-extrabold text-blue hover:underline">
+            <Link href="/porta-un-amico" className="font-display text-base font-extrabold text-blue hover:underline">
               Come funziona →
             </Link>
           </div>
@@ -512,7 +514,7 @@ export default async function Prezzi() {
               </thead>
               <tbody>
                 {lista.map((p) => (
-                  <tr key={p.id} className="border-t border-line text-sm font-medium text-navy">
+                  <tr key={p.id} className="border-t border-line text-base font-medium text-navy">
                     <td className="px-4 py-3 font-display font-extrabold">{p.name}</td>
                     <td className="px-4 py-3">{p.bags_per_week * SETTIMANE_AL_MESE}</td>
                     <td className="px-4 py-3">{eur(p.price_month_cents)}</td>
@@ -528,7 +530,7 @@ export default async function Prezzi() {
             {NON_SI_PAGA.map((n) => (
               <div key={n.t} className="rounded-[24px] border border-line bg-ice p-6">
                 <h3 className="font-display text-base font-extrabold text-navy">{n.t}</h3>
-                <p className="mt-2 text-sm font-medium leading-relaxed text-muted">{n.d}</p>
+                <p className="mt-2 text-base font-medium leading-relaxed text-muted">{n.d}</p>
               </div>
             ))}
           </div>
@@ -538,20 +540,27 @@ export default async function Prezzi() {
       {/* ============ COMPRESO E NON ============ */}
       <section className="bg-navy text-white">
         <div className="mx-auto max-w-6xl px-5 py-20">
-          <div className="font-display text-xs font-extrabold uppercase tracking-[0.26em] text-cyan">Senza sorprese</div>
+          <div className="font-display text-sm font-extrabold uppercase tracking-[0.22em] text-cyan">Senza sorprese</div>
           <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] md:text-4xl">
             Cosa è compreso e cosa no.
           </h2>
-          <p className="mt-4 max-w-2xl text-base font-medium text-white/65">
+          <p className="mt-4 max-w-2xl text-lg font-medium text-white/75">
             Scritto prima, non scoperto a fine mese.
           </p>
 
+          {/* Le due colonne hanno lo stesso peso: una dice cosa paghi col
+              canone, l'altra cosa paghi a parte, e la seconda è quella che una
+              persona deve leggere per bene prima di abbonarsi. Era scritta in
+              14px al 55% di bianco — più chiara dello sfondo quel tanto che
+              basta per non leggersi. Adesso le due liste sono identiche per
+              dimensione e quasi identiche per contrasto: cambia il segno, non
+              la leggibilità. */}
           <div className="mt-12 grid gap-10 md:grid-cols-2">
             <div>
-              <div className="font-display text-xs font-extrabold uppercase tracking-[0.2em] text-cyan">In tutti i piani</div>
-              <ul className="mt-4 space-y-3">
+              <div className="font-display text-sm font-extrabold uppercase tracking-[0.18em] text-cyan">In tutti i piani</div>
+              <ul className="mt-5 space-y-4">
                 {COMPRESO.map((c) => (
-                  <li key={c} className="flex gap-3 text-sm font-medium text-white/85">
+                  <li key={c} className="flex gap-3 text-lg font-medium leading-relaxed text-white/90">
                     <span className="text-cyan">✓</span>
                     <span>{c}</span>
                   </li>
@@ -559,13 +568,13 @@ export default async function Prezzi() {
               </ul>
             </div>
             <div>
-              <div className="font-display text-xs font-extrabold uppercase tracking-[0.2em] text-white/40">
+              <div className="font-display text-sm font-extrabold uppercase tracking-[0.18em] text-white/70">
                 Fuori dall&apos;abbonamento
               </div>
-              <ul className="mt-4 space-y-3">
+              <ul className="mt-5 space-y-4">
                 {FUORI.map((c) => (
-                  <li key={c} className="flex gap-3 text-sm font-medium text-white/55">
-                    <span className="text-white/30">·</span>
+                  <li key={c} className="flex gap-3 text-lg font-medium leading-relaxed text-white/80">
+                    <span className="text-white/60">·</span>
                     <span>{c}</span>
                   </li>
                 ))}
@@ -573,7 +582,7 @@ export default async function Prezzi() {
             </div>
           </div>
 
-          <p className="mt-10 border-t border-white/10 pt-6 text-sm font-medium text-white/65">
+          <p className="mt-10 border-t border-white/10 pt-6 text-base font-medium text-white/75">
             Tutte le voci a listino le vedi nel tuo ordine <strong className="font-bold text-white">prima</strong>{" "}
             che il capo venga lavorato: se non confermi, resta dov&apos;è.
           </p>
@@ -607,7 +616,7 @@ export default async function Prezzi() {
                 </summary>
                 <ul className="mt-4 divide-y divide-line">
                   {c.voci.map((v) => (
-                    <li key={v.id} className="flex items-baseline justify-between gap-4 py-2 text-sm font-medium text-navy">
+                    <li key={v.id} className="flex items-baseline justify-between gap-4 py-2.5 text-base font-medium text-navy">
                       <span>{v.name}</span>
                       <span className="whitespace-nowrap font-display font-bold">{eur(v.price_cli_cents)}</span>
                     </li>
@@ -649,7 +658,7 @@ export default async function Prezzi() {
               </thead>
               <tbody>
                 {CONFRONTO.map((r) => (
-                  <tr key={r.voce} className="border-t border-line text-sm font-medium text-muted">
+                  <tr key={r.voce} className="border-t border-line text-base font-medium text-muted">
                     <td className="px-4 py-3 font-display font-extrabold text-navy">{r.voce}</td>
                     <td className="px-4 py-3 font-bold text-navy">{r.noi}</td>
                     <td className="px-4 py-3">{r.capo}</td>
@@ -681,7 +690,7 @@ export default async function Prezzi() {
                   {f.q}
                   <span className="ml-4 text-cyan transition-transform group-open:rotate-45">＋</span>
                 </summary>
-                <p className="mt-3 text-sm font-medium leading-relaxed text-muted">{f.a}</p>
+                <p className="mt-3 text-base font-medium leading-relaxed text-muted">{f.a}</p>
               </details>
             ))}
           </div>
