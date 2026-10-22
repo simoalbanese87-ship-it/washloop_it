@@ -25,9 +25,13 @@ type Riga = {
   profiles: { full_name: string | null; client_code: string | null } | null;
 };
 
+// Le colonne del rimborso ci sono anche quando non si scarica nessun
+// rimborso: un file che cambia forma a seconda del filtro è un file che il
+// commercialista deve ricontrollare ogni volta. «Netto» è quello che è
+// rimasto davvero in cassa, ed è la colonna su cui si fattura.
 const HEADERS = [
   "Data", "Riferimento", "Cliente", "Codice cliente", "Documento",
-  "Imponibile €", "IVA 22% €", "Totale €", "Incasso Stripe",
+  "Imponibile €", "IVA 22% €", "Totale €", "Rimborsato €", "Netto €", "Incasso Stripe",
 ];
 
 /** Campo CSV: virgolette raddoppiate e formule neutralizzate (un nome che
@@ -83,15 +87,27 @@ export async function GET(req: Request) {
   const { data } = await q.returns<Riga[]>();
   const righe = data ?? [];
 
-  const totale = righe.reduce((t, r) => t + r.amount_cents - (r.rimborsato_cents ?? 0), 0);
+  const lordoTot = righe.reduce((t, r) => t + r.amount_cents, 0);
+  const rimborsatoTot = righe.reduce((t, r) => t + (r.rimborsato_cents ?? 0), 0);
+  const totale = lordoTot - rimborsatoTot;
   // Scorporo: gli importi Stripe sono lordi, l'imponibile è il lordo / 1,22.
+  // Si scorpora il **netto**, non il lordo: su un incasso restituito non si
+  // deve nessuna IVA.
   const imponibileTot = Math.round(totale / 1.22);
 
   const lines = [
     HEADERS.map(csv).join(","),
     ...righe.map((r) => {
-      const imponibile = Math.round(r.amount_cents / 1.22);
-      const documento = r.fic_number ? `Fattura n. ${r.fic_number}` : r.stato === "da_emettere" ? "Fattura richiesta" : "Ricevuta";
+      const rimborsato = r.rimborsato_cents ?? 0;
+      const netto = r.amount_cents - rimborsato;
+      const imponibile = Math.round(netto / 1.22);
+      const documento = r.fic_number
+        ? `Fattura n. ${r.fic_number}`
+        : r.stato === "da_emettere"
+          ? "Fattura richiesta"
+          : rimborsato >= r.amount_cents
+            ? "Ricevuta — rimborsata per intero"
+            : "Ricevuta";
       return [
         fmtData(r.created_at),
         r.stripe_invoice_id ?? "",
@@ -99,13 +115,15 @@ export async function GET(req: Request) {
         r.profiles?.client_code ?? "",
         documento,
         num(imponibile),
-        num(r.amount_cents - imponibile),
+        num(netto - imponibile),
         num(r.amount_cents),
+        num(rimborsato),
+        num(netto),
         "Stripe",
       ].map(csv).join(",");
     }),
     // Totale in fondo: è la prima cosa che il commercialista guarda.
-    ["TOTALE", "", "", "", `${righe.length} incassi`, num(imponibileTot), num(totale - imponibileTot), num(totale), ""].map(csv).join(","),
+    ["TOTALE", "", "", "", `${righe.length} incassi`, num(imponibileTot), num(totale - imponibileTot), num(lordoTot), num(rimborsatoTot), num(totale), ""].map(csv).join(","),
   ];
 
   // BOM: senza, Excel su Mac sbaglia gli accenti.
