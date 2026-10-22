@@ -14,11 +14,17 @@ import { richiestaCustom, type LeadFormState } from "@/lib/actions/leads";
  *  email e sperava. Intanto gli abbonamenti su misura sono già **metà** di
  *  quelli attivi: la cosa esisteva, mancava solo la porta.
  *
- *  Cosa chiede, e cosa no
- *  ----------------------
- *  Nome, telefono, CAP, due righe su cosa serve e quando richiamare. **L'email
- *  è facoltativa**: il canale qui è il telefono, e un campo obbligatorio in più
- *  su un modulo che chiede già un impegno è gente che se ne va a metà.
+ *  Cosa chiede
+ *  -----------
+ *  Nome, telefono, email, CAP, due righe su cosa serve e quando richiamare.
+ *
+ *  L'email è nata facoltativa — il canale qui è il telefono, e ogni campo
+ *  obbligatorio in più è gente che molla a metà — e il 22 ottobre 2026 è
+ *  tornata obbligatoria. Il motivo è a valle: senza email quel contatto non si
+ *  può trasformare in cliente, perché `createCustomer` vuole email e nome. La
+ *  si doveva chiedere comunque, solo più tardi e al telefono: un campo
+ *  risparmiato qui era una telefonata in più dopo, e un lead perso se non
+ *  rispondeva più.
  *
  *  La fascia oraria non è un appuntamento preso — nessuno blocca un calendario
  *  dall'altra parte — ed è scritto in chiaro sotto al campo: promettere l'ora
@@ -96,8 +102,13 @@ export function RichiestaCustom() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <input name="cap" required inputMode="numeric" maxLength={5} placeholder="CAP" className={campo} autoComplete="postal-code" />
-            <input name="email" type="email" placeholder="Email (facoltativa)" className={campo} autoComplete="email" />
+            <input name="email" required type="email" placeholder="Email" className={campo} autoComplete="email" />
           </div>
+
+          <p className="text-[13px] font-medium text-muted">
+            L&apos;email ci serve per aprirti l&apos;account se l&apos;abbonamento ti torna. Ti chiamiamo comunque
+            al telefono.
+          </p>
 
           <textarea
             name="esigenza"

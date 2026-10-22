@@ -212,10 +212,12 @@ export async function richiestaCustom(_prev: LeadFormState, formData: FormData):
   if (!/^\+?[\d\s.\-()]{8,20}$/.test(phone) || (phone.match(/\d/g) ?? []).length < 8) {
     return { error: "Inserisci un numero di telefono valido: è lì che ti richiamiamo." };
   }
-  // L'email è facoltativa, ma se c'è dev'essere vera: quella sbagliata è
-  // peggio di quella assente, perché fa credere di avere un secondo canale.
-  if (email !== "" && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
-    return { error: "L'indirizzo email non sembra valido. Puoi anche lasciarlo vuoto." };
+  // L'email è obbligatoria dal 22 ottobre 2026. Era facoltativa, e sembrava un
+  // regalo a chi compila: ma senza email quel contatto non diventa un cliente —
+  // `createCustomer` vuole email e nome — quindi la si chiedeva comunque, al
+  // telefono, con il rischio di non ritrovare più la persona.
+  if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) {
+    return { error: "Serve un indirizzo email: è da lì che ti apriamo l'account se l'abbonamento ti torna." };
   }
   if (!formatoCapValido(cap)) return { error: "Il CAP deve essere di 5 cifre." };
   if (esigenza.length < 10) return { error: "Scrivi in due righe cosa ti serve: è quello che leggiamo prima di chiamarti." };
@@ -240,9 +242,9 @@ export async function richiestaCustom(_prev: LeadFormState, formData: FormData):
   const covered = capCoperto(cap);
   const now = new Date().toISOString();
 
-  // Senza email non si può usare l'indice unico per deduplicare: si usa un
-  // indirizzo segnaposto costruito sul telefono, che è il dato che abbiamo
-  // sempre. Resta riconoscibile a colpo d'occhio in elenco.
+  // L'indice unico su cui si deduplica è l'email, e ora c'è sempre. Il
+  // segnaposto costruito sul telefono resta solo come rete: serviva quando
+  // l'email era facoltativa, e le righe nate così sono ancora in elenco.
   const chiave = email || `telefono+${phone.replace(/\D/g, "")}@washloop.local`;
 
   const nota = [
