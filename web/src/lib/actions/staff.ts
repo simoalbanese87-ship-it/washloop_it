@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { notifyStaffAccount } from "@/lib/notify";
+import { perchéNoCambioRuolo, RUOLO_LABEL, type Ruolo } from "@/lib/ruoli";
 
 /** Gestione accessi staff (lavanderia = partner, rider = courier, sales).
  *  L'admin crea l'account: la password è generata e inviata via email al membro,
@@ -163,6 +164,80 @@ export async function deleteStaff(formData: FormData) {
       scoperti > 0
         ? `Accesso eliminato. ${scoperti} ${scoperti === 1 ? "passaggio è rimasto" : "passaggi sono rimasti"} senza rider: riassegnali dal board.`
         : "Accesso eliminato.",
+    )}`,
+  );
+}
+
+/** Cambia il ruolo di un account che esiste già, senza toccare email e
+ *  password: l'accesso resta il suo, cambia solo cosa vede entrando.
+ *
+ *  Perché serviva
+ *  --------------
+ *  Finora il ruolo si poteva assegnare solo alla nascita, creando un accesso
+ *  nuovo. Per promuovere una persona che aveva già un account non c'era nessuna
+ *  strada dal pannello: restava scriverlo nel database, aggirando il trigger
+ *  che protegge quella colonna. Una strada che passa per il database è una
+ *  strada che prima o poi qualcuno percorre di fretta.
+ *
+ *  Le due guardie stanno in `ruoli.ts` con i loro test: non ci si cambia il
+ *  ruolo da soli, e l'ultimo amministratore non si declassa. La scrittura passa
+ *  dalla service key, che il trigger della 0049 riconosce come backend fidato.
+ *
+ *  Si rilegge il profilo dopo la scrittura invece di fidarsi dell'assenza di
+ *  errore: quella colonna ha un trigger sopra, e un `update` che non tocca
+ *  nessuna riga per il database non è un errore. */
+export async function cambiaRuolo(formData: FormData) {
+  const me = await requireAdmin();
+  // Si identifica per email e non per id: l'email è la cosa che un
+  // amministratore ha davvero sottomano, l'id non lo conosce nessuno.
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const ruoloNuovo = String(formData.get("role") ?? "");
+  const laundryId = String(formData.get("laundry_id") ?? "") || null;
+  if (!email) redirect(`${REV}?warn=${encodeURIComponent("Scrivi l'email dell'account.")}`);
+
+  const svc = createServiceClient();
+  const { data: elenco } = await svc.auth.admin.listUsers({ perPage: 1000 });
+  const utente = (elenco?.users ?? []).find((u) => (u.email ?? "").toLowerCase() === email);
+  if (!utente) redirect(`${REV}?warn=${encodeURIComponent(`Nessun account con l'email ${email}.`)}`);
+  const userId = utente!.id;
+
+  const [{ data: prof }, { count: quantiAdmin }] = await Promise.all([
+    svc.from("profiles").select("id, full_name, role").eq("id", userId).maybeSingle<{ id: string; full_name: string | null; role: string }>(),
+    svc.from("profiles").select("id", { count: "exact", head: true }).eq("role", "admin"),
+  ]);
+  if (!prof) redirect(`${REV}?warn=${encodeURIComponent("Account senza profilo: non si può cambiare il ruolo.")}`);
+
+  const no = perchéNoCambioRuolo({
+    ioId: me.id,
+    utenteId: prof!.id,
+    ruoloAttuale: prof!.role,
+    ruoloNuovo,
+    quantiAdmin: quantiAdmin ?? 0,
+  });
+  if (no) redirect(`${REV}?warn=${encodeURIComponent(no)}`);
+
+  // La sede serve solo alla lavanderia, e su ogni altro ruolo va tolta: un
+  // rider con una sede attaccata non vuol dire niente, e su un amministratore
+  // restringerebbe quello che vede senza che nessuno l'abbia chiesto.
+  if (ruoloNuovo === "partner" && !laundryId) {
+    redirect(`${REV}?warn=${encodeURIComponent("Per la lavanderia scegli quale sede assegnare.")}`);
+  }
+  const { error } = await svc
+    .from("profiles")
+    .update({ role: ruoloNuovo, laundry_id: ruoloNuovo === "partner" ? laundryId : null })
+    .eq("id", userId);
+
+  const { data: verifica } = await svc.from("profiles").select("role").eq("id", userId).maybeSingle<{ role: string }>();
+  if (error || verifica?.role !== ruoloNuovo) {
+    redirect(`${REV}?warn=${encodeURIComponent(`Ruolo non cambiato${error ? `: ${error.message}` : "."}`)}`);
+  }
+
+  revalidatePath(REV);
+  revalidatePath("/admin/persone");
+  revalidatePath("/admin/sicurezza");
+  redirect(
+    `${REV}?ok=${encodeURIComponent(
+      `${prof!.full_name ?? "L'account"} adesso è ${RUOLO_LABEL[ruoloNuovo as Ruolo]}. Email e password non sono state toccate.`,
     )}`,
   );
 }

@@ -2,23 +2,32 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { StaffRowActions } from "@/components/admin/StaffRowActions";
 import { createServiceClient } from "@/lib/supabase/server";
-import { createStaff } from "@/lib/actions/staff";
+import { cambiaRuolo, createStaff } from "@/lib/actions/staff";
+import { RUOLI, RUOLO_COSA_VEDE, RUOLO_LABEL, type Ruolo } from "@/lib/ruoli";
 
 type Prof = { id: string; full_name: string | null; phone: string | null; role: string; laundry_id: string | null };
 type Laundry = { id: string; name: string };
 
 const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
-const ROLE_LABEL: Record<string, string> = { partner: "Lavanderia", courier: "Rider", sales: "Sales" };
+const ROLE_LABEL: Record<string, string> = RUOLO_LABEL;
+// L'amministratore ha il rosso: è l'unico ruolo che vede tutto e può
+// disfare tutto, e in un elenco va distinto a colpo d'occhio dagli altri.
 const roleTone = (r: string) =>
-  r === "partner" ? "bg-[#C9881F]/15 text-[#C9881F]" : r === "courier" ? "bg-blue/12 text-blue" : "bg-[#1F8A5B]/12 text-[#1F8A5B]";
+  r === "admin"
+    ? "bg-[#C0392B]/12 text-[#C0392B]"
+    : r === "partner"
+      ? "bg-[#C9881F]/15 text-[#C9881F]"
+      : r === "courier"
+        ? "bg-blue/12 text-blue"
+        : "bg-[#1F8A5B]/12 text-[#1F8A5B]";
 
 export default async function TeamPage({ searchParams }: { searchParams: Promise<{ ok?: string; warn?: string }> }) {
   const { ok, warn } = await searchParams;
   const svc = createServiceClient();
 
   const [{ data: staff }, { data: laundries }] = await Promise.all([
-    svc.from("profiles").select("id, full_name, phone, role, laundry_id").in("role", ["partner", "courier", "sales"]).order("role").returns<Prof[]>(),
+    svc.from("profiles").select("id, full_name, phone, role, laundry_id").in("role", ["admin", "partner", "courier", "sales"]).order("role").returns<Prof[]>(),
     svc.from("laundries").select("id, name").order("name").returns<Laundry[]>(),
   ]);
 
@@ -59,6 +68,42 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
             </select>
           </label>
         </form>
+      </Card>
+
+      {/* Cambia ruolo a chi un account ce l'ha già */}
+      <Card className="mb-6">
+        <h2 className="font-display text-base font-extrabold text-navy">Cambia ruolo a un account che esiste</h2>
+        <p className="mt-1 text-sm font-medium text-muted">
+          Per promuovere chi ha già un accesso — un cliente che entra nel team, un rider che diventa
+          amministratore. <strong className="text-navy">Email e password non si toccano</strong>: l&apos;accesso resta
+          il suo, cambia solo cosa vede entrando. Scrivi l&apos;email esatta dell&apos;account.
+        </p>
+        <form action={cambiaRuolo} className="mt-4 grid gap-2 sm:grid-cols-[1.6fr_1fr_1.2fr_auto] sm:items-end">
+          <label className="text-xs font-bold text-muted">Account (email)
+            <input name="email" type="email" required placeholder="email@dominio.it" className={input} />
+          </label>
+          <label className="text-xs font-bold text-muted">Nuovo ruolo
+            <select name="role" className={input} defaultValue="courier">
+              {RUOLI.map((r: Ruolo) => (<option key={r} value={r}>{RUOLO_LABEL[r]}</option>))}
+            </select>
+          </label>
+          <label className="text-xs font-bold text-muted">Sede (solo per Lavanderia)
+            <select name="laundry_id" className={input} defaultValue="">
+              <option value="">—</option>
+              {(laundries ?? []).map((l) => (<option key={l.id} value={l.id}>{l.name}</option>))}
+            </select>
+          </label>
+          <Button type="submit" size="md" variant="ghost-navy">Cambia ruolo</Button>
+        </form>
+        {/* Cosa si apre a ciascun ruolo, scritto qui: promuovere qualcuno senza
+            saperlo è il modo in cui si regalano i dati di tutti. */}
+        <ul className="mt-4 space-y-1 border-t border-line pt-3 text-xs font-medium text-muted">
+          {RUOLI.map((r: Ruolo) => (
+            <li key={r}>
+              <strong className="text-navy">{RUOLO_LABEL[r]}</strong>: vede {RUOLO_COSA_VEDE[r]}.
+            </li>
+          ))}
+        </ul>
       </Card>
 
       {/* Elenco staff */}
