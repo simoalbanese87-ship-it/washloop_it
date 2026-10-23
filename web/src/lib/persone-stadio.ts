@@ -37,15 +37,33 @@ const ATTIVI = ["active", "trialing"];
 export const vivo = (status: string, fine: string | null, adesso: number = Date.now()) =>
   ATTIVI.includes(status) && (!fine || new Date(fine).getTime() >= adesso);
 
-/** Lo stadio di chi ha un profilo, a partire dalla sua ultima subscription.
- *  `null` = nessuna subscription: si è registrato e non ha mai pagato. */
+/** Lo stadio di chi ha un profilo: la sua ultima subscription, e l'accordo a
+ *  consumo.
+ *
+ *  **L'abbonamento non è l'unico modo di essere clienti.** Chi ha l'accordo a
+ *  consumo non ha un canone — paga a listino quello che lascia nel sacco — e
+ *  per il programma è un cliente a tutti gli effetti: prenota, lo si ritira,
+ *  gli si addebita. Finché lo stadio guardava solo la subscription, una
+ *  persona così risultava «Contatto», cioè «non ha mai pagato», anche con gli
+ *  incassi sulla sua scheda. Spariva dai clienti attivi, dalle etichette da
+ *  stampare e dai conteggi.
+ *
+ *  L'ordine conta: un abbonamento vivo o un pagamento fallito vengono prima,
+ *  perché dicono qualcosa sui soldi che l'accordo non dice. L'accordo a
+ *  consumo entra dopo, e trasforma in cliente chi altrimenti sarebbe un
+ *  contatto o un perso — che è esattamente quello che è: un cliente senza
+ *  canone. */
 export function stadioDaSubscription(
   sub: { status: string; current_period_end: string | null } | null | undefined,
   adesso: number = Date.now(),
+  aConsumo: boolean | null = false,
 ): Stadio {
+  if (sub && vivo(sub.status, sub.current_period_end, adesso)) return "attivo";
+  if (sub && (sub.status === "past_due" || sub.status === "unpaid")) return "difficolta";
+  // L'accordo a consumo è scritto a mano da noi: è la decisione, non una
+  // deduzione, e vale finché qualcuno non toglie la spunta.
+  if (aConsumo === true) return "attivo";
   if (!sub) return "lead";
-  if (vivo(sub.status, sub.current_period_end, adesso)) return "attivo";
-  if (sub.status === "past_due" || sub.status === "unpaid") return "difficolta";
   // Un checkout aperto e mai concluso non è un cliente perso: è rimasto un lead.
   if (sub.status === "incomplete" || sub.status === "incomplete_expired") return "lead";
   return "perso";

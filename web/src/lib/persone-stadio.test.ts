@@ -54,3 +54,28 @@ test("ogni stadio prodotto è uno di quelli dichiarati", () => {
     assert.ok((STADI as readonly string[]).includes(s), `stadio sconosciuto per ${status}: ${s}`);
   }
 });
+
+test("l'accordo a consumo fa un cliente, anche senza abbonamento", () => {
+  // Chi paga a listino quello che lascia nel sacco è un cliente senza canone.
+  // Finché lo stadio guardava solo la subscription risultava «Contatto», cioè
+  // «non ha mai pagato», con gli incassi sulla sua scheda.
+  assert.equal(stadioDaSubscription(null, ADESSO, true), "attivo");
+  assert.equal(stadioDaSubscription(undefined, ADESSO, true), "attivo");
+  // E chi aveva un abbonamento, l'ha chiuso ed è passato a consumo non è un
+  // cliente perso: l'accordo è vivo.
+  assert.equal(stadioDaSubscription({ status: "canceled", current_period_end: PASSATO }, ADESSO, true), "attivo");
+});
+
+test("il pagamento fallito viene prima dell'accordo a consumo", () => {
+  // Una fattura rimasta aperta è una cosa che si deve vedere: dirgli «attivo»
+  // perché ha anche l'accordo nasconderebbe l'unica riga che chiede un gesto.
+  assert.equal(stadioDaSubscription({ status: "past_due", current_period_end: PASSATO }, ADESSO, true), "difficolta");
+});
+
+test("senza accordo a consumo niente cambia", () => {
+  // La firma è nuova, il comportamento di prima no: `aConsumo` ha un default.
+  assert.equal(stadioDaSubscription(null, ADESSO), "lead");
+  assert.equal(stadioDaSubscription(null, ADESSO, false), "lead");
+  assert.equal(stadioDaSubscription(null, ADESSO, null), "lead");
+  assert.equal(stadioDaSubscription({ status: "canceled", current_period_end: PASSATO }, ADESSO, false), "perso");
+});

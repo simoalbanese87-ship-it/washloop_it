@@ -94,8 +94,8 @@ export async function elencoPersone(includiProva = false, includiArchiviati = fa
 
   const [{ data: profili }, { data: subs }, { data: leads }, { data: ordini }, { data: note }, { data: indirizzi }, { data: mappaCap }, { data: optout }] =
     await Promise.all([
-    svc.from("profiles").select("id, full_name, phone, client_code, created_at, is_test, contact_status, tipo_servizio").eq("role", "customer")
-      .returns<{ id: string; full_name: string | null; phone: string | null; client_code: string | null; created_at: string; is_test: boolean; contact_status: string | null; tipo_servizio: string | null }[]>(),
+    svc.from("profiles").select("id, full_name, phone, client_code, created_at, is_test, contact_status, tipo_servizio, a_consumo").eq("role", "customer")
+      .returns<{ id: string; full_name: string | null; phone: string | null; client_code: string | null; created_at: string; is_test: boolean; contact_status: string | null; tipo_servizio: string | null; a_consumo: boolean | null }[]>(),
     svc.from("subscriptions").select("user_id, status, custom_price_cents, current_period_end, created_at, cancel_at_period_end, termina_dopo_settimane, plans(name, price_month_cents)")
       .order("created_at", { ascending: false })
       .returns<{ user_id: string; status: string; custom_price_cents: number | null; current_period_end: string | null; created_at: string; cancel_at_period_end: boolean | null; termina_dopo_settimane: number | null; plans: { name: string; price_month_cents: number } | null }[]>(),
@@ -186,7 +186,9 @@ export async function elencoPersone(includiProva = false, includiArchiviati = fa
     const email = emailDi.get(p.id) ?? null;
     const ord = conteggioOrdini.get(p.id);
 
-    const stadio: Stadio = stadioDaSubscription(s);
+    // L'accordo a consumo fa un cliente anche senza canone: la regola, con i
+    // suoi test, sta in `persone-stadio.ts`.
+    const stadio: Stadio = stadioDaSubscription(s, Date.now(), p.a_consumo);
 
     if (email) emailViste.add(norm(email));
     if (p.phone) telViste.add(normTel(p.phone));

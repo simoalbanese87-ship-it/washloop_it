@@ -22,6 +22,8 @@ type Riga = {
   created_at: string;
   /** Il servizio concordato: sull'etichetta diventa il bollo STIRO. */
   tipo_servizio: string | null;
+  /** Cliente senza canone, che paga a listino: è un cliente, non un contatto. */
+  a_consumo: boolean | null;
   subscriptions:
     | {
         status: string;
@@ -71,12 +73,16 @@ export default async function EtichettePage({
   const svc = createServiceClient();
   const { data: righe } = await svc
     .from("profiles")
-    .select("id, full_name, client_code, tags_delivered_at, tags_qty, is_test, created_at, tipo_servizio, subscriptions(status, current_period_end, created_at, manual, custom_price_cents, plans(name))")
+    .select("id, full_name, client_code, tags_delivered_at, tags_qty, is_test, created_at, tipo_servizio, a_consumo, subscriptions(status, current_period_end, created_at, manual, custom_price_cents, plans(name))")
     .eq("role", "customer")
     .not("client_code", "is", null)
     .order("created_at", { ascending: false })
     .returns<Riga[]>();
 
+  // Un solo istante per tutta la pagina: chiamare l'orologio dentro il render
+  // è quello che il linter segnala, e giustamente — due righe calcolate a
+  // microsecondi di distanza possono cadere da parti diverse di una scadenza.
+  const adesso = new Date().getTime();
   const persone: Persona[] = (righe ?? [])
     .filter((r) => includiProva || !r.is_test)
     .map((r) => {
@@ -88,8 +94,10 @@ export default async function EtichettePage({
       // con un link a importo libero, che è il caso di un cliente vero e che
       // faceva stampare "ABBONAMENTO: —" su un'etichetta di chi paga.
       const senzaListino = ultima && (ultima.manual || ultima.custom_price_cents != null);
-      const abbonamento = ultima?.plans?.name ?? (senzaListino ? "Personalizzato" : "—");
-      return { ...r, stadio: stadioDaSubscription(ultima), abbonamento };
+      // Chi paga a listino non ha nessun abbonamento, e «—» su un'etichetta
+      // non dice niente a chi maneggia il sacco: si scrive cos'è.
+      const abbonamento = ultima?.plans?.name ?? (senzaListino ? "Personalizzato" : r.a_consumo ? "A consumo" : "—");
+      return { ...r, stadio: stadioDaSubscription(ultima, adesso, r.a_consumo), abbonamento };
     });
 
   const quantiDiProva = (righe ?? []).filter((r) => r.is_test).length;
