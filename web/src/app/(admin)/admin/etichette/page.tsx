@@ -4,6 +4,7 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { EtichettaSacco } from "@/components/admin/EtichettaSacco";
 import { PrintButton } from "@/components/app/PrintButton";
 import { createServiceClient } from "@/lib/supabase/server";
+import { isTipoServizio, TIPO_SERVIZIO_LABEL } from "@/lib/tipo-servizio";
 import { segnaTagConsegnati, annullaTagConsegnati } from "@/lib/actions/tags";
 import { deleteCustomer } from "@/lib/actions/admin-customer";
 import { stadioDaSubscription, type Stadio } from "@/lib/persone-stadio";
@@ -93,10 +94,17 @@ export default async function EtichettePage({
       // ha un piano di listino — né quando è segnato `manual`, né quando paga
       // con un link a importo libero, che è il caso di un cliente vero e che
       // faceva stampare "ABBONAMENTO: —" su un'etichetta di chi paga.
+      // La riga sotto il nome dice **che servizio fa**, non che piano ha. È
+      // l'etichetta del sacco: chi ce l'ha in mano deve sapere cosa farne, e
+      // «Personalizzato» non glielo dice — anzi, su una cliente di solo stiro
+      // contraddiceva il bollo blu a due centimetri di distanza.
+      //
+      // Il piano resta il ripiego per chi il servizio non ce l'ha compilato:
+      // è la cosa più vicina che abbiamo, meglio di una riga vuota.
       const senzaListino = ultima && (ultima.manual || ultima.custom_price_cents != null);
-      // Chi paga a listino non ha nessun abbonamento, e «—» su un'etichetta
-      // non dice niente a chi maneggia il sacco: si scrive cos'è.
-      const abbonamento = ultima?.plans?.name ?? (senzaListino ? "Personalizzato" : r.a_consumo ? "A consumo" : "—");
+      const servizio = isTipoServizio(r.tipo_servizio) ? TIPO_SERVIZIO_LABEL[r.tipo_servizio] : null;
+      const abbonamento =
+        servizio ?? ultima?.plans?.name ?? (senzaListino ? "Personalizzato" : r.a_consumo ? "A consumo" : "—");
       return { ...r, stadio: stadioDaSubscription(ultima, adesso, r.a_consumo), abbonamento };
     });
 

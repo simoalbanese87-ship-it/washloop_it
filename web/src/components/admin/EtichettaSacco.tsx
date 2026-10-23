@@ -8,9 +8,9 @@ import { Logo } from "@/components/Logo";
  *  proprio la cosa sbagliata. A schermo si vede più piccola o più grande a
  *  seconda dello zoom; sulla carta viene 150 × 60 mm.
  *
- *  **Due copie, e non sono uguali.** La prima porta nome, cognome e tipo di
- *  abbonamento: serve a chi maneggia il sacco a casa del cliente, che deve
- *  riconoscerlo a colpo d'occhio. La seconda — `conNome={false}` — ha solo
+ *  **Due copie, e non sono uguali.** La prima porta nome, cognome e che
+ *  servizio fa: serve a chi maneggia il sacco a casa del cliente, che deve
+ *  riconoscerlo a colpo d'occhio e sapere che lavoro è. La seconda — `conNome={false}` — ha solo
  *  logo, codice e QR, ed è quella che può viaggiare fino al banco della
  *  lavanderia, che per contratto non deve sapere di chi sia il bucato: tutte
  *  le viste del portale partner mostrano solo `WL-####`, e un cartellino col
@@ -26,8 +26,12 @@ export function EtichettaSacco({
   clientCode: string;
   qrDataUrl: string;
   nome: string;
+  /** Che servizio fa questo cliente: «Solo stiro», «Lava e stira». Quando il
+   *  servizio non è compilato ci finisce il piano, che è la cosa più vicina
+   *  che abbiamo. È la riga che si legge con il sacco in mano, e il nome di un
+   *  piano — «Personalizzato» — non dice cosa farne. */
   abbonamento: string;
-  /** `false` = copia per la lavanderia: niente nome, niente abbonamento. */
+  /** `false` = copia per la lavanderia: niente nome, niente servizio. */
   conNome?: boolean;
   /** Il sacco è di solo stiro. Si scrive **su tutte e due le copie**, anche su
    *  quella che va al banco: non dice chi è il cliente, dice che lavoro è — e
@@ -54,7 +58,7 @@ export function EtichettaSacco({
               className="rounded-[2mm] px-[4mm] py-[1mm] font-display text-[7mm] font-black leading-none tracking-[0.06em] text-white"
               style={{ backgroundColor: "#2b7fd4" }}
             >
-              STIRO
+              SOLO STIRO
             </span>
           ) : (
             <span className="font-display text-[3.6mm] font-bold text-navy/55">washloop.it</span>
@@ -75,7 +79,7 @@ export function EtichettaSacco({
                 {nome}
               </div>
               <div className="truncate font-display text-[3.6mm] font-bold text-navy/60">
-                <span className="uppercase tracking-[0.1em] text-navy/40">Abbonamento: </span>
+                <span className="uppercase tracking-[0.1em] text-navy/40">Servizio: </span>
                 {abbonamento}
               </div>
             </>
