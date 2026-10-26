@@ -22,8 +22,8 @@ Su **un'altra scheda dello stesso Mac**: basta `cd .../washloop/web` ed è già 
 ## Cosa è già configurato (non serve rifarlo)
 - **Repo GitHub**: `simoalbanese87-ship-it/washloop_it` (branch `main`). Root del repo = cartella `washloop/`; l'app Next.js è in `web/`.
 - **Vercel**: progetto `washloop-it`, Root Directory = `web`, auto-deploy ad ogni push su `main`. Dominio `washloop.it` (Cloudflare → Vercel).
-- **Supabase**: progetto `rcleyqbntxaiwutdhdpx`. Schema applicato (migrazioni in `web/supabase/migrations/` fino a `0005`).
-- **Stripe**: TEST mode attivo (3 prezzi + webhook su `https://washloop.it/api/stripe/webhook`).
+- **Supabase**: progetto `rcleyqbntxaiwutdhdpx`. Schema applicato (migrazioni in `web/supabase/migrations/`, **fino a 0106**).
+- **Stripe**: **LIVE** (webhook su `https://washloop.it/api/stripe/webhook`). Gli incassi finiscono in `invoices` e si rileggono da `/admin/incassi`.
 
 ## Env necessarie (`web/.env.local`)
 NON sono nel git. Recuperale con `vercel env pull` oppure ricreale a mano:
@@ -62,53 +62,60 @@ App Next.js 16 (App Router, TS, Tailwind v4) in `web/`:
 Ruoli (in `profiles.role`): `customer` | `courier` | `partner` | `admin`. RLS attiva su tutte le tabelle.
 
 ## Migrazioni DB
-Lo schema si applica via **Supabase SQL Editor** (incolla i file di `web/supabase/migrations/` in ordine) oppure via Management API con un Personal Access Token `sbp_...` (account → Access Tokens). Il pooler/diretto DB è IPv6 e da rete IPv4 non è raggiungibile: usare SQL Editor o Management API.
+Lo schema si applica via **Supabase SQL Editor** (incolla i file di `web/supabase/migrations/` in ordine) oppure via **Management API** con il Personal Access Token `sbp_...` — che su questo Mac sta già in `web/.env.local` (`SUPABASE_ACCESS_TOKEN` + `SUPABASE_PROJECT_REF`): è la strada che uso io. Il pooler/diretto DB è IPv6 e da rete IPv4 non è raggiungibile: usare SQL Editor o Management API.
 
 ## Account di prova (password NON nel git — tienile nel tuo gestore)
 - Admin: `washloop.it@gmail.com`
 - Cliente: `cliente.test@washloop.it` (abbonato Plus + 1 ordine)
 - Rider: `rider.test@washloop.it`
 
-## Stato del progetto (agg. 20 giu 2026)
-MVP live: vetrina, auth, abbonamenti Stripe, prenota laundry-centrico + ETA, tracking capo-per-capo, board ops, catalogo+slot, area cliente, corriere, **portale lavanderia** (`/laundry`, dati anonimizzati + capi speciali), **gate prenota dietro abbonamento**.
+## Stato del progetto (agg. 26 ottobre 2026)
 
-Aggiunto di recente:
-- **Pagine legali**: `/privacy` `/cookie` `/termini` + **cookie banner** (Accetta tutti / Solo necessari) + dati legali reali in `src/lib/legal.ts` (Digital Consulting S.r.l. · P.IVA 09682420964 · Via Franco Russoli 9, 20143 Milano). Email pubblica: info@washloop.it. Manca solo PEC.
-- **Email transazionali** via SMTP (Brevo) — `lib/email.ts` + `lib/notify.ts`. Richiede env SMTP su Vercel.
-- **Stripe LIVE**: prodotti/prezzi live creati (migration 0011), webhook live `we_1TkNt5...` su `https://washloop.it/api/stripe/webhook`, addebito off-session capi speciali (`lib/actions/charge.ts` + bottone admin order detail).
-- **Pannello sicurezza admin** `/admin/sicurezza` (migration 0010, function `security_audit()`). Admin layout ristretto ai soli admin.
-- **Webapp cliente — rework mobile (in corso)**: allineamento ai mockup `Washloop(4).zip` (estrai in `design-reference/`, gitignorato). Fase 1 (`MobileShell.tsx` bottom-tab + Home) e **Fase 2** fatte: restyle mobile di **ordini list** (seg Attivi/Storico), **dettaglio ordine** (back bar + hero stato/ETA + timeline realtime), **profilo**, **prenota/abbonamento/indirizzi** (layout mobile). Dati reali, backend invariato. Mancano: **onboarding scuro**, **flusso prenota mockup** (daystrip+slot+capi speciali — serve decisione modello: ordine singolo vs ricorrente), profilo sub-pagine (fatture/invita-amico → serve backend). AI assistant rimandato. Piani `bags_per_week` 1/2/3 (migration 0012).
-- **Flusso prenota = mockup** (`BookFlow.tsx`): step daystrip giorni → griglia slot → listino capi speciali reali (vetrina) → conferma (stepper sacchi+note) → success scura. Wired a slot/abbonamento reali (action `bookPickup` ritorna l'id). Verificato end-to-end in prod. **Routing lavanderia = dallo slot scelto** (niente più zona): admin crea slot per la lavanderia, il cliente non vede mai quale.
-- **Lavanderia reale**: `Centro Pulitura Bergamo di Narisi Giuseppe & C. Snc` — **solo interno**, **mai mostrata ai clienti**. Migration **0013** la inserisce; migration **0014** blinda la tabella `laundries` (drop policy "laundries read" → SELECT solo admin; partner usa viste 0008/0009, courier non legge). Nome rimosso da tutte le query/UI cliente (prenota/ordini/dettaglio). Account partner di **test** creato: `lavanderia.test@washloop.it` (ruolo partner, `laundry_id` → lavanderia reale) → portale `/laundry`. Zona di servizio = **tutta Milano** (zona unica); rider scelto a mano dall'admin.
-- **Slot (giorni/orari)**: gestiti da **admin → Catalogo** (generatore ricorrente: lavanderia + giorni + 2 fasce + capacità, e slot singolo). "Per tutti".
-- **Ritiro singolo o ricorrente** (scelta utente): in conferma prenota toggle "Solo questa volta / Ogni settimana". La ricorrenza salva giorno+ora (Roma) in `recurring_pickups` (migration **0015**); Home mostra le ricorrenze attive con "Disattiva" (`cancelRecurring`). **Cron** `/api/cron/recurring` (vercel.json, giornaliero 06:00 UTC, protetto da `CRON_SECRET`) genera gli ordini delle settimane successive su slot reali con stesso giorno+ora; idempotente; salta abbonamenti non attivi.
-- **Email**: env SMTP impostate su Vercel (prod+preview) — Brevo `smtp-relay.brevo.com:587`, FROM `noreply@send.washloop.it`, Reply-To `info@washloop.it` (gestito in `lib/email.ts`). Dominio `send.washloop.it` autenticato su Brevo (DKIM/SPF in Cloudflare).
-- **Fatture**: `/app/fatture` lista fatture reali da Stripe (link da Profilo). **Uso del mese** su Abbonamento (sacchi/extra/ordini del mese, dati reali).
+**In produzione e in uso con clienti veri.** Stripe è in **LIVE**. Le migrazioni sono **106** (`web/supabase/migrations/`, applicate in prod via Management API). I test sono **431**, tutti verdi: `npm test`.
 
-- **Notifiche**: email a **cliente** (email+push), **lavanderia** (su nuovo ordine + ritirato, senza dati personali cliente — privacy partner) e **rider** (all'assegnazione). `lib/notify.ts` + `notifyCourierAssigned`. Email lavanderia: colonna `laundries.email` (impostabile da Admin → Catalogo) con fallback all'email del profilo partner. Cron ricorrente ora notifica.
-- **Web Push reali**: VAPID (env `NEXT_PUBLIC_VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` su Vercel), `lib/push.ts` (web-push), `public/sw.js` handler push+notificationclick (cache v2), `/api/push/subscribe`, tabella `push_subscriptions` (migration 0017).
-- **PWA UX** (solo `/app`): `NotificationPrompt` (popup basso, chiede permesso, non ri-chiede se concesso/negato) + `InstallBanner` (alto, mobile; Android `beforeinstallprompt` / iOS istruzioni; nascosto se già installata). Montati in `MobileShell`.
+### Come funziona il lavoro, in cinque righe
+1. **Le fasce** (`slots`) sono il calendario: fuori da lì non si prenota niente.
+2. **Il cancello**: prenota chi ha un abbonamento vivo **oppure** la spunta `profiles.a_consumo`.
+3. **Il ritiro** nasce in tre modi: dal cliente in app, dalla ricorrenza (cron giornaliero, abbina per giorno **e ora esatta**), o a mano dall'admin.
+4. **La destinazione**: decide la fascia — una fascia `stiro` manda in stireria — poi il servizio a sacco del cliente, poi la lavanderia generale.
+5. **I soldi**: il canone corre su Stripe; i capi extra si incassano **dopo** che la lavanderia ha contato i sacchi.
 
-- **Email transazionali Brevo**: canale attivo (login SMTP `af6603001@smtp-brevo.com`, mittente `noreply@send.washloop.it`, Reply-To `info@washloop.it`). Template in `src/lib/email-templates.ts` (`welcomeEmailHtml` = credenziali+piano alla creazione cliente / "Reinvia credenziali"; `chargeEmailHtml` = ricevuta addebito). Logo email = `public/logo-washloop.png` (screenshot del logo del sito). Ricevuta addebito automatica via webhook Stripe `invoice.payment_succeeded` (evento abilitato sull'endpoint).
-- **Consenso privacy** (GDPR): checkbox OBBLIGATORIO in onboarding + login signup; salva `profiles.terms_accepted_at` (+ user_metadata).
-- **Indirizzi cliente**: niente più selezione "Zona" (auto-assegnata internamente, Milano); campo "Orario portineria" (`addresses.concierge_hours`) solo se modalità=Portineria. Form in `src/components/app/AddressForm.tsx`.
-- **CTA marketing** "Attiva WashLoop" → `/onboarding`; `/onboarding` non reindirizza più al login i ruoli non-customer (fix bug Firefox).
-- **Dashboard admin `/admin/abbonati`**: elenca i PROFILI clienti (service client) con stato Attivo/Prova/**Pending** (lead). I clienti senza subscription (creati a metà o lead che non pagano) sono ora visibili.
+Il flusso per esteso, con i punti deboli, sta nelle slide: https://claude.ai/artifact/HduzeovDYTng2q1LK5H6sg
 
-**Migrazioni** (Supabase SQL Editor o Management API): **0013→0020 GIÀ applicate in prod** via Management API. Se reinstalli il DB, applica 0001→0020 in ordine.
+### Il calendario generale (deciso da Simone il 2 e il 12 ottobre 2026)
+| | Giorno | Ora | Chi la vede |
+|---|---|---|---|
+| Ritiro | martedì | 08:30–12:00 | lava e stira |
+| Ritiro | mercoledì | 08:30–12:00 | solo stiro |
+| Riconsegna | venerdì | 14:00–18:00 | tutti (giro unico) |
 
-- **Onboarding wizard scuro** (`/onboarding`): Welcome → Registrazione (signUp) → Indirizzo+Modalità ritiro → Piano → Pagamento (Stripe Checkout). CTA piani del marketing puntano a `/onboarding?plan=code`. Verificato end-to-end in prod.
-- **Modalità di ritiro** (porta/casa/portineria + nota): migration 0016, in Indirizzi, conferma prenota e card corriere.
-- **Extra capi speciali**: invoice items sulla prossima fattura abbonamento (no SCA, addebito automatico col mandato accettato) — `lib/actions/charge.ts`.
+Ritiri la mattina, riconsegne il pomeriggio. **Questo è il calendario generale e non si tocca senza che lo chieda lui.** Una fascia non si può assegnare a un cliente — l'unico filtro è il servizio — quindi quella aperta «per Tizio» entra nell'app di tutti quelli come lui: per questo chi ne apre una sceglie **quanto vale** (per sempre / solo questa settimana / fino al…) e scrive perché. Le spot scadute si vedono in cima a `/admin/catalogo`.
 
-**Ancora da fare (mockup)**: **referral** (invita un amico — riusare `client_code`); righe profilo minori (metodo pagamento, supporto, impostazioni); AI assistant (rimandato).
+### Le due lavanderie
+- **Centro Pulitura Bergamo** (Zanica) — lava e stira.
+- **Susanna Ferrari** (Corsico) — solo stiro.
 
-**Da fare per il lancio**:
-- Admin → Catalogo: **generare slot** per la lavanderia reale (ora gli unici slot futuri puntano alla lavanderia di **test** "WashLoop Lab — Centro"); **disattivare** la lavanderia di test e cancellarne gli slot.
-- Pulizia dati di prova (ordini test creati durante QA su `cliente.test`).
-- **Ruotare segreti esposti in chat**: token `sbp_a82b...` (Supabase → Account → Access Tokens) + password DB (Settings → Database → Reset); più `sk_live` Stripe già nota.
-- Env SMTP su Vercel (Brevo, sottodominio `send.washloop.it` consigliato); PEC in `legal.ts`; 2FA TOTP.
-- Webapp: onboarding wizard scuro completo (resta opzionale; `/login` è già scuro).
+Sono lontane: una giornata può contenere tutti e due i giri, e il rider lo legge in cima alla pagina. Nel giro vengono **prima le riconsegne, poi i ritiri** — ma l'orario della fascia vince sulla fase, quindi col calendario attuale la giornata è ritiri la mattina e riconsegne il pomeriggio.
+
+### Aree del pannello
+`/admin` board · `persone` (lead e clienti in una lista sola) · `abbonati/[id]` (scheda cliente: abbonamento, soldi, capi compresi, ricorrenze) · `ordini/[id]` · `calendario` (passaggi) · `catalogo` (piani, lavanderie, zone, **generatore fasce**) · `incassi` (+ CSV per il commercialista) · `competenza` (ricavi e costi per settimana) · `etichette` (tag QR dei sacchi) · `team` (accessi staff e **cambio ruolo**) · `sicurezza` (controlli automatici).
+
+### Cose da sapere prima di toccare qualcosa
+- **Le chiavi Supabase nelle env hanno spazi e a capo dentro**: usare sempre `createServiceClient()`, mai costruirsi un client a mano. Due cron sono stati morti per mesi per questo.
+- **RLS risponde vuoto, non in errore**: una lettura che decide qualcosa va fatta col service client.
+- **Next.js 16**: `src/proxy.ts` al posto del middleware; leggere `node_modules/next/dist/docs/` prima di scrivere codice.
+- **Moduli puri + `node:test`**: la regola che si sbaglia in silenzio va in un modulo senza database, con i suoi test (50 file `*.test.ts` in `src/lib/`).
+- **Deploy**: `git push` e basta; lo stato si guarda dal connettore Vercel, **mai** cicli `npx vercel` in background.
+- **Verifica in produzione premendo il bottone**: se non si può, dirlo.
+
+### Da fare / da decidere
+- Capienza del venerdì pomeriggio (ora 10 posti) ora che le riconsegne sono un giro solo.
+- Se togliere il link **«una tantum»** dalla scheda cliente: incassa ma non apre nessun abbonamento, e il cliente resta fuori dal cancello.
+- Notifica push a ogni richiesta «Su misura» (oggi arriva solo una mail).
+- **Ruotare i segreti** passati in chat: Stripe `sk_live`, token Supabase `sbp_`, chiavi Brevo, e la password dell'account admin di Martina Lippi.
+- Meryl e il banco lavanderia devono attivare le notifiche dai loro telefoni.
+- Scheda Google doppia da far unire.
+- **Feste di dicembre**: 17 giorni senza riconsegna fra il 22/12 e l'8/01, si decide a metà novembre.
 
 ## Comandi utili
 ```bash
@@ -117,5 +124,12 @@ npm run build    # build di produzione (verifica TypeScript)
 git push         # → Vercel deploya in automatico su main
 ```
 
-## Continuare con Claude Code su un altro Mac
-La mia memoria/plan è locale a questa macchina (non nel git). Per ripartire con contesto: apri Claude Code nella cartella, e incolla/indica questo `HANDOFF.md` come punto di partenza.
+## Continuare con Claude Code
+La memoria di Claude è **locale a questa macchina** e fuori dal git: sta in
+`~/.claude/projects/-Users-simonealbanese-Documents-Claude-AI-washloop-it/memory/`,
+con `MEMORY.md` come indice. Lì dentro ci sono le regole che non si deducono dal codice —
+come si gestiscono prove e rimborsi, chi paga cosa, cosa non va toccato.
+
+- **Stessa macchina**: apri Claude Code nella cartella e fai `resume`. La memoria si carica da sola;
+  il file `lavori-aperti-*.md` dice dove eravamo rimasti.
+- **Un altro Mac**: quella memoria non c'è. Parti da questo `HANDOFF.md` e dillo subito a Claude.
