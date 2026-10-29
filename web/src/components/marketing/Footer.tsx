@@ -30,6 +30,12 @@ export function Footer() {
                 Un link a un'ancora che non esiste ricarica la pagina e basta. */}
             <li><Link href="/lavanderia-a-domicilio-milano#zone" className="hover:text-white">Zone coperte</Link></li>
             <li><Link href="/#richiesta" className="hover:text-white">Verifica disponibilità</Link></li>
+            {/* Guide e contatti nascono qui per lo stesso motivo delle due
+                pagine di ricerca: senza un link da ogni pagina sarebbero due
+                indirizzi che esistono solo nella sitemap, e una pagina che
+                nessuno linka Google la tratta come tale. */}
+            <li><Link href="/guide" className="hover:text-white">Guide</Link></li>
+            <li><Link href="/contatti" className="hover:text-white">Contatti</Link></li>
           </ul>
         </div>
         <div>
