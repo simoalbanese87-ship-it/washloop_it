@@ -5,6 +5,20 @@ import { getCurrentProfile } from "@/lib/auth";
 import { roleHome } from "@/lib/orders";
 import { invitoCorrente } from "@/lib/invito-corrente";
 
+/** Fuori dall'indice, e non è una svista.
+ *
+ *  È linkata da ogni pagina di marketing come richiamo all'azione, quindi
+ *  Google la trova sempre — ma non ha un titolo suo: eredita quello del layout,
+ *  cioè lo stesso identico title e la stessa description della home. Due pagine
+ *  gemelle che si contendono le stesse parole fanno perdere entrambe.
+ *
+ *  `follow: true` perché i link che contiene restano buoni, e niente `Disallow`
+ *  in robots.txt: un `noindex` si può leggere solo se il crawler può aprire la
+ *  pagina. */
+export const metadata = {
+  robots: { index: false, follow: true },
+};
+
 export default async function OnboardingPage({ searchParams }: { searchParams: Promise<{ plan?: string; ref?: string }> }) {
   // Chi è già loggato salta l'onboarding e va alla home del proprio ruolo.
   // (Mai mandare al login: un admin/partner in sessione che apre /onboarding

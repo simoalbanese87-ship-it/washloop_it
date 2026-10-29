@@ -158,6 +158,13 @@ export function VerificaCap({ onVerificato }: { onVerificato?: (cap: string) => 
         // incolla nell'angolo in alto a sinistra — che è dove stava.
         className="m-auto w-[calc(100vw-2rem)] max-w-md rounded-[24px] border border-line bg-white p-0 text-navy shadow-[var(--shadow-md)] backdrop:bg-navy/70 backdrop:backdrop-blur-sm"
       >
+        {/* Il contenuto esiste solo dopo la verifica, e non è un dettaglio di
+            rendering: finché `esito` è nullo il CAP è una stringa vuota, e il
+            titolo veniva stampato come «Da  non passiamo ancora.» dentro l'HTML
+            di cinque pagine su sei. Nessuno lo vedeva — la finestra è chiusa —
+            ma era la prima frase che trovava chi legge il sorgente: Google, e i
+            modelli che riassumono la pagina. */}
+        {esito && (
         <div className="p-6 sm:p-8">
           <div className="flex items-start justify-between gap-4">
             <div
@@ -248,6 +255,7 @@ export function VerificaCap({ onVerificato }: { onVerificato?: (cap: string) => 
             </p>
           </form>
         </div>
+        )}
       </dialog>
     </>
   );
