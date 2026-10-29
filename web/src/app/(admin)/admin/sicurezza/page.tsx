@@ -101,7 +101,15 @@ export default async function SicurezzaPage() {
     svc.from("zones").select("name, courier_id").eq("active", true).returns<{ name: string; courier_id: string | null }[]>(),
     svc.from("laundries").select("name, address, email, active").eq("active", true).returns<{ name: string; address: string | null; email: string | null; active: boolean }[]>(),
     svc.from("depots").select("name, lat").eq("active", true).maybeSingle<{ name: string; lat: number | null }>(),
-    svc.from("addresses").select("id", { count: "exact", head: true }).is("lat", null),
+    // Chi è senza coordinate, e di chi è: gli indirizzi dei profili di prova
+    // («Via Demo 1») non si geocodificheranno mai e tenevano acceso un avviso
+    // che non chiede nessun gesto — e un avviso che non si può chiudere è un
+    // avviso che si smette di leggere.
+    svc
+      .from("addresses")
+      .select("id, street, profiles(full_name, is_test)")
+      .is("lat", null)
+      .returns<{ id: string; street: string | null; profiles: { full_name: string | null; is_test: boolean } | { full_name: string | null; is_test: boolean }[] | null }[]>(),
     // Ordini rimasti su fasce tolte dal calendario. Si legge tutto e si filtra
     // in JS: la condizione è «l'ordine è aperto E almeno una delle due fasce è
     // archiviata», e in PostgREST un OR su due tabelle innestate non si scrive
@@ -220,7 +228,14 @@ export default async function SicurezzaPage() {
   const lavIncomplete = (lavanderie.data ?? []).filter((l) => !l.address || !l.email);
   const nRitiri = ritiri.count ?? 0;
   const nConsegne = consegne.count ?? 0;
-  const nSenzaGeo = indirizziSenzaGeo.count ?? 0;
+  const senzaGeoTutti = (indirizziSenzaGeo.data ?? []).map((a) => {
+    const rel = a.profiles;
+    const pr = Array.isArray(rel) ? rel[0] : rel;
+    return { street: a.street ?? "—", nome: pr?.full_name ?? "—", diProva: pr?.is_test === true };
+  });
+  const senzaGeo = senzaGeoTutti.filter((a) => !a.diProva);
+  const senzaGeoProva = senzaGeoTutti.length - senzaGeo.length;
+  const nSenzaGeo = senzaGeo.length;
 
   const unoSolo = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? v[0] ?? null : v ?? null);
 
@@ -393,7 +408,12 @@ export default async function SicurezzaPage() {
     {
       label: "Indirizzi cliente con coordinate",
       status: nSenzaGeo === 0 ? "ok" : "warn",
-      detail: nSenzaGeo === 0 ? "Tutti geocodificati" : `${nSenzaGeo} senza coordinate: non compaiono sulla mappa del rider`,
+      detail:
+        nSenzaGeo === 0
+          ? `Tutti geocodificati.${codaProva(senzaGeoProva)}`.trim()
+          : `${nSenzaGeo} senza coordinate: non ${nSenzaGeo === 1 ? "compare" : "compaiono"} sulla mappa del rider — ${senzaGeo
+              .map((a) => `${a.nome} (${a.street})`)
+              .join(", ")}. Si riprova da Catalogo → «Geocodifica indirizzi mancanti»; se continua a fallire, l'indirizzo va riscritto a mano.${codaProva(senzaGeoProva)}`,
     },
     {
       label: "Ordini su fasce tolte dal calendario",
