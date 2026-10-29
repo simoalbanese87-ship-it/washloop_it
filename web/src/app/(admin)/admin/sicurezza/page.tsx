@@ -1,7 +1,7 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { StatoNotifiche } from "@/components/app/StatoNotifiche";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { statoStripe } from "@/lib/stato-stripe";
+import { confrontoAbbonamenti, statoStripe } from "@/lib/stato-stripe";
 import { METODI_CHECKOUT, metodiOffertiDaStripe, nomeMetodo } from "@/lib/metodi-accettati";
 import { statoClausolaRider } from "@/lib/rider-predefinito";
 import { coperturaNotifiche } from "@/lib/notifiche-copertura";
@@ -136,7 +136,7 @@ export default async function SicurezzaPage() {
   // sono configurati e quanto è stato incassato davvero. Le chiavi ce le ha il
   // server, non chi legge questa pagina — ed è l'unico posto da cui la domanda
   // può ricevere una risposta invece di un'ipotesi.
-  const [stato, metodi, clausola, { data: abbonamentiVivi }] = await Promise.all([
+  const [stato, metodi, clausola, { data: abbonamentiVivi }, { data: daConfrontare }] = await Promise.all([
     statoStripe(),
     metodiOffertiDaStripe(),
     statoClausolaRider(svc),
@@ -160,7 +160,20 @@ export default async function SicurezzaPage() {
             | null;
         }[]
       >(),
+    // Le righe da confrontare con Stripe: solo gli abbonamenti ancora vivi.
+    // Su uno chiuso sei mesi fa una differenza non cambia niente, e tenerli
+    // tutti vorrebbe dire una chiamata a Stripe per ognuno, per sempre.
+    svc
+      .from("subscriptions")
+      .select("user_id, stripe_subscription_id, status, cancel_at_period_end, cancel_at")
+      .in("status", ["active", "trialing", "past_due", "unpaid"])
+      .not("stripe_subscription_id", "is", null)
+      .returns<{ user_id: string; stripe_subscription_id: string | null; status: string; cancel_at_period_end: boolean | null; cancel_at: string | null }[]>()
   ]);
+
+  // Il confronto con Stripe, riga per riga. Sta dopo le altre letture perché
+  // fa una chiamata di rete per abbonamento vivo: sono pochi, ma non è gratis.
+  const confronto = await confrontoAbbonamenti(daConfrontare ?? []);
 
   const quantiAttivi = new Map<string, { nome: string; n: number }>();
   for (const a of abbonamentiVivi ?? []) {
@@ -234,14 +247,43 @@ export default async function SicurezzaPage() {
   const ops: Check[] = [
     {
       label: "Webhook Stripe",
-      status: stato.ok ? (stato.endpointNostro ? "ok" : "fail") : "warn",
+      // Un endpoint che ascolta sei eventi su otto è verde e muto: il numero
+      // da solo non dice quali due mancano, e il codice che li gestisce resta
+      // lì ad aspettare un messaggio che non arriva.
+      status: !stato.ok
+        ? "warn"
+        : !stato.endpointNostro
+          ? "fail"
+          : !stato.endpointNostro.attivo || stato.endpointNostro.mancanti.length > 0
+            ? "warn"
+            : "ok",
       detail: !stato.ok
         ? `Stripe non risponde: ${stato.errore}`
         : stato.endpointNostro
-          ? `Registrato e ${stato.endpointNostro.attivo ? "attivo" : "DISATTIVATO"} · ${stato.endpointNostro.eventi} eventi ascoltati`
+          ? `Registrato e ${stato.endpointNostro.attivo ? "attivo" : "DISATTIVATO"} · ${stato.endpointNostro.eventi} eventi ascoltati${
+              stato.endpointNostro.mancanti.length > 0
+                ? `. NON ascoltati, ma il nostro codice li gestisce: ${stato.endpointNostro.mancanti.join(", ")} — quel codice non verrà mai eseguito. Si spuntano da Stripe → Workbench → Webhook → Modifica destinazione.`
+                : ". Tutti quelli che sappiamo gestire sono spuntati."
+            }`
           : stato.endpoints === 0
             ? "Nessun endpoint webhook configurato su Stripe: i pagamenti non arrivano mai nel sistema, e il registro incassi resta vuoto. Va aggiunto da Sviluppatori → Webhook, puntato su /api/stripe/webhook."
             : `${stato.endpoints} endpoint configurati su Stripe, ma nessuno punta a questo sito: i pagamenti non arrivano qui.`,
+    },
+    {
+      // `subscriptions` è una copia che vive dei webhook. Un messaggio perso,
+      // un evento non spuntato, una modifica fatta a mano sulla dashboard: la
+      // copia resta indietro e il pannello racconta con sicurezza una cosa che
+      // su Stripe non è più vera. Non c'era nessun posto da cui accorgersene:
+      // bisognava aprire una scheda alla volta e confrontare a occhio.
+      label: "La nostra copia degli abbonamenti e Stripe",
+      status: !confronto.ok ? "warn" : confronto.divergenze.length === 0 ? "ok" : "fail",
+      detail: !confronto.ok
+        ? `Non verificabile: ${confronto.errore}`
+        : confronto.divergenze.length === 0
+          ? `${confronto.controllati} abbonamenti vivi controllati uno per uno: dicono la stessa cosa.`
+          : `${confronto.divergenze.length} su ${confronto.controllati} non coincidono. ${confronto.divergenze
+              .map((d) => `da noi «${d.nostro}», su Stripe «${d.stripe}»`)
+              .join(" · ")}. Vale Stripe: apri la scheda del cliente e premi «Rileggi da Stripe».`,
     },
     {
       // Nel codice i metodi li scegliamo noi, ma una fattura rimasta aperta la
