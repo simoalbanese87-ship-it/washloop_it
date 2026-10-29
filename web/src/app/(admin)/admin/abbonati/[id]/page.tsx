@@ -15,7 +15,7 @@ import { CustomSubscriptionForm } from "@/components/admin/CustomSubscriptionFor
 import { LinkOfferta } from "@/components/admin/LinkOfferta";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { impersonate } from "@/lib/actions/impersonate";
-import { cambiaPiano } from "@/lib/actions/admin-customer";
+import { cambiaPiano, risincronizzaDaStripe } from "@/lib/actions/admin-customer";
 import { aggiungiCapoCompreso, togliCapoCompreso, cambiaQtaCapoCompresa } from "@/lib/actions/admin-customer";
 import { TipoServizioSelect } from "@/components/admin/TipoServizioSelect";
 import { isTipoServizio } from "@/lib/tipo-servizio";
@@ -157,6 +157,18 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   // continuava ad annunciarla come futura, dieci giorni dopo, senza modo di
   // farla sparire. Un avviso che resta acceso su una cosa già fatta smette di
   // essere letto — ed è quello che rende inutili tutti gli altri.
+  // La nostra copia e Stripe dicono la stessa cosa? `subscriptions` si
+  // aggiorna quando arriva un webhook: se quel messaggio non arriva — endpoint
+  // giù, evento non spuntato, una modifica fatta a mano sulla dashboard — la
+  // copia resta indietro e il pannello continua a raccontare con sicurezza una
+  // cosa che su Stripe non è più vera. Confrontarle a occhio non funziona:
+  // sono due riquadri distanti, e la differenza che conta è una parola sola.
+  const discordaConStripe =
+    !!sub &&
+    !!stripeSub &&
+    !stripeSub.errore &&
+    (stripeSub.stato !== sub.status || stripeSub.disdettaAFinePeriodo !== (sub.cancel_at_period_end === true));
+
   const inAttesa = (capi ?? []).filter(
     (c) => c.charged_at && !c.incassato_at && !c.incasso_fallito_at && !c.refunded_at && !c.annullato_at,
   );
@@ -952,7 +964,18 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                   copia arriva dai webhook e può essere rimasta indietro. */}
               {stripeSub && (
                 <div className="mt-3 rounded-[14px] border border-line bg-ice/60 p-3">
-                  <div className="font-display text-xs font-extrabold uppercase tracking-wide text-navy/60">Secondo Stripe</div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-display text-xs font-extrabold uppercase tracking-wide text-navy/60">Secondo Stripe</span>
+                    {/* Rileggere non decide niente: chiede a Stripe e riscrive
+                        la nostra copia. Sta qui dentro perché è qui che si
+                        scopre che le due non coincidono. */}
+                    <form action={risincronizzaDaStripe}>
+                      <input type="hidden" name="customer_id" value={id} />
+                      <BottoneInvio attesa="Leggo Stripe…" className="font-display text-xs font-bold text-blue hover:underline">
+                        Rileggi da Stripe
+                      </BottoneInvio>
+                    </form>
+                  </div>
                   {stripeSub.errore ? (
                     <p className="mt-1 text-xs font-semibold text-[#C9881F]">Non verificabile: {stripeSub.errore}</p>
                   ) : (
@@ -977,6 +1000,19 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                         </div>
                       ) : (
                         <div>Nessun addebito futuro programmato.</div>
+                      )}
+                      {/* Le due verità non coincidono: la nostra copia è
+                          rimasta indietro. È il caso in cui il pannello dice
+                          «Attivo · rinnovo oggi» su un abbonamento che su
+                          Stripe è già stato disdetto — e nessuno se ne accorge
+                          finché non parte l'addebito. */}
+                      {discordaConStripe && (
+                        <p className="rounded-[10px] bg-[#C0392B]/8 px-2.5 py-1.5 text-xs font-semibold text-[#C0392B]">
+                          Il nostro registro non coincide con Stripe: da noi{" "}
+                          <strong>{statoAbbonamentoItaliano(sub!.status)}{sub!.cancel_at_period_end ? " con disdetta a fine periodo" : ""}</strong>,
+                          su Stripe <strong>{stripeSub.statoItaliano}{stripeSub.disdettaAFinePeriodo ? " con disdetta a fine periodo" : ""}</strong>.
+                          Vale Stripe: premi «Rileggi da Stripe» qui sopra.
+                        </p>
                       )}
                       {stripeSub.pagamentiRiusciti === 0 && (
                         <p className="rounded-[10px] bg-[#C0392B]/8 px-2.5 py-1.5 text-xs font-semibold text-[#C0392B]">

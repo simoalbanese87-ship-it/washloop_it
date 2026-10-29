@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { stripe, siteUrl } from "@/lib/stripe";
+import { syncSubscription } from "@/lib/subscription-sync";
 import { creaClienteStripe } from "@/lib/stripe-customer";
 import { notifyNewCustomer, notifyRecurringChanged, notifyOrderStatus } from "@/lib/notify";
 import { zoneIdForCap } from "@/lib/zones";
@@ -1936,4 +1937,66 @@ export async function cambiaPiano(formData: FormData) {
         : "Piano scollegato: resta il canone concordato.",
     )}`,
   );
+}
+
+/** Rilegge l'abbonamento da Stripe e riscrive la nostra riga.
+ *
+ *  Il nostro `subscriptions` è **una copia**: si aggiorna quando arriva un
+ *  webhook. Se quel messaggio non arriva — endpoint giù, evento non spuntato,
+ *  una modifica fatta a mano sulla dashboard — la copia resta indietro e il
+ *  pannello continua a raccontare con sicurezza una cosa che su Stripe non è
+ *  più vera. È successo con una disdetta: su Stripe c'era, da noi no, e la
+ *  scheda diceva «Attivo · rinnovo oggi».
+ *
+ *  Qui non si decide niente: si chiede a Stripe e si riscrive quello che dice,
+ *  passando dallo stesso `syncSubscription` dei webhook — così non esistono due
+ *  modi diversi di tradurre la stessa risposta. */
+export async function risincronizzaDaStripe(formData: FormData) {
+  await requireAdmin();
+  const customerId = String(formData.get("customer_id") ?? "");
+  const back = `/admin/abbonati/${customerId}`;
+  if (!customerId) redirect(`${back}?warn=${encodeURIComponent("Cliente mancante.")}`);
+
+  const svc = createServiceClient();
+  const { data: riga } = await svc
+    .from("subscriptions")
+    .select("stripe_subscription_id, status, cancel_at_period_end")
+    .eq("user_id", customerId)
+    .not("stripe_subscription_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ stripe_subscription_id: string | null; status: string; cancel_at_period_end: boolean | null }>();
+
+  if (!riga?.stripe_subscription_id) {
+    redirect(`${back}?warn=${encodeURIComponent("Questo cliente non ha un abbonamento su Stripe da rileggere.")}`);
+  }
+
+  let prima = `${riga!.status}${riga!.cancel_at_period_end ? " (disdetto a fine periodo)" : ""}`;
+  try {
+    const sub = await stripe().subscriptions.retrieve(riga!.stripe_subscription_id!);
+    // `syncSubscription` si fida dei metadata per sapere di chi è. Su un
+    // abbonamento vecchio possono mancare: qui il cliente lo sappiamo già, ed è
+    // lui che comanda — stiamo rileggendo la *sua* riga.
+    if (!sub.metadata?.supabase_user_id) {
+      sub.metadata = { ...sub.metadata, supabase_user_id: customerId };
+    }
+    const res = await syncSubscription(sub);
+    if (!res.ok) redirect(`${back}?warn=${encodeURIComponent(`Stripe ha risposto ma non ho potuto salvare: ${res.error}`)}`);
+
+    const dopo = `${sub.status}${sub.cancel_at_period_end ? " (disdetto a fine periodo)" : ""}`;
+    revalidatePath(back);
+    revalidatePath("/admin/persone");
+    redirect(
+      `${back}?ok=${encodeURIComponent(
+        prima === dopo
+          ? `Riletto da Stripe: era già allineato (${dopo}).`
+          : `Riletto da Stripe: era «${prima}», adesso è «${dopo}».`,
+      )}`,
+    );
+  } catch (e) {
+    // `redirect` lancia per funzionare: non è un errore e non va inghiottito.
+    if (e && typeof e === "object" && "digest" in e && String((e as { digest?: string }).digest).startsWith("NEXT_REDIRECT")) throw e;
+    prima = e instanceof Error ? e.message : "errore sconosciuto";
+    redirect(`${back}?warn=${encodeURIComponent(`Stripe non ha risposto: ${prima}`)}`);
+  }
 }
