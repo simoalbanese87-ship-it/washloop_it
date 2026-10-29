@@ -17,7 +17,7 @@ import { ButtonLink } from "@/components/ui/Button";
 export const metadata: Metadata = {
   title: "Porta un amico — una settimana di WashLoop in regalo",
   description:
-    "Mandi il tuo link, il tuo amico attiva un abbonamento WashLoop e a te regaliamo una settimana, scalata dalla prossima fattura. Nessun limite al numero di amici.",
+    "Mandi il tuo link, il tuo amico si abbona e a te regaliamo una settimana, scalata dalla prossima fattura. Nessun limite al numero di amici.",
   alternates: { canonical: "/porta-un-amico" },
 };
 

@@ -33,7 +33,7 @@ export const metadata: Metadata = {
   // il marchio è già nel titolo, e senza questa riga usciva due volte.
   title: { absolute: "WashLoop — Lavanderia a domicilio a Milano, in abbonamento" },
   description:
-    "Scopri in 10 secondi se WashLoop passa da te. Ritiro fisso a domicilio, lavaggio e stiratura professionali, riconsegna entro 3 giorni feriali. Piani da 160 €/mese, ritiro e consegna inclusi.",
+    "Lavanderia a domicilio a Milano in abbonamento: ritiro sotto casa un giorno fisso, lavaggio e stiro, riconsegna in 3 giorni. Da 160 €/mese, tutto incluso.",
   alternates: { canonical: "/" },
   openGraph: {
     title: "WashLoop — Lavanderia a domicilio a Milano",

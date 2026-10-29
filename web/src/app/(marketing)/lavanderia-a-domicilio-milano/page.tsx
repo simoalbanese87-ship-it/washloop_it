@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
+import Link from "next/link";
 import { ButtonLink } from "@/components/ui/Button";
 import { Bubbles } from "@/components/marketing/Bubbles";
 import { JsonLd } from "@/components/marketing/JsonLd";
@@ -29,9 +30,9 @@ import { OG_IMMAGINE } from "@/lib/og";
 const URL_PAGINA = "https://washloop.it/lavanderia-a-domicilio-milano";
 
 export const metadata: Metadata = {
-  title: "Lavanderia a domicilio a Milano — ritiro, lavaggio e stiro",
+  title: "Lavanderia a domicilio a Milano · ritiro e stiro",
   description:
-    "Lavanderia a domicilio a Milano in abbonamento: ritiriamo il sacco sotto casa, laviamo e stiriamo, riconsegniamo entro 3 giorni feriali. Navigli, Tortona, Barona, Lorenteggio, Assago, Buccinasco, Rozzano.",
+    "Ritiriamo il sacco sotto casa, laviamo e stiriamo, riconsegniamo entro 3 giorni. Tutta Milano città, più Assago, Buccinasco e Rozzano. Da 160 €/mese.",
   alternates: { canonical: "/lavanderia-a-domicilio-milano" },
   openGraph: {
     title: "Lavanderia a domicilio a Milano — WashLoop",
@@ -283,6 +284,37 @@ export default function LavanderiaADomicilioMilano() {
               Il tuo non è in elenco? Scrivilo lo stesso qui sopra: decidiamo dove allargare
               guardando da dove ci scrivono.
             </p>
+          </div>
+
+          {/* I rimandi alle pagine di zona. Stanno qui, sotto l'elenco dei CAP,
+              perché è il punto in cui una persona sta cercando sé stessa nella
+              lista — ed è lì che una pagina scritta per il suo quartiere vale
+              più di una scritta per la città. */}
+          <div className="mt-4 rounded-[24px] border border-line bg-ice p-7">
+            <div className="font-display text-sm font-extrabold text-navy">La tua zona, nel dettaglio</div>
+            <ul className="mt-3 space-y-2 text-sm font-medium text-muted">
+              <li>
+                <Link href="/lavanderia-a-domicilio-navigli" className="font-bold text-blue underline">
+                  Navigli, Ticinese e Porta Genova
+                </Link>{" "}
+                — scale strette e monolocali senza lavatrice.
+              </li>
+              <li>
+                <Link href="/lavanderia-a-domicilio-barona-lorenteggio" className="font-bold text-blue underline">
+                  Barona, Lorenteggio e Famagosta
+                </Link>{" "}
+                — il bucato di una famiglia, lenzuola comprese.
+              </li>
+              <li>
+                <Link
+                  href="/lavanderia-a-domicilio-assago-buccinasco-rozzano"
+                  className="font-bold text-blue underline"
+                >
+                  Assago, Buccinasco e Rozzano
+                </Link>{" "}
+                — stesso prezzo della città, senza prendere la macchina.
+              </li>
+            </ul>
           </div>
         </div>
       </section>

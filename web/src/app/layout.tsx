@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { Nunito, Nunito_Sans } from "next/font/google";
 import { PWARegister } from "@/components/PWARegister";
 import { CookieBanner } from "@/components/marketing/CookieBanner";
@@ -62,6 +63,14 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           </defs>
         </svg>
         {children}
+        {/* Quante visite riceviamo, e da dove.
+            Fino a oggi non lo sapevamo: sul sito c'erano solo il tag di Google
+            Ads e il pixel Meta, che partono dopo il consenso e servono a
+            misurare le campagne, non il sito. Questo non scrive cookie e non
+            identifica nessuno, quindi sta fuori dal banner — ed è il motivo per
+            cui è lui e non Google Analytics. Finché l'interruttore nel pannello
+            Vercel è spento non raccoglie niente: lo script c'è e non fa nulla. */}
+        <Analytics />
         <CookieBanner />
         <PWARegister />
         <GoogleAdsTag />

@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { GUIDE, urlGuida } from "@/lib/guide";
 
 /** Le pagine che vogliamo in un motore di ricerca.
  *
@@ -8,12 +9,19 @@ import type { MetadataRoute } from "next";
  *  sceglieva male: sceglieva fra poco.
  *
  *  Le legali sono uscite dall'indice (restano nel piè di pagina) e al loro
- *  posto ci sono due pagine che quel posto se lo meritano, una per ciascuna
+ *  posto ci sono le pagine che quel posto se lo meritano, una per ciascuna
  *  domanda che la gente digita davvero. `/disponibilita` resta fuori ed è
- *  voluto: serve alle campagne a pagamento e non deve competere in organico. */
+ *  voluto: serve alle campagne a pagamento e non deve competere in organico.
+ *
+ *  Dal 29 ottobre 2026 ci sono anche le pagine di zona e le guide. Le guide
+ *  non sono scritte a mano qui: arrivano da `lib/guide.ts`, che è lo stesso
+ *  elenco che disegna la pagina indice. Una guida pubblicata e dimenticata
+ *  nella sitemap è una guida che Google scopre mesi dopo, se la scopre. */
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = "https://washloop.it";
   const aggiornato = new Date("2026-09-24");
+  const oggi = new Date("2026-10-29");
+
   return [
     { url: `${base}/`, changeFrequency: "weekly", priority: 1, lastModified: aggiornato },
     { url: `${base}/lavanderia-a-domicilio-milano`, changeFrequency: "monthly", priority: 0.9, lastModified: aggiornato },
@@ -26,6 +34,26 @@ export default function sitemap(): MetadataRoute.Sitemap {
     // alta quanto le due di servizio, perché risponde a una domanda diversa
     // dalle loro e non gli toglie posizioni.
     { url: `${base}/come-funziona`, changeFrequency: "monthly", priority: 0.9, lastModified: new Date("2026-10-17") },
+
+    // Le tre zone. Priorità sotto le pagine di servizio e non uguale: sono
+    // pagine che intercettano una domanda più stretta, e dirle importanti
+    // quanto la pagina Milano sarebbe dire a Google una cosa che non pensiamo.
+    { url: `${base}/lavanderia-a-domicilio-navigli`, changeFrequency: "monthly", priority: 0.8, lastModified: oggi },
+    { url: `${base}/lavanderia-a-domicilio-barona-lorenteggio`, changeFrequency: "monthly", priority: 0.8, lastModified: oggi },
+    { url: `${base}/lavanderia-a-domicilio-assago-buccinasco-rozzano`, changeFrequency: "monthly", priority: 0.8, lastModified: oggi },
+
+    // Contatti: non porta ricerche, ma è la pagina che si cerca dopo aver letto
+    // le altre, e la sua assenza era un buco di fiducia.
+    { url: `${base}/contatti`, changeFrequency: "yearly", priority: 0.5, lastModified: oggi },
+
+    { url: `${base}/guide`, changeFrequency: "monthly", priority: 0.7, lastModified: oggi },
+    ...GUIDE.map((g) => ({
+      url: urlGuida(g.slug),
+      changeFrequency: "yearly" as const,
+      priority: 0.7,
+      lastModified: new Date(g.aggiornata),
+    })),
+
     // «Porta un amico»: la regola scritta per intero, per chi la cerca da fuori.
     // `/invita/[codice]` resta fuori dall'indice ed è voluto — parla di una
     // persona precisa e non ha senso in un motore di ricerca.

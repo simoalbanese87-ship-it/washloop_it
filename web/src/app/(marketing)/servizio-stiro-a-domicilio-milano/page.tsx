@@ -30,9 +30,9 @@ import { OG_IMMAGINE } from "@/lib/og";
 const URL_PAGINA = "https://washloop.it/servizio-stiro-a-domicilio-milano";
 
 export const metadata: Metadata = {
-  title: "Servizio stiro a domicilio a Milano — camicie stirate e piegate",
+  title: "Servizio stiro a domicilio a Milano",
   description:
-    "Servizio di stiro a domicilio a Milano: ritiriamo i capi che hai già lavato, li stiriamo e te li riportiamo piegati in 48 ore. Abbonamento solo stiro, oppure lavaggio e stiro insieme.",
+    "Stiro a domicilio a Milano: ritiriamo i capi già lavati, li stiriamo e li riportiamo piegati in 48 ore. Abbonamento solo stiro da 122 €/mese.",
   alternates: { canonical: "/servizio-stiro-a-domicilio-milano" },
   openGraph: {
     title: "Servizio stiro a domicilio a Milano — WashLoop",

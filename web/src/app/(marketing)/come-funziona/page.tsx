@@ -40,9 +40,9 @@ import { OG_IMMAGINE } from "@/lib/og";
 const URL_PAGINA = "https://washloop.it/come-funziona";
 
 export const metadata: Metadata = {
-  title: "Come funziona WashLoop — dal primo ritiro in poi",
+  title: "Come funziona — dal primo ritiro in poi",
   description:
-    "Come funziona WashLoop passo per passo: scegli il servizio, ricevi il tuo sacco, il ritiro ha un giorno fisso, il bucato torna lavato e stirato. Nessuno entra in casa tua.",
+    "Come funziona la lavanderia a domicilio a Milano, passo per passo: il sacco, il giorno fisso di ritiro, la riconsegna. Nessuno entra in casa tua.",
   alternates: { canonical: "/come-funziona" },
   openGraph: {
     title: "Come funziona WashLoop, passo per passo",

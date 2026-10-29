@@ -36,9 +36,9 @@ import { OG_IMMAGINE } from "@/lib/og";
 const URL_PAGINA = "https://washloop.it/prezzi";
 
 export const metadata: Metadata = {
-  title: "Prezzi e piani — WashLoop lavanderia a domicilio a Milano",
+  title: "Prezzi e piani — lavanderia a domicilio a Milano",
   description:
-    "Quanto costa WashLoop: tre piani in abbonamento da 160 €/mese, con ritiro, lavaggio, stiratura e riconsegna inclusi. Il listino dei capi fuori abbonamento, pubblicato per intero.",
+    "Quanto costa la lavanderia a domicilio a Milano: abbonamento da 160 €/mese con ritiro e riconsegna inclusi, più il listino dei capi pubblicato per intero.",
   alternates: { canonical: "/prezzi" },
   openGraph: {
     title: "Prezzi e piani — WashLoop",
