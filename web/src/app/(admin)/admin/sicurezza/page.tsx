@@ -165,15 +165,28 @@ export default async function SicurezzaPage() {
     // tutti vorrebbe dire una chiamata a Stripe per ognuno, per sempre.
     svc
       .from("subscriptions")
-      .select("user_id, stripe_subscription_id, status, cancel_at_period_end, cancel_at")
+      .select("user_id, stripe_subscription_id, status, cancel_at_period_end, cancel_at, profiles(is_test)")
       .in("status", ["active", "trialing", "past_due", "unpaid"])
       .not("stripe_subscription_id", "is", null)
-      .returns<{ user_id: string; stripe_subscription_id: string | null; status: string; cancel_at_period_end: boolean | null; cancel_at: string | null }[]>()
+      .returns<{ user_id: string; stripe_subscription_id: string | null; status: string; cancel_at_period_end: boolean | null; cancel_at: string | null; profiles: { is_test: boolean } | { is_test: boolean }[] | null }[]>()
   ]);
 
   // Il confronto con Stripe, riga per riga. Sta dopo le altre letture perché
   // fa una chiamata di rete per abbonamento vivo: sono pochi, ma non è gratis.
-  const confronto = await confrontoAbbonamenti(daConfrontare ?? []);
+  const confronto = await confrontoAbbonamenti(
+    (daConfrontare ?? []).map((r) => {
+      const rel = r.profiles;
+      return { ...r, diProva: (Array.isArray(rel) ? rel[0] : rel)?.is_test === true };
+    }),
+  );
+  // I dati di prova si contano a parte, come dappertutto in questa pagina: un
+  // residuo dell'account di test non è un problema da risolvere stamattina, ma
+  // nasconderlo vorrebbe dire non sapere perché il numero non torna.
+  const divergenzeVere = confronto.ok ? confronto.divergenze.filter((d) => !d.diProva) : [];
+  const mortiVeri = confronto.ok ? confronto.irraggiungibili.filter((d) => !d.diProva) : [];
+  const soloProva = confronto.ok
+    ? confronto.divergenze.length - divergenzeVere.length + confronto.irraggiungibili.length - mortiVeri.length
+    : 0;
 
   const quantiAttivi = new Map<string, { nome: string; n: number }>();
   for (const a of abbonamentiVivi ?? []) {
@@ -276,14 +289,24 @@ export default async function SicurezzaPage() {
       // su Stripe non è più vera. Non c'era nessun posto da cui accorgersene:
       // bisognava aprire una scheda alla volta e confrontare a occhio.
       label: "La nostra copia degli abbonamenti e Stripe",
-      status: !confronto.ok ? "warn" : confronto.divergenze.length === 0 ? "ok" : "fail",
+      status: !confronto.ok ? "warn" : divergenzeVere.length > 0 ? "fail" : mortiVeri.length > 0 ? "warn" : "ok",
       detail: !confronto.ok
         ? `Non verificabile: ${confronto.errore}`
-        : confronto.divergenze.length === 0
-          ? `${confronto.controllati} abbonamenti vivi controllati uno per uno: dicono la stessa cosa.`
-          : `${confronto.divergenze.length} su ${confronto.controllati} non coincidono. ${confronto.divergenze
-              .map((d) => `da noi «${d.nostro}», su Stripe «${d.stripe}»`)
-              .join(" · ")}. Vale Stripe: apri la scheda del cliente e premi «Rileggi da Stripe».`,
+        : [
+            divergenzeVere.length > 0
+              ? `${divergenzeVere.length} su ${confronto.controllati} non coincidono: ${divergenzeVere
+                  .map((d) => `da noi «${d.nostro}», su Stripe «${d.stripe}»`)
+                  .join(" · ")}. Vale Stripe: apri la scheda del cliente e premi «Rileggi da Stripe».`
+              : `${confronto.controllati} abbonamenti vivi controllati uno per uno: dicono la stessa cosa.`,
+            mortiVeri.length > 0
+              ? `${mortiVeri.length} ${mortiVeri.length === 1 ? "punta" : "puntano"} a un abbonamento che su Stripe non esiste (${mortiVeri
+                  .map((d) => d.subId)
+                  .join(", ")}): quella riga non si allineerà mai.`
+              : null,
+            soloProva > 0 ? `${soloProva} ${soloProva === 1 ? "riga" : "righe"} di prova, non contate.` : null,
+          ]
+            .filter(Boolean)
+            .join(" "),
     },
     {
       // Nel codice i metodi li scegliamo noi, ma una fattura rimasta aperta la

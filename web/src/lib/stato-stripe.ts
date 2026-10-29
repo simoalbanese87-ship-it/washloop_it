@@ -91,11 +91,17 @@ export type Divergenza = {
   subId: string;
   nostro: string;
   stripe: string;
+  diProva: boolean;
 };
+
+/** Una riga che punta a un abbonamento che su Stripe **non esiste**: non è una
+ *  differenza, è un riferimento morto. Capita con i residui di un account di
+ *  prova, o con un id cancellato a mano. */
+export type Irraggiungibile = { userId: string; subId: string; motivo: string; diProva: boolean };
 
 export type ConfrontoAbbonamenti =
   | { ok: false; errore: string }
-  | { ok: true; controllati: number; divergenze: Divergenza[] };
+  | { ok: true; controllati: number; divergenze: Divergenza[]; irraggiungibili: Irraggiungibile[] };
 
 /** Confronta la nostra copia degli abbonamenti con Stripe, uno per uno.
  *
@@ -109,18 +115,24 @@ export type ConfrontoAbbonamenti =
  *  una differenza non cambia niente, e tenerli tutti vorrebbe dire una
  *  chiamata a Stripe per ognuno, per sempre. */
 export async function confrontoAbbonamenti(
-  righe: { user_id: string; stripe_subscription_id: string | null; status: string; cancel_at_period_end: boolean | null; cancel_at: string | null }[],
+  righe: { user_id: string; stripe_subscription_id: string | null; status: string; cancel_at_period_end: boolean | null; cancel_at: string | null; diProva?: boolean }[],
 ): Promise<ConfrontoAbbonamenti> {
   if (!process.env.STRIPE_SECRET_KEY) return { ok: false, errore: "STRIPE_SECRET_KEY non configurata" };
   const daControllare = righe.filter((r) => r.stripe_subscription_id);
 
-  try {
-    const divergenze: Divergenza[] = [];
-    // Come si racconta uno stato, da tutte e due le parti con le stesse parole:
-    // confrontare stringhe diverse farebbe segnalare differenze che non ci sono.
-    const descrivi = (stato: string, disdetta: boolean) => `${stato}${disdetta ? " + disdetta programmata" : ""}`;
+  const divergenze: Divergenza[] = [];
+  const irraggiungibili: Irraggiungibile[] = [];
+  // Come si racconta uno stato, da tutte e due le parti con le stesse parole:
+  // confrontare stringhe diverse farebbe segnalare differenze che non ci sono.
+  const descrivi = (stato: string, disdetta: boolean) => `${stato}${disdetta ? " + disdetta programmata" : ""}`;
 
-    for (const r of daControllare) {
+  for (const r of daControllare) {
+    // Il `try` sta **dentro** il giro, non fuori: un solo id morto — e ce n'era
+    // uno, il residuo di un account di prova — faceva fallire l'intero
+    // confronto, e il pannello diceva «non verificabile» su tutti gli altri
+    // sei. Un controllo che si spegne per una riga sbagliata è peggio di
+    // nessun controllo: sembra funzionare.
+    try {
       const sub = await stripe().subscriptions.retrieve(r.stripe_subscription_id!);
       // Una disdetta programmata su Stripe è `cancel_at_period_end` **oppure**
       // `cancel_at`: leggerne una sola è il difetto che ha fatto nascere
@@ -128,11 +140,16 @@ export async function confrontoAbbonamenti(
       const nostro = descrivi(r.status, r.cancel_at_period_end === true || !!r.cancel_at);
       const loro = descrivi(sub.status, sub.cancel_at_period_end === true || sub.cancel_at != null);
       if (nostro !== loro) {
-        divergenze.push({ userId: r.user_id, subId: sub.id, nostro, stripe: loro });
+        divergenze.push({ userId: r.user_id, subId: sub.id, nostro, stripe: loro, diProva: r.diProva === true });
       }
+    } catch (err) {
+      irraggiungibili.push({
+        userId: r.user_id,
+        subId: r.stripe_subscription_id!,
+        motivo: err instanceof Error ? err.message : "errore sconosciuto",
+        diProva: r.diProva === true,
+      });
     }
-    return { ok: true, controllati: daControllare.length, divergenze };
-  } catch (err) {
-    return { ok: false, errore: err instanceof Error ? err.message : "errore sconosciuto" };
   }
+  return { ok: true, controllati: daControllare.length, divergenze, irraggiungibili };
 }
