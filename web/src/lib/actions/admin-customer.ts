@@ -1960,18 +1960,20 @@ export async function risincronizzaDaStripe(formData: FormData) {
   const svc = createServiceClient();
   const { data: riga } = await svc
     .from("subscriptions")
-    .select("stripe_subscription_id, status, cancel_at_period_end")
+    .select("stripe_subscription_id, status, cancel_at_period_end, cancel_at")
     .eq("user_id", customerId)
     .not("stripe_subscription_id", "is", null)
     .order("created_at", { ascending: false })
     .limit(1)
-    .maybeSingle<{ stripe_subscription_id: string | null; status: string; cancel_at_period_end: boolean | null }>();
+    .maybeSingle<{ stripe_subscription_id: string | null; status: string; cancel_at_period_end: boolean | null; cancel_at: string | null }>();
 
   if (!riga?.stripe_subscription_id) {
     redirect(`${back}?warn=${encodeURIComponent("Questo cliente non ha un abbonamento su Stripe da rileggere.")}`);
   }
 
-  let prima = `${riga!.status}${riga!.cancel_at_period_end ? " (disdetto a fine periodo)" : ""}`;
+  const comeSta = (stato: string, aFinePeriodo: boolean, aData: boolean) =>
+    `${stato}${aFinePeriodo || aData ? " (con disdetta programmata)" : ""}`;
+  let prima = comeSta(riga!.status, riga!.cancel_at_period_end === true, !!riga!.cancel_at);
   try {
     const sub = await stripe().subscriptions.retrieve(riga!.stripe_subscription_id!);
     // `syncSubscription` si fida dei metadata per sapere di chi è. Su un
@@ -1983,7 +1985,7 @@ export async function risincronizzaDaStripe(formData: FormData) {
     const res = await syncSubscription(sub);
     if (!res.ok) redirect(`${back}?warn=${encodeURIComponent(`Stripe ha risposto ma non ho potuto salvare: ${res.error}`)}`);
 
-    const dopo = `${sub.status}${sub.cancel_at_period_end ? " (disdetto a fine periodo)" : ""}`;
+    const dopo = comeSta(sub.status, sub.cancel_at_period_end === true, sub.cancel_at != null);
     revalidatePath(back);
     revalidatePath("/admin/persone");
     redirect(
