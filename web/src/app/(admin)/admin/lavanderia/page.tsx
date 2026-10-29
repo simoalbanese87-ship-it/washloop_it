@@ -1,6 +1,7 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { createServiceClient } from "@/lib/supabase/server";
-import { segnaMesePagato } from "@/lib/actions/payout";
+import { aggiungiCostoLavanderia, segnaMesePagato } from "@/lib/actions/payout";
+import { Button } from "@/components/ui/Button";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { aggiungiIva, ALIQUOTA_IVA } from "@/lib/iva";
 
@@ -17,10 +18,14 @@ type Riga = {
   /** Il giorno del servizio a cui la riga si riferisce: è con questo che si
    *  raggruppa e si liquida, non con `created_at`. */
   servizio_il: string;
+  /** Perché esiste questa riga, sui costi inseriti a mano. */
+  nota: string | null;
   laundries: { name: string } | null;
 };
 
 const eur = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+
+const campo = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm font-medium text-navy outline-none focus:border-blue";
 
 /** Giorno e mese, per i due estremi del periodo coperto. */
 const fmtGiorno = (iso: string) =>
@@ -47,13 +52,25 @@ export default async function LavanderiaPage({
 
   const { data } = await svc
     .from("laundry_payouts")
-    .select("id, laundry_id, order_id, kind, amount_cents, status, created_at, servizio_il, laundries(name)")
+    .select("id, laundry_id, order_id, kind, amount_cents, status, created_at, servizio_il, nota, laundries(name)")
     .neq("status", "void")
     .order("servizio_il", { ascending: false })
     .limit(500)
     .returns<Riga[]>();
 
   const righe = data ?? [];
+
+  // Le lavanderie per il menu del costo a mano, e il giorno di oggi in ora di
+  // Roma: è il valore di partenza giusto, perché un costo lo si registra quasi
+  // sempre lo stesso giorno in cui lo si concorda.
+  const { data: lavanderieRows } = await svc
+    .from("laundries")
+    .select("id, name")
+    .eq("active", true)
+    .order("name")
+    .returns<{ id: string; name: string }[]>();
+  const lavanderie = lavanderieRows ?? [];
+  const oggiRoma = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 
   // Il dettaglio per ordine: chi è il cliente, quanti sacchi, quali capi.
   //
@@ -103,7 +120,7 @@ export default async function LavanderiaPage({
   }
 
   // Raggruppo per lavanderia e mese: è l'unità con cui si paga davvero.
-  type Voce = { orderId: string | null; sacchi: number; capi: number; quando: string };
+  type Voce = { orderId: string | null; sacchi: number; capi: number; quando: string; nota: string | null };
   const gruppi = new Map<string, { lavanderia: string; laundryId: string; mese: string; dal: string; al: string; sacchi: number; capi: number; totale: number; pagate: number; righe: number; voci: Map<string, Voce> }>();
   for (const r of righe) {
     // Il mese del **servizio**, non quello in cui abbiamo scritto la riga. I
@@ -129,9 +146,10 @@ export default async function LavanderiaPage({
     // Le due righe di uno stesso ordine (sacchi e capi) si fondono in una voce
     // sola: è così che la si legge, «quell'ordine ci è costato tanto».
     const k = r.order_id ?? `senza-ordine-${r.id}`;
-    const v = g.voci.get(k) ?? { orderId: r.order_id, sacchi: 0, capi: 0, quando: r.servizio_il };
+    const v = g.voci.get(k) ?? { orderId: r.order_id, sacchi: 0, capi: 0, quando: r.servizio_il, nota: null };
     if (r.kind === "bag") v.sacchi += r.amount_cents;
     else v.capi += r.amount_cents;
+    if (r.nota) v.nota = r.nota;
     if (r.servizio_il < v.quando) v.quando = r.servizio_il;
     g.voci.set(k, v);
 
@@ -213,6 +231,42 @@ export default async function LavanderiaPage({
         </p>
       </Card>
 
+      {/* Un costo che non nasce da nessun ordine. */}
+      <Card className="mb-6">
+        <h2 className="font-display text-base font-extrabold text-navy">Aggiungi un costo a mano</h2>
+        <p className="mt-1 text-sm font-medium text-muted">
+          Per un capo lavorato <strong className="text-navy">fuori dal sacco</strong>: consegnato a mano, o arrivato
+          insieme a un ritiro di solo stiro, dove la lavanderia non ha nessuna riga da compilare. Entra nel conto del
+          mese come tutti gli altri. <strong className="text-navy">Non serve inventare un ordine</strong>: un ordine
+          finto finisce nel giro del rider e poi qualcuno lo va a fare.
+        </p>
+        <form action={aggiungiCostoLavanderia} className="mt-4 grid gap-2 sm:grid-cols-[1.4fr_0.7fr_0.8fr_auto] sm:items-end">
+          <label className="text-xs font-bold text-muted">Lavanderia
+            <select name="laundry_id" required className={campo} defaultValue="">
+              <option value="" disabled>Scegli…</option>
+              {lavanderie.map((l) => (<option key={l.id} value={l.id}>{l.name}</option>))}
+            </select>
+          </label>
+          <label className="text-xs font-bold text-muted">Quanto le dobbiamo €
+            <input name="importo_eur" required inputMode="decimal" placeholder="9,02" className={campo} />
+          </label>
+          <label className="text-xs font-bold text-muted">Giorno del servizio
+            <input name="servizio_il" type="date" defaultValue={oggiRoma} className={campo} />
+          </label>
+          <Button type="submit" size="md" variant="ghost-navy">Aggiungi</Button>
+          <label className="text-xs font-bold text-muted sm:col-span-4">Perché
+            <input
+              name="nota"
+              required
+              minLength={10}
+              maxLength={300}
+              placeholder="es. Piumone di Federica, consegnato a mano: senza sacco non potevano registrarlo"
+              className={campo}
+            />
+          </label>
+        </form>
+      </Card>
+
       {elenco.length === 0 ? (
         <Card>
           <p className="text-sm font-medium text-muted">
@@ -286,8 +340,21 @@ export default async function LavanderiaPage({
                           return (
                             <tr key={v.orderId ?? v.quando} className="border-t border-line/60 align-top">
                               <td className="py-2 pr-3">
-                                <div className="font-semibold text-navy">{o?.cliente ?? "—"}</div>
-                                <div className="text-xs font-medium text-muted">{o?.codice ?? ""}</div>
+                                {/* Un costo inserito a mano non ha un cliente né
+                                    un ordine: al suo posto si legge il perché,
+                                    che è l'unica cosa che lo rende difendibile
+                                    davanti al bonifico. */}
+                                {v.orderId ? (
+                                  <>
+                                    <div className="font-semibold text-navy">{o?.cliente ?? "—"}</div>
+                                    <div className="text-xs font-medium text-muted">{o?.codice ?? ""}</div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="font-semibold text-[#C9881F]">Costo a mano</div>
+                                    <div className="text-xs font-medium text-muted">{v.nota ?? "senza nota"}</div>
+                                  </>
+                                )}
                               </td>
                               <td className="py-2 pr-3 font-mono text-xs text-muted">
                                 {v.orderId ? v.orderId.slice(0, 8) : "—"}
