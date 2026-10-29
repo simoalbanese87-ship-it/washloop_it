@@ -40,7 +40,7 @@ export async function GET(req: Request) {
       const db = createServiceClient();
       const { data: righe, error } = await db
         .from("subscriptions")
-        .select("id, user_id, status, termina_dopo_settimane, cancel_at_period_end, current_period_end, fine_avviso_inviato_at")
+        .select("id, user_id, status, termina_dopo_settimane, cancel_at_period_end, cancel_at, current_period_end, fine_avviso_inviato_at")
         .not("termina_dopo_settimane", "is", null)
         .eq("status", "active")
         .is("fine_avviso_inviato_at", null)

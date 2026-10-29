@@ -96,9 +96,9 @@ export async function elencoPersone(includiProva = false, includiArchiviati = fa
     await Promise.all([
     svc.from("profiles").select("id, full_name, phone, client_code, created_at, is_test, contact_status, tipo_servizio, a_consumo").eq("role", "customer")
       .returns<{ id: string; full_name: string | null; phone: string | null; client_code: string | null; created_at: string; is_test: boolean; contact_status: string | null; tipo_servizio: string | null; a_consumo: boolean | null }[]>(),
-    svc.from("subscriptions").select("user_id, status, custom_price_cents, current_period_end, created_at, cancel_at_period_end, termina_dopo_settimane, plans(name, price_month_cents)")
+    svc.from("subscriptions").select("user_id, status, custom_price_cents, current_period_end, created_at, cancel_at_period_end, cancel_at, termina_dopo_settimane, plans(name, price_month_cents)")
       .order("created_at", { ascending: false })
-      .returns<{ user_id: string; status: string; custom_price_cents: number | null; current_period_end: string | null; created_at: string; cancel_at_period_end: boolean | null; termina_dopo_settimane: number | null; plans: { name: string; price_month_cents: number } | null }[]>(),
+      .returns<{ user_id: string; status: string; custom_price_cents: number | null; current_period_end: string | null; created_at: string; cancel_at_period_end: boolean | null; cancel_at: string | null; termina_dopo_settimane: number | null; plans: { name: string; price_month_cents: number } | null }[]>(),
     svc.from("leads").select("id, full_name, email, phone, created_at, source, contact_status, covered, nota_interna, cap, unsubscribed_at, archiviato_at")
       // `full_name` è nullable: tipizzarlo `string` non lo rende tale, rende
       // solo cieco chi legge. Senza il ripiego qui sotto, un lead senza nome
@@ -204,7 +204,10 @@ export async function elencoPersone(includiProva = false, includiArchiviati = fa
       stadio,
       valoreMensileCents: stadio === "attivo" ? s?.custom_price_cents ?? s?.plans?.price_month_cents ?? 0 : 0,
       settimane: s?.termina_dopo_settimane ?? null,
-      disdetto: s?.cancel_at_period_end === true || (s?.termina_dopo_settimane ?? 0) > 0,
+      // Disdetta a fine periodo **o** a una data: Stripe ne usa una sola
+      // delle due, e guardarne una sola lasciava «Cliente attivo · rinnovo»
+      // su chi aveva già disdetto.
+      disdetto: s?.cancel_at_period_end === true || !!s?.cancel_at || (s?.termina_dopo_settimane ?? 0) > 0,
       piano: s?.plans?.name ?? null,
       rinnovo: s?.current_period_end ?? null,
       provenienza: null,

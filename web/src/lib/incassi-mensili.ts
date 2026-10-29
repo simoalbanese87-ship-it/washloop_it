@@ -148,11 +148,11 @@ async function rinnoviAncoraAttesi(
 ) {
   const { data } = await svc
     .from("subscriptions")
-    .select("user_id, status, cancel_at_period_end, custom_price_cents, current_period_end, created_at, plans(price_month_cents), profiles(is_test)")
+    .select("user_id, status, cancel_at_period_end, cancel_at, custom_price_cents, current_period_end, created_at, plans(price_month_cents), profiles(is_test)")
     .in("status", ["active", "trialing"])
     .order("created_at", { ascending: false })
     .returns<{
-      user_id: string; status: string; cancel_at_period_end: boolean | null;
+      user_id: string; status: string; cancel_at_period_end: boolean | null; cancel_at: string | null;
       custom_price_cents: number | null; current_period_end: string | null; created_at: string;
       plans: { price_month_cents: number } | null;
       profiles: { is_test: boolean } | null;
@@ -167,7 +167,10 @@ async function rinnoviAncoraAttesi(
     subs.push({
       prezzoCents: r.custom_price_cents ?? r.plans?.price_month_cents ?? 0,
       periodEndIso: r.current_period_end,
-      disdetto: r.cancel_at_period_end === true,
+      // Disdetta a fine periodo **o** a data: un abbonamento con «Data di
+      // annullamento» non si rinnova, e contarlo nella proiezione gonfia il
+      // mese prossimo di un canone che non arriverà.
+      disdetto: r.cancel_at_period_end === true || !!r.cancel_at,
     });
   }
   return rinnoviDelMese(subs, meseChiave, Date.now());

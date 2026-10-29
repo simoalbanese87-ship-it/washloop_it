@@ -10,7 +10,7 @@ import { CostsExplainer } from "@/components/app/CostsExplainer";
 import { DatiFatturaForm } from "@/components/app/DatiFatturaForm";
 
 type Plan = { id: string; code: string; name: string; price_month_cents: number; pickups_per_week: number; turnaround_hours: number };
-type Sub = { status: string; current_period_end: string | null; cancel_at_period_end: boolean | null; plan_id: string | null; last_failed_invoice_url: string | null; prova_fine_at: string | null; prova_ordine_id: string | null; termina_dopo_settimane: number | null; custom_price_cents: number | null; plans: { name: string } | null };
+type Sub = { status: string; current_period_end: string | null; cancel_at_period_end: boolean | null; cancel_at: string | null; plan_id: string | null; last_failed_invoice_url: string | null; prova_fine_at: string | null; prova_ordine_id: string | null; termina_dopo_settimane: number | null; custom_price_cents: number | null; plans: { name: string } | null };
 
 const euro = (cents: number) => (cents / 100).toLocaleString("it-IT");
 
@@ -21,7 +21,7 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
   const [{ need }, { data: plans }, { data: sub }, { data: monthOrders }, { data: monthSpecials }, { data: camicia }] = await Promise.all([
     searchParams,
     supabase.from("plans").select("id, code, name, price_month_cents, pickups_per_week, turnaround_hours").eq("active", true).order("sort").returns<Plan[]>(),
-    supabase.from("subscriptions").select("status, current_period_end, cancel_at_period_end, plan_id, last_failed_invoice_url, prova_fine_at, prova_ordine_id, termina_dopo_settimane, custom_price_cents, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    supabase.from("subscriptions").select("status, current_period_end, cancel_at_period_end, cancel_at, plan_id, last_failed_invoice_url, prova_fine_at, prova_ordine_id, termina_dopo_settimane, custom_price_cents, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     supabase.from("orders").select("bags, status, created_at").gte("created_at", monthStartIso).neq("status", "cancelled").returns<{ bags: number; status: string; created_at: string }[]>(),
     supabase.from("order_specials").select("price_cli_cents, created_at").gte("created_at", monthStartIso).returns<{ price_cli_cents: number; created_at: string }[]>(),
     // Le camicie comprese nel sacco: il numero sta sul listino, non nel codice.
@@ -47,6 +47,7 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
   const etichetta = etichettaAbbonamento({
     status: sub?.status,
     cancelAtPeriodEnd: sub?.cancel_at_period_end,
+    cancelAt: sub?.cancel_at,
     periodEnd: sub?.current_period_end,
     provaFineAt: sub?.prova_fine_at,
   });

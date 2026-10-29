@@ -23,6 +23,11 @@ export type DatiAbbonamento = {
   status: string | null | undefined;
   /** Disdetta programmata: su Stripe lo stato resta `active` fino alla fine. */
   cancelAtPeriodEnd?: boolean | null;
+  /** L'altra disdetta programmata di Stripe: non «a fine periodo» ma **a una
+   *  data**. Stripe ne usa una sola delle due, e noi leggevamo solo la prima:
+   *  una disdetta messa a data arrivava con `cancelAtPeriodEnd` falso e
+   *  l'abbonamento risultava semplicemente attivo. */
+  cancelAt?: string | null;
   /** Fine del periodo pagato, ISO. */
   periodEnd?: string | null;
   /** Fine della prova gratuita, ISO: durante la prova la data che conta è questa. */
@@ -58,7 +63,9 @@ export function etichettaAbbonamento(d: DatiAbbonamento): EtichettaAbbonamento {
   const status = d.status ?? "";
   const inProva = status === "trialing";
   const attivo = status === "active" || inProva;
-  const disdettaProgrammata = attivo && d.cancelAtPeriodEnd === true;
+  // L'una **o** l'altra: sono due modi di dire la stessa cosa, e guardarne una
+  // sola è ciò che ha fatto dire «rinnovo oggi» a un abbonamento già disdetto.
+  const disdettaProgrammata = attivo && (d.cancelAtPeriodEnd === true || !!d.cancelAt);
 
   const stato = disdettaProgrammata
     ? // Non è «Attivo» e non è ancora «Disdetto»: è lo stato in cui sta chi ha
@@ -66,10 +73,14 @@ export function etichettaAbbonamento(d: DatiAbbonamento): EtichettaAbbonamento {
       "Attivo, in scadenza"
     : STATO_IT[status] ?? (status || "Nessun abbonamento");
 
+  // Quando finisce davvero: se la disdetta è a data, è quella — e può cadere
+  // prima della fine del periodo pagato. Scrivere `periodEnd` direbbe al
+  // cliente una data più in là di quella in cui gli si spegne il servizio.
+  const fine = disdettaProgrammata && d.cancelAt ? d.cancelAt : d.periodEnd;
   const quando = inProva && d.provaFineAt
     ? { parola: "Primo addebito", iso: d.provaFineAt }
-    : d.periodEnd
-      ? { parola: disdettaProgrammata ? "Finisce" : attivo ? "Rinnovo" : "Fino al", iso: d.periodEnd }
+    : fine
+      ? { parola: disdettaProgrammata ? "Finisce" : attivo ? "Rinnovo" : "Fino al", iso: fine }
       : null;
 
   const tono: EtichettaAbbonamento["tono"] = disdettaProgrammata

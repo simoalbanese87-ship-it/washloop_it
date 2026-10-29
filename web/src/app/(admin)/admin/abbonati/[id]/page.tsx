@@ -48,7 +48,7 @@ type ServizioSacco = { id: string; codice: string; nome: string; price_cli_cents
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null; tags_delivered_at: string | null; borsa_consegnata_at: string | null; materiale_rientrato_at: string | null;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
-type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; passaggi_per_ciclo: number | null; passaggi_riportati: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null; servizio: string | null } | null };
+type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; cancel_at: string | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; passaggi_per_ciclo: number | null; passaggi_riportati: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null; servizio: string | null } | null };
 type Addr = {
   id: string; label: string | null; street: string; cap: string | null; civico: string | null;
   intercom: string | null; floor: string | null; notes: string | null;
@@ -101,7 +101,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: proposte }, { data: servizi }] = await Promise.all([
     svc.auth.admin.getUserById(id),
-    svc.from("subscriptions").select("id, status, cancel_at_period_end, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, passaggi_per_ciclo, passaggi_riportati, termina_dopo_settimane, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week, servizio)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    svc.from("subscriptions").select("id, status, cancel_at_period_end, cancel_at, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, passaggi_per_ciclo, passaggi_riportati, termina_dopo_settimane, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week, servizio)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street, cap, civico, intercom, floor, notes, access_mode, access_note, concierge_hours, lat, lng").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, stripe_ref, created_at, categoria").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
@@ -167,7 +167,11 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     !!sub &&
     !!stripeSub &&
     !stripeSub.errore &&
-    (stripeSub.stato !== sub.status || stripeSub.disdettaAFinePeriodo !== (sub.cancel_at_period_end === true));
+    (stripeSub.stato !== sub.status ||
+      // Una disdetta programmata su Stripe è `cancel_at_period_end` **oppure**
+      // `cancel_at`: confrontarne una sola lasciava passare proprio il caso che
+      // ha fatto nascere questo controllo.
+      stripeSub.disdettaAFinePeriodo !== (sub.cancel_at_period_end === true || !!sub.cancel_at));
 
   const inAttesa = (capi ?? []).filter(
     (c) => c.charged_at && !c.incassato_at && !c.incasso_fallito_at && !c.refunded_at && !c.annullato_at,
@@ -231,7 +235,9 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   // Disdetto ma ancora in corso: il cliente ha pagato e il servizio gli spetta
   // fino al rinnovo. Non è «attivo» e non è «disdetto», ed è lo stato in cui
   // sta chi preme «Disdici» nel caso normale.
-  const disdettaProgrammata = !!sub?.cancel_at_period_end && !disdetto;
+  // L'una **o** l'altra: Stripe usa `cancel_at_period_end` quando si disdice
+  // dal periodo e `cancel_at` quando si sceglie un giorno.
+  const disdettaProgrammata = (!!sub?.cancel_at_period_end || !!sub?.cancel_at) && !disdetto;
   // La parola e la data decise insieme: «Rinnovo: 30/09» stava due righe sotto
   // il chip che dice «non si rinnova».
   const quandoAbbonamento = sub
@@ -239,6 +245,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
         etichettaAbbonamento({
           status: sub.status,
           cancelAtPeriodEnd: sub.cancel_at_period_end,
+          cancelAt: sub.cancel_at,
           periodEnd: sub.current_period_end,
           provaFineAt: sub.prova_fine_at,
         }),
@@ -982,7 +989,11 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                     <div className="mt-1 space-y-1 text-sm font-medium text-muted">
                       <div>
                         Stato: <span className="font-bold text-navy">{stripeSub.statoItaliano}</span>
-                        {stripeSub.disdettaAFinePeriodo && <span className="ml-2 rounded-full bg-[#C9881F]/12 px-2 py-0.5 text-[11px] font-bold text-[#C9881F]">disdetta a fine periodo</span>}
+                        {stripeSub.disdettaAFinePeriodo && (
+                          <span className="ml-2 rounded-full bg-[#C9881F]/12 px-2 py-0.5 text-[11px] font-bold text-[#C9881F]">
+                            {stripeSub.disdettaIl ? `finisce il ${fmtDate(stripeSub.disdettaIl)}` : "disdetta a fine periodo"}
+                          </span>
+                        )}
                       </div>
                       <div>
                         Pagamenti riusciti: <span className="font-bold text-navy">{stripeSub.pagamentiRiusciti}</span>
@@ -1009,8 +1020,8 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                       {discordaConStripe && (
                         <p className="rounded-[10px] bg-[#C0392B]/8 px-2.5 py-1.5 text-xs font-semibold text-[#C0392B]">
                           Il nostro registro non coincide con Stripe: da noi{" "}
-                          <strong>{statoAbbonamentoItaliano(sub!.status)}{sub!.cancel_at_period_end ? " con disdetta a fine periodo" : ""}</strong>,
-                          su Stripe <strong>{stripeSub.statoItaliano}{stripeSub.disdettaAFinePeriodo ? " con disdetta a fine periodo" : ""}</strong>.
+                          <strong>{statoAbbonamentoItaliano(sub!.status)}{sub!.cancel_at_period_end || sub!.cancel_at ? " con disdetta programmata" : ""}</strong>,
+                          su Stripe <strong>{stripeSub.statoItaliano}{stripeSub.disdettaAFinePeriodo ? " con disdetta programmata" : ""}</strong>.
                           Vale Stripe: premi «Rileggi da Stripe» qui sopra.
                         </p>
                       )}

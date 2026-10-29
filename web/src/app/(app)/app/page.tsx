@@ -10,7 +10,7 @@ import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
 import { BannerInvita } from "@/components/app/BannerInvita";
 
 type OrderRow = { id: string; status: OrderStatus; created_at: string; bags: number; eta_ready_at: string | null; pickup_slot: { starts_at: string; ends_at: string } | null; delivery_slot: { starts_at: string; ends_at: string } | null };
-type SubRow = { status: string; current_period_end: string | null; cancel_at_period_end: boolean | null; prova_fine_at: string | null; plans: { name: string; bags_per_week: number } | null };
+type SubRow = { status: string; current_period_end: string | null; cancel_at_period_end: boolean | null; cancel_at: string | null; prova_fine_at: string | null; plans: { name: string; bags_per_week: number } | null };
 type RecRow = {
   id: string; weekday: number; hhmm: string; bags: number; active: boolean; needs_confirmation: boolean;
   delivery_hhmm: string | null;
@@ -27,7 +27,7 @@ export default async function Home() {
   const [{ data: sub }, { data: orders }, { data: recs }, { count: quantiIndirizzi }, { data: io }] = await Promise.all([
     supabase
       .from("subscriptions")
-      .select("status, current_period_end, cancel_at_period_end, prova_fine_at, plans(name, bags_per_week)")
+      .select("status, current_period_end, cancel_at_period_end, cancel_at, prova_fine_at, plans(name, bags_per_week)")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle<SubRow>(),
@@ -74,6 +74,7 @@ export default async function Home() {
   const etichetta = etichettaAbbonamento({
     status: sub?.status,
     cancelAtPeriodEnd: sub?.cancel_at_period_end,
+    cancelAt: sub?.cancel_at,
     periodEnd: sub?.current_period_end,
     provaFineAt: sub?.prova_fine_at,
   });

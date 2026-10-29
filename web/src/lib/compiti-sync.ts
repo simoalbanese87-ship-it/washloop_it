@@ -28,10 +28,11 @@ import { decidiCompiti, type StatoCliente, type TipoCompito } from "@/lib/compit
 async function abbonamentoRilevante(userId: string): Promise<{
   status: string | null;
   cancel_at_period_end: boolean | null;
+  cancel_at: string | null;
   current_period_end: string | null;
 } | null> {
   const svc = createServiceClient();
-  const sel = "status, cancel_at_period_end, current_period_end";
+  const sel = "status, cancel_at_period_end, cancel_at, current_period_end";
   const { data: inCorso } = await svc
     .from("subscriptions")
     .select(sel)
@@ -39,7 +40,7 @@ async function abbonamentoRilevante(userId: string): Promise<{
     .in("status", ["active", "trialing"])
     .order("created_at", { ascending: false })
     .limit(1)
-    .maybeSingle<{ status: string | null; cancel_at_period_end: boolean | null; current_period_end: string | null }>();
+    .maybeSingle<{ status: string | null; cancel_at_period_end: boolean | null; cancel_at: string | null; current_period_end: string | null }>();
   if (inCorso) return inCorso;
 
   const { data: ultimo } = await svc
@@ -48,7 +49,7 @@ async function abbonamentoRilevante(userId: string): Promise<{
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(1)
-    .maybeSingle<{ status: string | null; cancel_at_period_end: boolean | null; current_period_end: string | null }>();
+    .maybeSingle<{ status: string | null; cancel_at_period_end: boolean | null; cancel_at: string | null; current_period_end: string | null }>();
   return ultimo ?? null;
 }
 
@@ -102,7 +103,9 @@ export async function allineaCompiti(
     const sub = await abbonamentoRilevante(userId);
     const stato: StatoCliente = {
       stato: sub?.status ?? null,
-      disdettaProgrammata: sub?.cancel_at_period_end === true,
+      // A fine periodo **o** a data: il rientro del materiale va messo in
+      // moto anche da una disdetta con «Data di annullamento».
+      disdettaProgrammata: sub?.cancel_at_period_end === true || !!sub?.cancel_at,
       finePeriodoIso: sub?.current_period_end ?? null,
       tagConsegnatiAt: prof.tags_delivered_at,
       borsaConsegnataAt: prof.borsa_consegnata_at,

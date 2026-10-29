@@ -47,6 +47,11 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
     // riscrivendo solo lo stato la disdetta spariva e il bottone «Disdici»
     // ricompariva pochi secondi dopo essere stato premuto.
     cancel_at_period_end: sub.cancel_at_period_end === true,
+    // L'altra disdetta programmata di Stripe: a una data, non a fine periodo.
+    // Stripe ne usa una sola delle due e noi leggevamo solo la prima, quindi
+    // una disdetta messa a data spariva nel passaggio e l'abbonamento
+    // risultava attivo — compreso il rinnovo che non ci sarebbe mai stato.
+    cancel_at: sub.cancel_at ? new Date(sub.cancel_at * 1000).toISOString() : null,
     current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
     // La data dell'addebito la tiene Stripe; questa è la copia, riallineata a
     // ogni webhook. Così anche una modifica fatta a mano dalla dashboard arriva

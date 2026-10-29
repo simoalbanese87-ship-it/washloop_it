@@ -38,7 +38,10 @@ export type AbbonamentoStripe = {
    *  `soloPiano` è vero quando l'anteprima di Stripe non è arrivata e questo è
    *  il solo prezzo del piano: va detto invece di far credere che sia il totale. */
   prossimoAddebito: { data: string; importoCents: number; soloPiano?: boolean } | null;
+  /** Una disdetta è programmata: a fine periodo **oppure** a una data. */
   disdettaAFinePeriodo: boolean;
+  /** Il giorno in cui finisce, quando la disdetta è a data. */
+  disdettaIl: string | null;
   creatoIl: string | null;
   pagamentiRiusciti: number;
   totalePagatoCents: number;
@@ -123,8 +126,13 @@ export async function abbonamentoDaStripe(subId: string, customerId?: string | n
     //
     // L'anteprima della prossima fattura le voci in sospeso le comprende: è
     // l'unico numero che il cliente si vedrà davvero sull'estratto conto.
+    // Una disdetta programmata è l'una **o** l'altra: Stripe ne usa una sola
+    // delle due, e leggendo solo `cancel_at_period_end` un abbonamento con
+    // «Data di annullamento» risultava attivo e in rinnovo.
+    const disdetta = sub.cancel_at_period_end === true || sub.cancel_at != null;
+
     let prossimoTotale: number | null = null;
-    if (customerId && sub.status === "active" && !sub.cancel_at_period_end) {
+    if (customerId && sub.status === "active" && !disdetta) {
       try {
         const anteprima = await stripe().invoices.createPreview({ customer: customerId, subscription: sub.id });
         prossimoTotale = anteprima.amount_due ?? anteprima.total ?? null;
@@ -142,14 +150,15 @@ export async function abbonamentoDaStripe(subId: string, customerId?: string | n
       prezzoCents: prezzo,
       periodoFino: fine ? new Date(fine * 1000).toISOString() : null,
       prossimoAddebito:
-        sub.status === "active" && !sub.cancel_at_period_end && fine
+        sub.status === "active" && !disdetta && fine
           ? {
               data: new Date(fine * 1000).toISOString(),
               importoCents: prossimoTotale ?? prezzo ?? 0,
               soloPiano: prossimoTotale == null,
             }
           : null,
-      disdettaAFinePeriodo: sub.cancel_at_period_end === true,
+      disdettaAFinePeriodo: disdetta,
+      disdettaIl: sub.cancel_at ? new Date(sub.cancel_at * 1000).toISOString() : null,
       creatoIl: sub.created ? new Date(sub.created * 1000).toISOString() : null,
       pagamentiRiusciti,
       totalePagatoCents,
@@ -166,6 +175,7 @@ export async function abbonamentoDaStripe(subId: string, customerId?: string | n
       periodoFino: null,
       prossimoAddebito: null,
       disdettaAFinePeriodo: false,
+      disdettaIl: null,
       creatoIl: null,
       pagamentiRiusciti: 0,
       totalePagatoCents: 0,

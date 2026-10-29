@@ -32,6 +32,8 @@ export type SubCopertura = {
   activated_at?: string | null;
   canceled_at?: string | null;
   cancel_at_period_end?: boolean | null;
+  /** L'altra disdetta programmata di Stripe: a una data, non a fine periodo. */
+  cancel_at?: string | null;
   current_period_end?: string | null;
   prova_fine_at?: string | null;
   termina_dopo_settimane?: number | null;
@@ -88,9 +90,14 @@ export function coperturaDelCanone(s: SubCopertura, oggiIso: string): CanoneStor
     // quella in cui il servizio finisce. Su una disdetta a fine periodo il
     // cliente resta servito fino al rinnovo: prendere la data della richiesta
     // taglierebbe settimane pagate e servite.
-    aIso = s.cancel_at_period_end
-      ? piuTardi(s.canceled_at, s.current_period_end)
-      : s.canceled_at ?? s.current_period_end ?? null;
+    // Una disdetta **a data** dice esattamente quando il servizio finisce: è
+    // il dato migliore che abbiamo, meglio sia della data della richiesta sia
+    // della fine del periodo pagato.
+    aIso = s.cancel_at
+      ? s.cancel_at
+      : s.cancel_at_period_end
+        ? piuTardi(s.canceled_at, s.current_period_end)
+        : s.canceled_at ?? s.current_period_end ?? null;
   } else if (s.status === "paused") {
     // Non esiste una data di messa in pausa: `current_period_end` è la miglior
     // cosa vera che abbiamo — «pagato fino a lì».

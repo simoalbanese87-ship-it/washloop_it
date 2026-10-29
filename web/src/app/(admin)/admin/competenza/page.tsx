@@ -75,6 +75,7 @@ type Sub = {
   activated_at: string | null;
   canceled_at: string | null;
   cancel_at_period_end: boolean | null;
+  cancel_at: string | null;
   current_period_end: string | null;
   prova_fine_at: string | null;
   termina_dopo_settimane: number | null;
@@ -128,7 +129,7 @@ export default async function Competenza({
     // canone — è il motivo per cui il venerdì tolto a ottobre non crea colonne.
     svc.from("slots").select("starts_at").eq("kind", "pickup").is("archived_at", null).gte("starts_at", dal).lt("starts_at", al)
       .returns<{ starts_at: string }[]>(),
-    svc.from("subscriptions").select("user_id, status, manual, custom_price_cents, created_at, activated_at, canceled_at, cancel_at_period_end, current_period_end, prova_fine_at, termina_dopo_settimane, plans(price_month_cents), profiles(full_name, is_test, competenza_escluso_at, competenza_escluso_motivo)")
+    svc.from("subscriptions").select("user_id, status, manual, custom_price_cents, created_at, activated_at, canceled_at, cancel_at_period_end, cancel_at, current_period_end, prova_fine_at, termina_dopo_settimane, plans(price_month_cents), profiles(full_name, is_test, competenza_escluso_at, competenza_escluso_motivo)")
       .order("created_at", { ascending: true }).returns<Sub[]>(),
     svc.from("orders").select("id, customer_id, status, bags, bags_arrivati, created_at, laundry_id, laundries(bag_comp_cents), pickup:slots!orders_pickup_slot_id_fkey(starts_at), profiles!orders_customer_id_fkey(is_test)")
       .neq("status", "cancelled").returns<Ordine[]>(),
