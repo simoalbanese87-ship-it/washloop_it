@@ -8,6 +8,7 @@ import { CAP_MILANO, CAP_COMUNI } from "@/lib/copertura";
 import { VerificaCap } from "@/components/lead/VerificaCap";
 import { createClient } from "@/lib/supabase/server";
 import { eurCents as eur } from "@/lib/format";
+import { OG_IMMAGINE } from "@/lib/og";
 
 /* ============================================================
    Pagina di ricerca — "servizio stiro a domicilio Milano"
@@ -39,6 +40,7 @@ export const metadata: Metadata = {
     url: URL_PAGINA,
     type: "website",
     locale: "it_IT",
+    images: [OG_IMMAGINE],
   },
 };
 

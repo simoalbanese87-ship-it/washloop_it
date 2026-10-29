@@ -8,6 +8,7 @@ import { CapCheck } from "@/components/home/CapCheck";
 import { RichiestaZona } from "@/components/home/RichiestaZona";
 import { graficoPagina } from "@/lib/area-servita";
 import { createServiceClient } from "@/lib/supabase/server";
+import { OG_IMMAGINE } from "@/lib/og";
 
 /* ============================================================
    Home — la pagina che raccoglie i contatti.
@@ -40,6 +41,7 @@ export const metadata: Metadata = {
     url: "https://washloop.it",
     type: "website",
     locale: "it_IT",
+    images: [OG_IMMAGINE],
   },
 };
 

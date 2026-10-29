@@ -7,6 +7,7 @@ import { graficoPagina } from "@/lib/area-servita";
 import { VerificaCap } from "@/components/lead/VerificaCap";
 import { createClient } from "@/lib/supabase/server";
 import { eurCents as eur } from "@/lib/format";
+import { OG_IMMAGINE } from "@/lib/og";
 
 /* ============================================================
    Come funziona, passo per passo
@@ -49,6 +50,7 @@ export const metadata: Metadata = {
     url: URL_PAGINA,
     type: "website",
     locale: "it_IT",
+    images: [OG_IMMAGINE],
   },
 };
 

@@ -9,6 +9,7 @@ import { RichiestaCustom } from "@/components/lead/RichiestaCustom";
 import { createClient } from "@/lib/supabase/server";
 import { eurCents as eur } from "@/lib/format";
 import { invitoCorrente } from "@/lib/invito-corrente";
+import { OG_IMMAGINE } from "@/lib/og";
 
 /* ============================================================
    Pagina prezzi
@@ -45,6 +46,7 @@ export const metadata: Metadata = {
     url: URL_PAGINA,
     type: "website",
     locale: "it_IT",
+    images: [OG_IMMAGINE],
   },
 };
 

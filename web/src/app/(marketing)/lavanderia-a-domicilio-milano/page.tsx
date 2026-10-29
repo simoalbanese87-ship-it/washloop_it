@@ -6,6 +6,7 @@ import { JsonLd } from "@/components/marketing/JsonLd";
 import { ZONE_SERVITE, COMUNI_SERVITI, graficoPagina } from "@/lib/area-servita";
 import { CAP_MILANO, CAP_COMUNI } from "@/lib/copertura";
 import { VerificaCap } from "@/components/lead/VerificaCap";
+import { OG_IMMAGINE } from "@/lib/og";
 
 /* ============================================================
    Pagina di ricerca — "lavanderia a domicilio Milano"
@@ -38,6 +39,7 @@ export const metadata: Metadata = {
     url: URL_PAGINA,
     type: "website",
     locale: "it_IT",
+    images: [OG_IMMAGINE],
   },
 };
 
