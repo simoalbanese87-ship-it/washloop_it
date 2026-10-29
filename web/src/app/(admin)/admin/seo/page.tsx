@@ -302,12 +302,16 @@ export default async function SeoPage({
                           </BottoneInvio>
                         </form>
                       )}
-                      {chiuso && (
+                      {/* Anche da «in corso» si torna indietro. Senza questo
+                          bottone, chi premeva «Ci sto lavorando» per sbaglio
+                          poteva uscirne solo dichiarando fatta una cosa che non
+                          aveva fatto. */}
+                      {t.stato !== "da_fare" && (
                         <form action={cambiaStatoSeo}>
                           <input type="hidden" name="id" value={t.id} />
                           <input type="hidden" name="stato" value="da_fare" />
                           <BottoneInvio className="font-display text-xs font-bold text-muted hover:underline">
-                            Riaprila
+                            {chiuso ? "Riaprila" : "Rimettila da fare"}
                           </BottoneInvio>
                         </form>
                       )}
