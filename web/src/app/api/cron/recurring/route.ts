@@ -7,6 +7,7 @@ import { destinazioneOrdine } from "@/lib/lavanderia";
 import { assegnaRiderIniziale } from "@/lib/assegna-rider";
 import { allineaProva } from "@/lib/prova-stripe";
 import { oreDiLavorazione } from "@/lib/turnaround";
+import { puoPrenotare } from "@/lib/puo-prenotare";
 import { eseguiCron } from "@/lib/cron-log";
 
 /** Cron giornaliero: genera gli ordini delle ricorrenze settimanali attive,
@@ -96,7 +97,15 @@ export async function GET(req: Request) {
         continue;
       }
 
-      // Sub attivo + turnaround del cliente (cache per cliente)
+      // Chi ha diritto al ritiro, e in quante ore glielo rendiamo.
+      //
+      // Il permesso non è «ha un abbonamento attivo»: è la regola di
+      // `puo-prenotare.ts`, cioè **abbonamento vivo oppure accordo a consumo**.
+      // Quel modulo esiste proprio per tenerla in un posto solo, e qui non la
+      // si usava: un cliente a consumo poteva prenotare dall'app, pagava, ma la
+      // sua ricorrenza settimanale non produceva **mai** un ritiro. In silenzio,
+      // come sempre quando una regola viene riscritta a mano in un secondo
+      // posto.
       let turnaround = turnaroundCache.get(rec.customer_id) ?? -1;
       if (turnaround === -1) {
         const [{ data: sub }, { data: prof }] = await Promise.all([
@@ -107,15 +116,19 @@ export async function GET(req: Request) {
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle<{ status: string; plans: { turnaround_hours: number } | null }>(),
-          sb.from("profiles").select("tipo_servizio").eq("id", rec.customer_id).maybeSingle<{ tipo_servizio: string | null }>(),
+          sb
+            .from("profiles")
+            .select("tipo_servizio, a_consumo")
+            .eq("id", rec.customer_id)
+            .maybeSingle<{ tipo_servizio: string | null; a_consumo: boolean | null }>(),
         ]);
-        turnaround =
-          sub && ["active", "trialing"].includes(sub.status)
-            ? oreDiLavorazione({ tipoServizio: prof?.tipo_servizio, orePiano: sub.plans?.turnaround_hours })
-            : 0;
+        turnaround = puoPrenotare({ statoAbbonamento: sub?.status, aConsumo: prof?.a_consumo })
+          ? oreDiLavorazione({ tipoServizio: prof?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours })
+          : 0;
         turnaroundCache.set(rec.customer_id, turnaround);
       }
-      if (turnaround === 0) continue; // abbonamento non attivo → niente generazione
+      // 0 = non ha diritto al servizio: niente generazione.
+      if (turnaround === 0) continue;
 
       for (const slot of matches) {
         // Doppione = stessa PERSONA nella stessa fascia, non stessa ricorrenza.
