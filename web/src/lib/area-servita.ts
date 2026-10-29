@@ -35,7 +35,21 @@ export const COMUNI_SERVITI = ["Assago", "Buccinasco", "Rozzano"] as const;
  *  L'indirizzo e la partita IVA arrivano da `LEGAL`, la stessa fonte del piè di
  *  pagina e delle pagine legali — così non può succedere che il dato pubblico e
  *  il dato dichiarato a Google raccontino due aziende diverse. */
+/** La scheda Google, ricavata dal link delle recensioni.
+ *
+ *  `GOOGLE_REVIEW_URL` è `https://g.page/r/<id>/review`: togliendo `/review`
+ *  resta l'indirizzo della scheda. Si ricava invece di tenere una seconda
+ *  variabile perché due variabili che devono puntare alla stessa scheda, prima
+ *  o poi, puntano a due schede diverse — e di schede, qui, ne gira già una di
+ *  troppo (il duplicato da unire). */
+function schedaGoogle(): string | null {
+  const review = process.env.GOOGLE_REVIEW_URL?.trim();
+  if (!review) return null;
+  return review.replace(/\/review\/?$/, "");
+}
+
 export function attivitaJsonLd() {
+  const scheda = schedaGoogle();
   return {
     "@type": "DryCleaningOrLaundry",
     "@id": "https://washloop.it/#attivita",
@@ -59,6 +73,12 @@ export function attivitaJsonLd() {
       { "@type": "City", name: "Milano" },
       ...COMUNI_SERVITI.map((c) => ({ "@type": "City", name: c })),
     ],
+    // `sameAs` e `hasMap` sono la frase «questo sito e quella scheda Google
+    // sono la stessa azienda». Finché mancano, per Google sono due entità che
+    // si assomigliano: il sito non aiuta la scheda a salire nella mappa, e la
+    // scheda non presta al sito la fiducia delle sue recensioni. Costano due
+    // righe e sono la metà del lavoro del punto «collega la scheda».
+    ...(scheda ? { sameAs: [scheda], hasMap: scheda } : {}),
   };
 }
 

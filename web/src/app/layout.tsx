@@ -33,7 +33,12 @@ export const metadata: Metadata = {
     description: "Lavanderia a domicilio in abbonamento a Milano. Tutto dal telefono.",
     type: "website",
     locale: "it_IT",
+    siteName: "WashLoop",
   },
+  // L'immagine la mettono `opengraph-image.tsx` e `twitter-image.tsx`: qui
+  // serve solo dire che la card è quella grande, se no X la mostra come una
+  // miniatura quadrata accanto al testo.
+  twitter: { card: "summary_large_image" },
 };
 
 export const viewport: Viewport = {

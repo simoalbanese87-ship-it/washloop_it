@@ -34,11 +34,13 @@ const GRUPPI: { titolo: string; nota: string; voci: { href: string; label: strin
     titolo: "Marketing",
     nota: "Comunicazione e crescita.",
     voci: [
+      // Primo della sezione: è l'unico che cambia di settimana in settimana, e
+      // quello che si cerca davvero quando si apre Impostazioni.
+      { href: "/admin/seo", label: "Cantiere SEO", sub: "I lavori per farsi trovare: cosa manca, chi lo fa, dove si controlla" },
+      { href: "/admin/crescita", label: "Crescita", sub: "Il perché: guide SEO, AISO e social" },
       { href: "/admin/inviti", label: "Porta un amico", sub: "Chi ha portato chi, i premi maturati e quelli da sistemare" },
       { href: "/admin/email", label: "Email inviate", sub: "Log delle consegne (Brevo)" },
       { href: "/admin/domande", label: "Cosa ci chiedono", sub: "Le domande fatte all'assistente, e quelle a cui non ha saputo rispondere" },
-      { href: "/admin/seo", label: "Cantiere SEO", sub: "I lavori per farsi trovare: cosa manca, chi lo fa, dove si controlla" },
-      { href: "/admin/crescita", label: "Crescita", sub: "Guide e checklist SEO, social e acquisizione" },
     ],
   },
 ];

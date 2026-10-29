@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
 
 /** Pagina di riferimento (solo admin): cosa fare per SEO, AISO e attività social.
@@ -124,7 +125,7 @@ const GUIDES: Guide[] = [
     url: "https://search.google.com/search-console",
     steps: [
       "Aggiungi proprietà tipo «Dominio» → washloop.it.",
-      "Copia il record TXT e incollalo in Cloudflare → DNS (Proxy OFF) → Verifica.",
+      "Copia il record TXT e incollalo in Vercel → Project → Settings → Domains → DNS Records (il dominio è lì, non su Cloudflare) → poi Verifica.",
       "Invia la sitemap: https://washloop.it/sitemap.xml.",
       "Dopo qualche giorno controlla query e pagine in «Rendimento».",
     ],
@@ -195,6 +196,27 @@ export default function CrescitaPage() {
         title="SEO · AISO · Attività"
         sub="Cosa fare per farti trovare (Google e AI) e per le attività social. Lista operativa, dalla priorità più alta."
       />
+
+      {/* Questa pagina spiega, non tiene il conto. Chi arriva qui cercando
+          «cosa devo fare adesso» va mandato dove le cose si spuntano, se no
+          rilegge l'elenco e non cambia niente. */}
+      <Card className="mb-5 border-2 border-blue/30">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="font-display text-base font-black text-navy">I lavori veri stanno nel Cantiere SEO</div>
+            <p className="mt-1 text-sm font-medium text-muted">
+              Qui c&apos;è il perché. Lì c&apos;è l&apos;elenco con stato, priorità e dove si controlla — e le voci che
+              aspettano te.
+            </p>
+          </div>
+          <Link
+            href="/admin/seo"
+            className="rounded-full bg-blue px-5 py-2 font-display text-sm font-extrabold text-white"
+          >
+            Apri il cantiere →
+          </Link>
+        </div>
+      </Card>
 
       <div className="grid gap-5 lg:grid-cols-2">
         {BLOCKS.map((b) => (
