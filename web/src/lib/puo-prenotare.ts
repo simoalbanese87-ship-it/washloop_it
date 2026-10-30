@@ -18,12 +18,18 @@
  *  -------------------------------------
  *  Finché diceva solo sì o no, chi comprava **un** ritiro ne prenotava tre:
  *  dentro la settimana pagata l'abbonamento era vivo, e vivo era l'unica cosa
- *  che si guardasse. Adesso il permesso ha anche una quantità — i gettoni
- *  comprati, o i passaggi compresi nel periodo — e un cliente che li ha finiti
- *  è fermo come chi non ne ha mai avuti, ma non si sente dire la stessa cosa.
+ *  che si guardasse. Adesso il permesso ha anche una quantità — i ritiri
+ *  comprati — e chi li ha finiti è fermo come chi non ne ha mai avuti, ma non
+ *  si sente dire la stessa cosa.
  *
- *  Chi non ha nessun tetto resta senza tetto: è il caso di tutti gli
- *  abbonamenti storici, e non si inventa un limite a chi non l'ha comprato.
+ *  **I ritiri non scadono.** Non appartengono a un periodo: chi ne compra uno e
+ *  lo usa fra due mesi ha comprato lo stesso lavoro. Per questo qui non c'è
+ *  nessuna data: il tempo non toglie niente a nessuno.
+ *
+ *  Due modi di avere diritto, e non si confondono: chi paga un canone a cadenza
+ *  libera prenota perché l'abbonamento è vivo — sono tutti quelli storici, e
+ *  per loro non è cambiato niente; chi ha comprato un numero di ritiri, in
+ *  blocco o a ogni rinnovo, prenota finché ne ha.
  *
  *  Pura e senza `server-only` apposta: è un cancello, e un cancello va provato
  *  senza database. */
@@ -36,15 +42,15 @@ export type ChiPrenota = {
   statoAbbonamento?: string | null;
   /** Cliente a consumo: paga i capi, non il canone. */
   aConsumo?: boolean | null;
-  /** Ritiri comprati e non ancora usati. I gettoni non scadono e non
-   *  appartengono a un ciclo: valgono anche senza abbonamento. */
-  gettoni?: number | null;
-  /** Quanti ne ha comprati in tutto, usati compresi. Serve solo a dire la
-   *  frase giusta a chi li ha finiti. */
-  gettoniAccreditati?: number | null;
-  /** Passaggi che restano nel periodo pagato. `null` = nessun tetto, ed è il
-   *  comportamento storico. */
-  residuiPassaggi?: number | null;
+  /** Ritiri comprati e non ancora usati. Non scadono e valgono anche senza
+   *  abbonamento: sono lavori già pagati. */
+  ritiri?: number | null;
+  /** Quanti ne ha avuti in tutto, usati compresi. Serve solo a dire la frase
+   *  giusta a chi li ha finiti. */
+  ritiriAccreditati?: number | null;
+  /** L'abbonamento dà un numero di ritiri a ogni rinnovo invece del servizio a
+   *  cadenza libera. Per questi il permesso lo danno i ritiri, non lo stato. */
+  abbonamentoARitiri?: boolean | null;
 };
 
 export function abbonamentoVivo(stato: string | null | undefined): boolean {
@@ -53,16 +59,15 @@ export function abbonamentoVivo(stato: string | null | undefined): boolean {
 
 const quanti = (n: number | null | undefined) => (typeof n === "number" && Number.isFinite(n) ? n : 0);
 
-/** Il tetto del periodo è esaurito: c'è un numero, ed è a zero. */
-function tettoFinito(c: ChiPrenota): boolean {
-  return typeof c.residuiPassaggi === "number" && Number.isFinite(c.residuiPassaggi) && c.residuiPassaggi <= 0;
+/** L'abbonamento da solo basta a prenotare: è vivo e non è di quelli che danno
+ *  un numero di ritiri. */
+export function canoneACadenzaLibera(c: ChiPrenota): boolean {
+  return abbonamentoVivo(c.statoAbbonamento) && c.abbonamentoARitiri !== true;
 }
 
 export function puoPrenotare(c: ChiPrenota): boolean {
-  // I gettoni comprati valgono sempre, e valgono per primi: sono ritiri già
-  // pagati, e restano dovuti anche a chi nel frattempo ha disdetto.
-  if (quanti(c.gettoni) > 0) return true;
-  if (abbonamentoVivo(c.statoAbbonamento)) return !tettoFinito(c);
+  if (quanti(c.ritiri) > 0) return true;
+  if (canoneACadenzaLibera(c)) return true;
   return c.aConsumo === true;
 }
 
@@ -74,10 +79,10 @@ export function perchePuoNonPrenotare(c: ChiPrenota): string | null {
   }
   // Chi ha appena finito non è chi non ha mai cominciato: la frase che vede
   // deve dirgli che cosa è successo, non ricominciare da capo.
-  if (abbonamentoVivo(c.statoAbbonamento) && tettoFinito(c)) {
-    return "Hai usato tutti i ritiri compresi in questo periodo: dal rinnovo torni a prenotare.";
+  if (abbonamentoVivo(c.statoAbbonamento) && c.abbonamentoARitiri === true) {
+    return "Hai usato tutti i ritiri che avevi: al prossimo rinnovo te ne arrivano altri.";
   }
-  if (quanti(c.gettoniAccreditati) > 0) {
+  if (quanti(c.ritiriAccreditati) > 0) {
     return "Hai usato tutti i ritiri che hai comprato: comprane un altro o passa all'abbonamento.";
   }
   return "Serve un abbonamento attivo.";

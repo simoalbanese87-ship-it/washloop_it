@@ -77,7 +77,7 @@ export async function createPickup(formData: FormData) {
   const destinazione = await destinazioneOrdine(createServiceClient(), user.id, slot?.laundry_id, slot?.servizio);
   const laundry_id = String(formData.get("laundry_id") ?? "") || destinazione.laundryId;
 
-  // Gate: serve un abbonamento attivo che copra il ritiro, un gettone comprato
+  // Gate: serve un abbonamento attivo che copra il ritiro, un ritiro comprato
   // o l'accordo a consumo (difesa lato server). La regola sta in
   // `puo-prenotare.ts` con i suoi test; le quantità le raccoglie
   // `dirittoAPrenotare` col service client, perché un saldo letto con la
@@ -100,10 +100,10 @@ export async function createPickup(formData: FormData) {
       eta_ready_at: eta,
       bags: Number.isFinite(bags) && bags > 0 ? bags : 1,
       notes: String(formData.get("notes") ?? "") || null,
-      // Il gettone si consuma adesso, alla prenotazione, non alla riconsegna:
-      // è scritto sull'ordine e non in un contatore, così un annullo lo
-      // restituisce da solo.
-      gettone_at: diritto.consumaGettone ? new Date().toISOString() : null,
+      // Il ritiro comprato si consuma adesso, alla prenotazione, non alla
+      // riconsegna: è scritto sull'ordine e non in un contatore, così un
+      // annullo lo restituisce da solo.
+      ritiro_pagato_at: diritto.consumaRitiro ? new Date().toISOString() : null,
       status: "pickup_scheduled" as OrderStatus,
     })
     .select("id")
@@ -196,9 +196,9 @@ export async function bookPickup(input: {
       eta_ready_at: eta,
       bags,
       notes: input.notes || null,
-      // Vedi `createPickup`: il gettone si consuma alla prenotazione, e sta
-      // scritto sull'ordine perché l'annullo lo restituisca da solo.
-      gettone_at: diritto.consumaGettone ? new Date().toISOString() : null,
+      // Vedi `createPickup`: il ritiro comprato si consuma alla prenotazione,
+      // e sta scritto sull'ordine perché l'annullo lo restituisca da solo.
+      ritiro_pagato_at: diritto.consumaRitiro ? new Date().toISOString() : null,
       status: "pickup_scheduled" as OrderStatus,
     })
     .select("id")

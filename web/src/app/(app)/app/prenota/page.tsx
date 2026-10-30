@@ -4,7 +4,6 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/auth";
 import { pickupCounts, deliveryCounts } from "@/lib/slots";
 import { oreDiLavorazione } from "@/lib/turnaround";
-import { saldoPassaggi } from "@/lib/passaggi-abbonamento";
 import { dirittoAPrenotare } from "@/lib/diritto-a-prenotare";
 import { puoPrenotare } from "@/lib/puo-prenotare";
 import { compraUnRitiro, chiediAbbonamento } from "@/lib/actions/ritiri";
@@ -14,10 +13,6 @@ import { isTipoServizio } from "@/lib/tipo-servizio";
 type Cat = { id: string; name: string; emoji: string; sort: number };
 type Item = { category_id: string; name: string; price_cli_cents: number; sort: number };
 type RawSlot = { id: string; starts_at: string; ends_at: string; laundry_id: string | null; capacity: number | null; servizio: string | null };
-
-/** Giorno e mese, in ora di Roma: la data entro cui vanno usati i passaggi. */
-const fmtGiorno = (iso: string) =>
-  new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", day: "2-digit", month: "2-digit" }).format(new Date(iso));
 
 export default async function PrenotaPage() {
   const supabase = await createClient();
@@ -78,15 +73,15 @@ export default async function PrenotaPage() {
   // bloccherebbe chi ha pagato.
   const userId = (await supabase.auth.getUser()).data.user?.id ?? null;
   const svc = createServiceClient();
-  const [passaggi, diritto] = await Promise.all([
-    userId ? saldoPassaggi(svc, userId) : Promise.resolve(null),
-    userId ? dirittoAPrenotare(userId, svc) : Promise.resolve(null),
-  ]);
+  const diritto = userId ? await dirittoAPrenotare(userId, svc) : null;
   const active = diritto ? puoPrenotare(diritto) : abbonato || aConsumo;
-  // Ha comprato dei ritiri e li ha finiti: non è uno che non ha mai cominciato,
-  // e non deve leggere la pagina di chi non ha mai cominciato.
-  const ritiriFiniti = !!diritto && !active && (diritto.gettoniAccreditati ?? 0) > 0;
-  const ritiriInCassa = diritto?.gettoni ?? 0;
+  // Ha finito i ritiri comprati: non è uno che non ha mai cominciato, e non
+  // deve leggere la pagina di chi non ha mai cominciato.
+  const ritiriFiniti = !!diritto && !active && (diritto.ritiriAccreditati ?? 0) > 0 && diritto.abbonamentoARitiri !== true;
+  // Ha finito quelli del rinnovo: a lui non si vende niente, gli si dice
+  // quando tornano.
+  const rinnovoDaAspettare = !!diritto && !active && diritto.abbonamentoARitiri === true;
+  const ritiriInCassa = diritto?.ritiri ?? 0;
   const noAddress = !addresses || addresses.length === 0;
   const sofferenza = !aConsumo && (sub?.status === "past_due" || sub?.status === "unpaid");
 
@@ -101,7 +96,18 @@ export default async function PrenotaPage() {
           {/* Chi ha una fattura aperta non è un nuovo utente: dirgli «attiva un
               piano» quando paga da mesi è il modo più veloce per farlo scrivere
               all'assistenza. */}
-          {ritiriFiniti ? (
+          {rinnovoDaAspettare ? (
+            <section className="rounded-[18px] border border-line bg-white p-5">
+              <h2 className="font-display text-lg font-black text-navy">Hai usato tutti i ritiri che avevi</h2>
+              <p className="mt-2 text-sm font-medium text-muted">
+                Al prossimo rinnovo dell&apos;abbonamento te ne arrivano altri, e quelli che non usi restano: non
+                scadono. Se te ne serve uno adesso, scrivici e lo sistemiamo.
+              </p>
+              <a href="mailto:info@washloop.it" className="mt-5 inline-flex rounded-full border-2 border-navy/25 px-6 py-3 font-display text-sm font-extrabold text-navy hover:bg-navy/5">
+                Scrivici
+              </a>
+            </section>
+          ) : ritiriFiniti ? (
             /* Due strade, e tutt'e due sue: ricomprare lo stesso ritiro allo
                stesso prezzo, che è un gesto solo, oppure chiedere
                l'abbonamento — che non si compra da un bottone, perché il
@@ -109,7 +115,7 @@ export default async function PrenotaPage() {
             <section className="rounded-[18px] border border-line bg-white p-5">
               <h2 className="font-display text-lg font-black text-navy">Hai usato tutti i ritiri che hai comprato</h2>
               <p className="mt-2 text-sm font-medium text-muted">
-                Ne hai fatti {diritto!.gettoniAccreditati}. Puoi comprarne un altro allo stesso prezzo, oppure passare
+                Ne hai fatti {diritto!.ritiriAccreditati}. Puoi comprarne un altro allo stesso prezzo, oppure passare
                 all&apos;abbonamento: in quel caso il prezzo lo concordiamo insieme e ti scriviamo noi.
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
@@ -163,31 +169,8 @@ export default async function PrenotaPage() {
         <>
           {ritiriInCassa > 0 && (
             <section className="rounded-[18px] border border-line bg-white px-4 py-3 text-sm font-semibold text-navy">
-              {ritiriInCassa === 1 ? "Ti resta 1 ritiro comprato" : `Ti restano ${ritiriInCassa} ritiri comprati`}.
-              Non scadono: se ne consuma uno quando prenoti.
-            </section>
-          )}
-          {passaggi?.spettanti != null && (
-            <section
-              className={`rounded-[18px] border px-4 py-3 text-sm font-semibold ${
-                passaggi.residui === 0
-                  ? "border-[#C9881F]/35 bg-[#C9881F]/10 text-[#C9881F]"
-                  : "border-line bg-white text-navy"
-              }`}
-            >
-              {passaggi.residui === 0 ? (
-                <>
-                  Hai usato tutti i {passaggi.spettanti} passaggi di questo periodo
-                  {passaggi.scadeIl ? `, che finisce il ${fmtGiorno(passaggi.scadeIl)}` : ""}. Questo ritiro lo paga
-                  uno dei ritiri che hai comprato a parte.
-                </>
-              ) : (
-                <>
-                  {passaggi.residui === 1 ? "Ti resta 1 passaggio" : `Ti restano ${passaggi.residui} passaggi`} di{" "}
-                  {passaggi.spettanti}
-                  {passaggi.scadeIl ? `, da usare entro il ${fmtGiorno(passaggi.scadeIl)}` : ""}.
-                </>
-              )}
+              {ritiriInCassa === 1 ? "Ti resta 1 ritiro" : `Ti restano ${ritiriInCassa} ritiri`}. Non scadono: se ne
+              consuma uno quando prenoti, e se annulli te lo restituiamo.
             </section>
           )}
           <BookFlow addresses={addresses!} slots={slots ?? []} deliverySlots={deliverySlots} turnaroundHours={turnaroundHours} categories={categories} />

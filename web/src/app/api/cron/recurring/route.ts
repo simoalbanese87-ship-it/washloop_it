@@ -68,8 +68,8 @@ export async function GET(req: Request) {
     let created = 0;
     let skippedFull = 0;
     const turnaroundCache = new Map<string, number>();
-    // Gettoni ancora spendibili stanotte, cliente per cliente.
-    const gettoniCache = new Map<string, number>();
+    // Ritiri comprati ancora spendibili stanotte, cliente per cliente.
+    const ritiriCache = new Map<string, number>();
 
     // I giorni della settimana che cadono davvero nella finestra guardata.
     // Serve per non gridare al guasto quando non c'è niente che non va: una
@@ -130,11 +130,11 @@ export async function GET(req: Request) {
           ? oreDiLavorazione({ tipoServizio: prof?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours })
           : 0;
         turnaroundCache.set(rec.customer_id, turnaround);
-        // Quanti gettoni può ancora bruciare questo giro. Si tiene il conto a
-        // parte perché dentro una sola notte lo stesso cliente può avere più
-        // fasce buone, e il saldo letto all'inizio non si accorgerebbe dei
-        // ritiri appena creati.
-        gettoniCache.set(rec.customer_id, diritto.consumaGettone ? diritto.gettoni ?? 0 : 0);
+        // Quanti ritiri comprati può ancora spendere questo giro. Si tiene il
+        // conto a parte perché dentro una sola notte lo stesso cliente può
+        // avere più fasce buone, e il saldo letto all'inizio non si
+        // accorgerebbe degli ordini appena creati.
+        ritiriCache.set(rec.customer_id, diritto.consumaRitiro ? diritto.ritiri ?? 0 : 0);
       }
       // 0 = non ha diritto al servizio: niente generazione.
       if (turnaround === 0) continue;
@@ -209,10 +209,10 @@ export async function GET(req: Request) {
         }
 
         const destinazione = await destinazioneDi(rec.customer_id, slot.laundry_id, slot.servizio ?? null);
-        // Un ritiro generato è un ritiro prenotato: se a pagarlo è un gettone,
-        // il gettone si consuma qui come se l'avesse aperto il cliente.
-        const gettoniRimasti = gettoniCache.get(rec.customer_id) ?? 0;
-        const conGettone = gettoniRimasti > 0;
+        // Un ritiro generato è un ritiro prenotato: se a pagarlo è uno di
+        // quelli comprati, si consuma qui come se l'avesse aperto il cliente.
+        const ritiriRimasti = ritiriCache.get(rec.customer_id) ?? 0;
+        const conRitiro = ritiriRimasti > 0;
         const { data: ins, error } = await sb.from("orders").insert({
           customer_id: rec.customer_id,
           address_id: rec.address_id,
@@ -225,11 +225,11 @@ export async function GET(req: Request) {
           notes: rec.notes,
           status: "pickup_scheduled",
           recurring_id: rec.id,
-          gettone_at: conGettone ? new Date().toISOString() : null,
+          ritiro_pagato_at: conRitiro ? new Date().toISOString() : null,
         }).select("id").single();
         if (!error && ins) {
           created++;
-          if (conGettone) gettoniCache.set(rec.customer_id, gettoniRimasti - 1);
+          if (conRitiro) ritiriCache.set(rec.customer_id, ritiriRimasti - 1);
           // I ritiri settimanali li genera questo cron di notte: senza questa
           // riga nascevano tutti senza rider, e il calendario del mattino era
           // rosso su ogni riga.

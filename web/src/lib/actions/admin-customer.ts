@@ -451,18 +451,18 @@ export async function createOneOffPaymentLink(
     customer_id: string;
     description?: string;
     amount_eur: string;
-    /** Quanti ritiri accredita questo pagamento. È la strada per vendere
-     *  ritiri senza aprire un abbonamento: il cliente paga una volta, si
-     *  ritrova N gettoni che non scadono, e non c'è nessuna disdetta da
-     *  programmare né nessun rinnovo da fermare. */
-    gettoni?: number | string;
+    /** Quanti ritiri accredita questo pagamento. È la strada per venderli
+     *  senza aprire un abbonamento: il cliente paga una volta, si ritrova N
+     *  ritiri che non scadono, e non c'è nessuna disdetta da programmare né
+     *  nessun rinnovo da fermare. */
+    ritiri?: number | string;
   },
 ): Promise<{ url: string } | { error: string }> {
   try {
     await requireAdmin();
     const customerId = String(input.customer_id ?? "");
     const amount = eurToCents(String(input.amount_eur ?? ""));
-    const gettoni = gettoniValidi(input.gettoni);
+    const ritiri = ritiriValidi(input.ritiri);
     const description = (input.description ?? "").trim() || "WashLoop · pagamento una tantum";
     if (!customerId) return { error: "Cliente mancante" };
     if (!Number.isFinite(amount) || amount <= 0) return { error: "Importo non valido" };
@@ -515,10 +515,10 @@ export async function createOneOffPaymentLink(
         supabase_user_id: customerId,
         una_tantum: "1",
         descrizione: description,
-        // Il webhook accredita i gettoni leggendo di qui: al momento del link
-        // la riga in `gettoni` non può esistere, perché i soldi non sono
-        // ancora entrati.
-        ...(gettoni ? { gettoni: String(gettoni) } : {}),
+        // Il webhook accredita i ritiri leggendo di qui: al momento del link
+        // la riga in `ritiri_comprati` non può esistere, perché i soldi non
+        // sono ancora entrati.
+        ...(ritiri ? { ritiri: String(ritiri) } : {}),
       },
     });
     if (!session.url) return { error: "Stripe non ha restituito un link" };
@@ -533,7 +533,7 @@ export async function createOneOffPaymentLink(
       expires_at: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
       created_by: me?.id ?? null,
       una_tantum: true,
-      gettoni,
+      ritiri,
     });
     revalidatePath(`/admin/abbonati/${customerId}`);
 
@@ -545,9 +545,9 @@ export async function createOneOffPaymentLink(
 
 /** Quanti ritiri vende un link, o `null` se non ne vende.
  *
- *  Un elenco corto e chiuso come le durate: questo numero diventa un credito
- *  che non scade, e un refuso qui è servizio regalato per sempre. */
-function gettoniValidi(v: unknown): number | null {
+ *  Un tetto basso di proposito: questo numero diventa servizio dovuto che non
+ *  scade, e un refuso qui è lavoro regalato per sempre. */
+function ritiriValidi(v: unknown): number | null {
   const n = typeof v === "string" ? Number(v.trim()) : typeof v === "number" ? v : NaN;
   if (!Number.isInteger(n) || n < 1 || n > 24) return null;
   return n;
@@ -696,91 +696,116 @@ export async function terminaProvaOra(formData: FormData) {
  *
  *  Il canone concordato si scrive anche in `custom_price_cents`: è il campo da
  *  cui il pannello legge il prezzo quando non è quello del piano di listino. */
-/** Quanti passaggi comprende l'abbonamento, dentro il periodo pagato.
+/** Quanti ritiri accredita ogni rinnovo dell'abbonamento.
  *
  *  «Due volte al mese» era un accordo che viveva in una chat: il sistema
  *  sapeva dire se uno poteva prenotare, non quante volte, e il saldo si faceva
  *  a mente contando gli ordini. Qui si scrive, e da lì in avanti lo stesso
- *  numero lo leggono il pannello e l'app del cliente.
+ *  numero lo leggono il pannello, l'app del cliente e il webhook che accredita
+ *  al rinnovo.
  *
- *  Vuoto rimette il comportamento di prima — nessun tetto, la cadenza la dà il
- *  calendario — che è quello di tutti gli abbonamenti già in corso. Zero no:
- *  un abbonamento con zero ritiri non esiste, è un campo compilato male, e
+ *  **Non è un tetto, è un rubinetto.** Fino al 30 ottobre questo numero era
+ *  `passaggi_per_ciclo` e valeva dentro il periodo pagato: quello che avanzava
+ *  scadeva, e una cliente che aveva pagato si sentiva dire «da usare entro il
+ *  14/11». Adesso ogni rinnovo accredita N ritiri che si sommano a quelli che
+ *  aveva e non scadono mai: un ritiro non usato è un lavoro che le dobbiamo
+ *  ancora, non un diritto scaduto.
+ *
+ *  Vuoto rimette il comportamento di prima — nessun numero, la cadenza la dà
+ *  il calendario — che è quello di quasi tutti gli abbonamenti in corso. Zero
+ *  no: un abbonamento con zero ritiri non esiste, è un campo compilato male, e
  *  lasciandolo passare il cliente leggerebbe «li hai usati tutti» il giorno
  *  dopo aver pagato. */
-export async function impostaPassaggi(formData: FormData) {
+export async function impostaRitiriPerRinnovo(formData: FormData) {
   await requireAdmin();
   const subId = String(formData.get("sub_id") ?? "");
   const customerId = String(formData.get("customer_id") ?? "");
-  const grezzo = String(formData.get("passaggi") ?? "").trim();
+  const grezzo = String(formData.get("ritiri") ?? "").trim();
   if (!subId || !customerId) throw new Error("Parametri mancanti");
   const backTo = `/admin/abbonati/${customerId}`;
 
-  let passaggi: number | null = null;
+  let ritiri: number | null = null;
   if (grezzo !== "") {
     const n = Number(grezzo);
     if (!Number.isInteger(n) || n <= 0) {
       redirect(
         `${backTo}?warn=${encodeURIComponent(
-          "I passaggi sono un numero intero maggiore di zero. Lascia vuoto per togliere il tetto: la cadenza torna a darla il calendario.",
+          "I ritiri sono un numero intero maggiore di zero. Lascia vuoto per toglierli: la cadenza torna a darla il calendario.",
         )}`,
       );
     }
-    passaggi = n;
+    ritiri = n;
   }
 
   const svc = createServiceClient();
-  const { error } = await svc.from("subscriptions").update({ passaggi_per_ciclo: passaggi }).eq("id", subId);
+  const { error } = await svc.from("subscriptions").update({ ritiri_per_rinnovo: ritiri }).eq("id", subId);
   if (error) redirect(`${backTo}?warn=${encodeURIComponent(error.message)}`);
+
+  // Il primo giro si accredita subito, se no il cliente resta fermo fino al
+  // rinnovo: ha pagato il mese in corso, e dirgli «da lunedì» perché abbiamo
+  // scritto un numero oggi sarebbe un disservizio nato in pannello.
+  // `pagamento_ref` rende l'avvio unico per quell'abbonamento: cambiare il
+  // numero due volte non regala due mesi.
+  if (ritiri != null) {
+    await svc.from("ritiri_comprati").upsert(
+      {
+        customer_id: customerId,
+        quanti_ritiri: ritiri,
+        motivo: "rinnovo",
+        subscription_id: subId,
+        pagamento_ref: `avvio:${subId}`,
+        note: "Primo accredito, sul periodo già pagato",
+      },
+      { onConflict: "pagamento_ref", ignoreDuplicates: true },
+    );
+  }
 
   revalidatePath(backTo);
   revalidatePath("/app");
   redirect(
     `${backTo}?ok=${encodeURIComponent(
-      passaggi == null
-        ? "Tetto tolto: questo abbonamento non conta più i passaggi."
-        : `Passaggi compresi: ${passaggi} per periodo.`,
+      ritiri == null
+        ? "Tolto: questo abbonamento non accredita più ritiri."
+        : `${ritiri === 1 ? "Un ritiro" : `${ritiri} ritiri`} a ogni rinnovo. Si accreditano quando il rinnovo è pagato e non scadono.`,
     )}`,
   );
 }
 
-/** Fa scorrere nel ciclo in corso i passaggi non usati in quello prima.
+/** Accredita dei ritiri a mano, senza un pagamento.
  *
- *  Quello che avanza scade col ciclo: è la regola, e serve perché un credito
- *  che si accumula per sempre diventa, dopo tre mesi di pausa, un mese di
- *  servizio da regalare. L'eccezione la decide una persona — un cliente via per
- *  lavoro, una settimana saltata per colpa nostra — e questo bottone è
- *  l'eccezione.
- *
- *  Si scrive quanti, non «tutti quelli che avanzavano»: il numero lo guarda chi
- *  preme, sulla riga sopra, e così resta il suo. */
-export async function portaAvantiPassaggi(formData: FormData) {
-  await requireAdmin();
-  const subId = String(formData.get("sub_id") ?? "");
+ *  Serve quando il motivo non è una fattura: un ritiro saltato per colpa
+ *  nostra, un recupero concordato al telefono, la migrazione di un accordo
+ *  vecchio. Resta scritto il motivo e chi l'ha fatto, perché un saldo che
+ *  cresce senza spiegazione è peggio di un saldo sbagliato. */
+export async function accreditaRitiri(formData: FormData) {
+  const me = await requireAdmin();
   const customerId = String(formData.get("customer_id") ?? "");
   const grezzo = String(formData.get("quanti") ?? "").trim();
-  if (!subId || !customerId) throw new Error("Parametri mancanti");
+  const nota = String(formData.get("nota") ?? "").trim();
+  if (!customerId) throw new Error("Cliente mancante");
   const backTo = `/admin/abbonati/${customerId}`;
 
   const n = Number(grezzo);
-  if (!Number.isInteger(n) || n < 0) {
-    redirect(`${backTo}?warn=${encodeURIComponent("Scrivi quanti passaggi far scorrere: un numero intero, zero per azzerare.")}`);
+  if (!Number.isInteger(n) || n <= 0) {
+    redirect(`${backTo}?warn=${encodeURIComponent("Scrivi quanti ritiri accreditare: un numero intero maggiore di zero.")}`);
+  }
+  if (!nota) {
+    redirect(`${backTo}?warn=${encodeURIComponent("Scrivi il motivo: un saldo che cresce senza spiegazione non si capisce più fra un mese.")}`);
   }
 
   const svc = createServiceClient();
-  const { error } = await svc
-    .from("subscriptions")
-    .update({ passaggi_riportati: n, passaggi_riportati_at: new Date().toISOString() })
-    .eq("id", subId);
+  const { error } = await svc.from("ritiri_comprati").insert({
+    customer_id: customerId,
+    quanti_ritiri: n,
+    motivo: "regalo",
+    note: nota,
+    created_by: me?.id ?? null,
+  });
   if (error) redirect(`${backTo}?warn=${encodeURIComponent(error.message)}`);
 
   revalidatePath(backTo);
   revalidatePath("/app");
-  redirect(
-    `${backTo}?ok=${encodeURIComponent(
-      n === 0 ? "Nessun passaggio riportato in questo periodo." : `${n === 1 ? "Un passaggio riportato" : `${n} passaggi riportati`} in questo periodo.`,
-    )}`,
-  );
+  redirect(`${backTo}?ok=${encodeURIComponent(`${n === 1 ? "Un ritiro accreditato" : `${n} ritiri accreditati`}.`)}`);
 }
 
 export async function cambiaCanone(formData: FormData) {
@@ -1387,9 +1412,9 @@ export async function adminCreatePickup(formData: FormData) {
   // nessuno: al telefono si prenota anche quello che l'app non lascerebbe fare,
   // ed è il motivo per cui questa azione esiste.
   const destinazione = await destinazioneOrdine(svc, customerId, slot!.laundry_id, slot!.servizio);
-  // Non blocca, ma conta: se questo ritiro lo paga un gettone comprato, il
-  // gettone si consuma anche quando a prenotare è l'operatore al telefono.
-  // Senza, il ritiro fatto per telefono sarebbe un ritiro gratis.
+  // Non blocca, ma conta: se questo lavoro lo paga uno dei ritiri comprati, si
+  // consuma anche quando a prenotare è l'operatore al telefono. Senza, il
+  // ritiro fatto per telefono sarebbe un ritiro regalato.
   const diritto = await dirittoAPrenotare(customerId, svc);
 
   const { data, error } = await svc
@@ -1406,7 +1431,7 @@ export async function adminCreatePickup(formData: FormData) {
       eta_ready_at: eta,
       bags,
       notes: notes || null,
-      gettone_at: diritto.consumaGettone ? new Date().toISOString() : null,
+      ritiro_pagato_at: diritto.consumaRitiro ? new Date().toISOString() : null,
       staff_notes: "Ritiro creato dall'amministrazione per conto del cliente.",
       status: "pickup_scheduled" as OrderStatus,
     })

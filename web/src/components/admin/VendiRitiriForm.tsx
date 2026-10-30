@@ -12,8 +12,8 @@ const eur = (c: number) => (c / 100).toLocaleString("it-IT", { style: "currency"
  *  È la risposta a «1 settimana = 1 sacco, e poi si chiude». Un abbonamento di
  *  una settimana non si chiude: dentro i sette giorni il cliente prenota quante
  *  volte vuole, perché il cancello guardava solo se l'abbonamento era vivo. E
- *  un gettone che non scade dentro un abbonamento a termine non esiste: al
- *  settimo giorno Stripe chiude tutto e il ritiro pagato resta lì.
+ *  un ritiro che non scade dentro un abbonamento a termine non esiste: al
+ *  settimo giorno Stripe chiude tutto e il lavoro pagato resta lì.
  *
  *  Quindi qui non nasce nessun abbonamento. Il cliente paga una volta, si
  *  ritrova N ritiri che non scadono, e ne consuma uno ogni volta che prenota.
@@ -53,7 +53,7 @@ export function VendiRitiriForm({
       // deve dire quanti ritiri sta comprando, perché è quello che compra.
       description: `WashLoop · ${n === 1 ? "1 ritiro" : `${n} ritiri`}${servizioNome ? ` · ${servizioNome}` : ""}`,
       amount_eur: (totaleCents / 100).toFixed(2),
-      gettoni: n,
+      ritiri: n,
     });
     setLoading(false);
     if ("error" in res) setError(res.error);

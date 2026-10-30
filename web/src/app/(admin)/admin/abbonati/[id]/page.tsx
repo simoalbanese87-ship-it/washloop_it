@@ -4,10 +4,9 @@ import { Card, PageTitle } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
-import { saldoPassaggi } from "@/lib/passaggi-abbonamento";
-import { saldoGettoni } from "@/lib/saldo-gettoni";
+import { saldoRitiri } from "@/lib/saldo-ritiri";
 import { saldoCapiCompresi, type SaldoCapiCompresi } from "@/lib/capi-compresi-abbonamento";
-import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco, aggiornaIndirizzo, cambiaCanone, impostaPassaggi, portaAvantiPassaggi } from "@/lib/actions/admin-customer";
+import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco, aggiornaIndirizzo, cambiaCanone, impostaRitiriPerRinnovo, accreditaRitiri } from "@/lib/actions/admin-customer";
 import { ricalcolaCompiti } from "@/lib/actions/compiti";
 import { compitiDaFare } from "@/lib/compiti-sync";
 import { AnnullaAddebito } from "@/components/admin/AnnullaAddebito";
@@ -50,7 +49,7 @@ type ServizioSacco = { id: string; codice: string; nome: string; price_cli_cents
 type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null; tags_delivered_at: string | null; borsa_consegnata_at: string | null; materiale_rientrato_at: string | null;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
-type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; cancel_at: string | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; passaggi_per_ciclo: number | null; passaggi_riportati: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null; servizio: string | null } | null };
+type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; cancel_at: string | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; passaggi_per_ciclo: number | null; passaggi_riportati: number | null; ritiri_per_rinnovo: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null; servizio: string | null } | null };
 type Addr = {
   id: string; label: string | null; street: string; cap: string | null; civico: string | null;
   intercom: string | null; floor: string | null; notes: string | null;
@@ -103,7 +102,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   const [{ data: userRes }, { data: sub }, { data: addresses }, { data: orders }, { data: charges }, { data: recurring }, { data: slots }, { data: proposte }, { data: servizi }] = await Promise.all([
     svc.auth.admin.getUserById(id),
-    svc.from("subscriptions").select("id, status, cancel_at_period_end, cancel_at, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, passaggi_per_ciclo, passaggi_riportati, termina_dopo_settimane, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week, servizio)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
+    svc.from("subscriptions").select("id, status, cancel_at_period_end, cancel_at, dunning_step, dunning_last_sent_at, last_failed_invoice_url, last_failed_at, plan_id, custom_price_cents, manual, current_period_end, activated_at, stripe_subscription_id, stripe_customer_id, bags_per_week, passaggi_per_ciclo, passaggi_riportati, ritiri_per_rinnovo, termina_dopo_settimane, prova_fine_at, prova_tetto_at, prova_ordine_id, plans(name, price_month_cents, bags_per_week, servizio)").eq("user_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
     svc.from("addresses").select("id, label, street, cap, civico, intercom, floor, notes, access_mode, access_note, concierge_hours, lat, lng").eq("user_id", id).returns<Addr[]>(),
     svc.from("orders").select("id, status, created_at, bags, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)").eq("customer_id", id).order("created_at", { ascending: false }).limit(20).returns<Ord[]>(),
     svc.from("customer_charges").select("id, description, amount_cents, kind, status, stripe_ref, created_at, categoria").eq("customer_id", id).order("created_at", { ascending: false }).returns<Charge[]>(),
@@ -124,20 +123,16 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   // Verità da Stripe + tutto quello che la scheda non mostrava: incassi
   // registrati (ricevute e fatture) e capi fuori abbonamento.
-  const [stripeSub, incassi, capi, { data: nota }, passaggi, gettoni, capiCompresi, { data: listinoCapi }, { data: categorieCapi }, { data: pianiAttivi }] = await Promise.all([
+  const [stripeSub, incassi, capi, { data: nota }, ritiri, capiCompresi, { data: listinoCapi }, { data: categorieCapi }, { data: pianiAttivi }] = await Promise.all([
     sub?.stripe_subscription_id ? abbonamentoDaStripe(sub.stripe_subscription_id, sub.stripe_customer_id ?? null) : Promise.resolve(null),
     incassiCliente(id),
     capiSpecialiCliente(id),
     // Le note interne stanno in una tabella a parte, con RLS solo admin: su
     // `profiles` sarebbero leggibili dal cliente stesso.
     svc.from("customer_notes").select("note").eq("customer_id", id).maybeSingle<{ note: string }>(),
-    // Il saldo dei passaggi: quanti ne comprende il periodo pagato e quanti ne
-    // ha già usati. La conta sta in `passaggi-abbonamento.ts`, col service
-    // client, perché è un numero che si dice a un cliente che paga.
-    saldoPassaggi(svc, id),
-    // I ritiri comprati e non ancora usati. Non appartengono a un ciclo e non
-    // scadono: sono una cassa a parte rispetto ai passaggi dell'abbonamento.
-    saldoGettoni(svc, id),
+    // I ritiri che gli restano: comprati in blocco o arrivati con i rinnovi.
+    // Non appartengono a un ciclo e non scadono.
+    saldoRitiri(svc, id),
     // I capi compresi nel canone e quanti ne restano in questo periodo. Stessa
     // regola dei passaggi: service client, perché decide cosa si addebita.
     saldoCapiCompresi(svc, id),
@@ -804,65 +799,40 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                         : "non impostato: vale il ritiro settimanale, e il costo previsto non lo conta"}
                   </span>
                 </form>
-                {/* I passaggi del periodo pagato. «Due volte al mese» era un
-                    accordo che viveva in una chat: qui diventa un numero, e lo
-                    stesso numero lo legge il cliente in app. Vuoto = nessun
-                    tetto, che è il caso di quasi tutti. */}
-                <form action={impostaPassaggi} className="flex flex-wrap items-baseline gap-2">
+                {/* Quanti ritiri dà ogni rinnovo. «Due volte al mese» era un
+                    accordo che viveva in una chat: qui diventa un numero, e i
+                    ritiri che ne nascono **non scadono** — quelli non usati
+                    restano e si sommano al mese dopo. Vuoto = abbonamento a
+                    cadenza libera, che è il caso di quasi tutti. */}
+                <form action={impostaRitiriPerRinnovo} className="flex flex-wrap items-baseline gap-2">
                   <input type="hidden" name="sub_id" value={sub.id} />
                   <input type="hidden" name="customer_id" value={id} />
-                  <label htmlFor="passaggi-ciclo">Passaggi compresi:</label>
+                  <label htmlFor="ritiri-rinnovo">Ritiri a ogni rinnovo:</label>
                   <input
-                    id="passaggi-ciclo"
-                    name="passaggi"
+                    id="ritiri-rinnovo"
+                    name="ritiri"
                     type="number"
                     min={1}
                     max={31}
                     step={1}
-                    defaultValue={sub.passaggi_per_ciclo ?? ""}
+                    defaultValue={sub.ritiri_per_rinnovo ?? ""}
                     placeholder="—"
                     className="w-16 rounded-[10px] border border-line bg-white px-2 py-1 text-sm font-bold text-navy outline-none focus:border-blue"
                   />
                   <button type="submit" className="font-display text-sm font-bold text-blue hover:underline">Salva</button>
                   <span className="text-xs">
-                    {passaggi?.spettanti != null
-                      ? passaggi.frase
-                      : "nessun tetto: la cadenza la dà il calendario delle fasce"}
+                    {sub.ritiri_per_rinnovo != null
+                      ? "si accreditano a ogni rinnovo pagato e non scadono"
+                      : "nessun numero: la cadenza la dà il calendario delle fasce"}
                   </span>
                 </form>
-                {/* Il credito che scorre. Quello che avanza scade col periodo —
-                    se no tre mesi di pausa diventano un mese da regalare — e
-                    l'eccezione la decide una persona, qui. */}
-                {sub.passaggi_per_ciclo != null && (
-                  <form action={portaAvantiPassaggi} className="flex flex-wrap items-baseline gap-2">
-                    <input type="hidden" name="sub_id" value={sub.id} />
-                    <input type="hidden" name="customer_id" value={id} />
-                    <label htmlFor="passaggi-riportati">Riportati dal periodo prima:</label>
-                    <input
-                      id="passaggi-riportati"
-                      name="quanti"
-                      type="number"
-                      min={0}
-                      max={31}
-                      step={1}
-                      defaultValue={sub.passaggi_riportati ?? 0}
-                      className="w-16 rounded-[10px] border border-line bg-white px-2 py-1 text-sm font-bold text-navy outline-none focus:border-blue"
-                    />
-                    <button type="submit" className="font-display text-sm font-bold text-blue hover:underline">Salva</button>
-                    <span className="text-xs">
-                      {(sub.passaggi_riportati ?? 0) > 0
-                        ? "si sommano ai passaggi di questo periodo"
-                        : "quello che avanza scade: qui lo fai scorrere"}
-                    </span>
-                  </form>
-                )}
                 {/* I capi che il canone comprende.
                     «4 maglioni e 1 cappotto» era un accordo in chat, e alla
                     consegna il pannello proponeva di addebitare tutto. Qui
                     diventa un numero: il cliente paga la differenza, la
                     lavanderia resta pagata per intero — il lavoro l'ha fatto.
-                    Si consumano nel periodo pagato e quello che avanza scade,
-                    come i passaggi. */}
+                    Si consumano nel periodo pagato e quello che avanza scade:
+                    sono legati al canone del mese, non ai ritiri. */}
                 <CapiCompresiAbbonamento
                   subId={sub.id}
                   clienteId={id}
@@ -870,12 +840,6 @@ export default async function CustomerPage({ params, searchParams }: { params: P
                   listino={listinoCapi}
                   categorie={categorieCapi}
                 />
-                {passaggi && passaggi.oltre > 0 && (
-                  <div className="rounded-[10px] bg-[#C9881F]/10 px-3 py-2 text-xs font-semibold text-[#C9881F]">
-                    {passaggi.oltre === 1 ? "Un passaggio" : `${passaggi.oltre} passaggi`} oltre il piano in questo
-                    periodo. Non è stato addebitato niente: decidete voi se farlo pagare o lasciarlo correre.
-                  </div>
-                )}
                 {/* La prova: quando scatta l'addebito, a quale ritiro è
                     agganciata e qual è il muro. Il muro serve a chi risponde al
                     telefono per capire perché una data è quella e non un'altra. */}
@@ -1195,21 +1159,44 @@ export default async function CustomerPage({ params, searchParams }: { params: P
           {/* I ritiri comprati. Sta prima dei due moduli di pagamento perché è
               la prima cosa da sapere prima di mandargli un altro link: se ne
               ha ancora in cassa, un secondo acquisto non gli serve. */}
-          {gettoni.accreditati > 0 && (
+          {(ritiri.accreditati > 0 || sub?.ritiri_per_rinnovo != null) && (
             <div className="mt-4 rounded-[16px] border border-line bg-white p-4">
               <h3 className="font-display text-sm font-extrabold text-navy">Ritiri in cassa</h3>
               <div className="mt-2 flex items-baseline gap-3">
-                <div className="font-display text-3xl font-black text-navy">{gettoni.residui}</div>
+                <div className="font-display text-3xl font-black text-navy">{ritiri.residui}</div>
                 <div className="text-xs font-bold text-muted">
-                  {gettoni.usati} {gettoni.usati === 1 ? "usato" : "usati"} su {gettoni.accreditati} comprati
+                  {ritiri.usati} {ritiri.usati === 1 ? "usato" : "usati"} su {ritiri.accreditati} avuti
                 </div>
               </div>
               <p className="mt-1 text-[11px] font-medium text-muted">
                 Non scadono. Se ne consuma uno a ogni ritiro prenotato; un ritiro annullato lo restituisce.
               </p>
-              {gettoni.oltre > 0 && (
+              {/* Accreditare a mano: non ogni ritiro dovuto nasce da una
+                  fattura. Il motivo è obbligatorio — un saldo che cresce senza
+                  spiegazione non si capisce più fra un mese. */}
+              <form action={accreditaRitiri} className="mt-3 flex flex-wrap items-baseline gap-2 border-t border-line pt-3 text-xs font-bold text-muted">
+                <input type="hidden" name="customer_id" value={id} />
+                <label htmlFor="ritiri-a-mano">Accredita:</label>
+                <input
+                  id="ritiri-a-mano"
+                  name="quanti"
+                  type="number"
+                  min={1}
+                  max={24}
+                  step={1}
+                  defaultValue={1}
+                  className="w-14 rounded-[10px] border border-line bg-white px-2 py-1 text-sm font-bold text-navy outline-none focus:border-blue"
+                />
+                <input
+                  name="nota"
+                  placeholder="perché (obbligatorio)"
+                  className="min-w-[160px] flex-1 rounded-[10px] border border-line bg-white px-2 py-1 text-sm font-medium text-navy outline-none focus:border-blue"
+                />
+                <button type="submit" className="font-display text-sm font-bold text-blue hover:underline">Aggiungi</button>
+              </form>
+              {ritiri.oltre > 0 && (
                 <p className="mt-2 rounded-[10px] bg-[#C0392B]/8 px-2.5 py-1.5 text-[11px] font-semibold text-[#C0392B]">
-                  {gettoni.oltre === 1 ? "Un ritiro" : `${gettoni.oltre} ritiri`} oltre quelli comprati: è una
+                  {ritiri.oltre === 1 ? "Un ritiro" : `${ritiri.oltre} ritiri`} oltre quelli che aveva: è una
                   telefonata da fare, non un errore da correggere qui.
                 </p>
               )}

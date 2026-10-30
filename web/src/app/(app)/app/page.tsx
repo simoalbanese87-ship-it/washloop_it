@@ -17,7 +17,6 @@ type RecRow = {
   pending_weekday: number | null; pending_hhmm: string | null; pending_bags: number | null; pending_delivery_hhmm: string | null;
 };
 
-import { saldoPassaggi } from "@/lib/passaggi-abbonamento";
 import { dirittoAPrenotare } from "@/lib/diritto-a-prenotare";
 import { puoPrenotare } from "@/lib/puo-prenotare";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -57,24 +56,19 @@ export default async function Home() {
 
   const recurring = recs ?? [];
 
-  // Quanti passaggi gli restano in questo periodo. Col service client, come in
-  // pannello: è un numero che decide cosa può fare un cliente che paga, e una
-  // lettura negata da RLS torna vuota invece di dare errore. `null` per chi non
-  // ha un tetto, cioè quasi tutti: a loro non si dice niente di nuovo.
+  // Quanti ritiri gli restano. Col service client, come in pannello: è un
+  // numero che decide cosa può fare un cliente che paga, e una lettura negata
+  // da RLS torna vuota invece di dare errore.
   const io2 = (await supabase.auth.getUser()).data.user?.id ?? null;
   const svcIo = createServiceClient();
-  // I ritiri comprati stanno accanto ai passaggi e non dentro: sono una cassa
-  // a parte, non appartengono a un periodo e non scadono.
-  const [passaggi, diritto] = await Promise.all([
-    io2 ? saldoPassaggi(svcIo, io2) : Promise.resolve(null),
-    io2 ? dirittoAPrenotare(io2, svcIo) : Promise.resolve(null),
-  ]);
+  const diritto = io2 ? await dirittoAPrenotare(io2, svcIo) : null;
 
   const aConsumo = io?.a_consumo === true;
   const active = diritto
     ? puoPrenotare(diritto)
     : sub?.status === "active" || sub?.status === "trialing" || aConsumo;
-  const ritiriInCassa = diritto?.gettoni ?? 0;
+  const ritiri = diritto?.ritiri ?? 0;
+  const aRitiri = diritto?.abbonamentoARitiri === true;
   // Fattura rimasta aperta: è diverso da «non si è mai abbonato», e va detto
   // con parole diverse. Prima entrambi finivano nello stesso ramo e a chi
   // pagava da mesi comparive «Attiva un abbonamento».
@@ -293,33 +287,30 @@ export default async function Home() {
         <span className="flex-none font-display text-lg font-black text-navy/30">→</span>
       </Link>
 
-      {/* Uso del mese.
-          Si mostra anche a chi **non** ha un piano di listino, se ha un numero
-          di passaggi concordato: sono proprio gli accordi su misura — Marta
-          Savino, due volte al mese — a non avere un `plans`, ed erano gli unici
-          a non vedere da nessuna parte quanti passaggi gli restassero. */}
-      {/* I ritiri comprati. Riquadro suo perché non è un piano: non ha un
-          periodo, non ha un rinnovo, e l'unica cosa che conta è quanti ne
-          restano. */}
-      {ritiriInCassa > 0 && (
+      {/* I ritiri che gli restano. Riquadro suo perché non è un piano: non ha
+          un periodo e non ha una scadenza. Vale sia per chi li ha comprati in
+          blocco sia per chi li riceve a ogni rinnovo — è la stessa cassa. */}
+      {(ritiri > 0 || aRitiri) && (
         <section className="rounded-[22px] border border-line bg-white p-5">
           <div className="flex items-center justify-between">
             <div>
               <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-blue">I tuoi ritiri</div>
-              <div className="mt-1 font-display text-xl font-black text-navy">Comprati, non a canone</div>
+              <div className="mt-1 font-display text-xl font-black text-navy">{aRitiri ? "Compresi nell'abbonamento" : "Comprati, non a canone"}</div>
             </div>
             <div className="text-right">
-              <div className="font-display text-2xl font-black text-navy">{ritiriInCassa}</div>
-              <div className="text-[11px] font-bold text-muted">{ritiriInCassa === 1 ? "ritiro che resta" : "ritiri che restano"}</div>
+              <div className="font-display text-2xl font-black text-navy">{ritiri}</div>
+              <div className="text-[11px] font-bold text-muted">{ritiri === 1 ? "ritiro che resta" : "ritiri che restano"}</div>
             </div>
           </div>
           <p className="mt-3 border-t border-line pt-3 text-xs font-semibold text-muted">
-            Non scadono: se ne consuma uno ogni volta che prenoti, e un ritiro annullato te lo restituisce.
+            {aRitiri
+              ? "Non scadono: quelli che non usi restano e si sommano a quelli del rinnovo."
+              : "Non scadono: se ne consuma uno ogni volta che prenoti, e un ritiro annullato te lo restituisce."}
           </p>
         </section>
       )}
 
-      {active && (sub?.plans || passaggi?.spettanti != null) && (
+      {active && sub?.plans && !aRitiri && (
         <section className="rounded-[22px] border border-line bg-white p-5">
           <div className="flex items-center justify-between">
             <div>
@@ -327,34 +318,10 @@ export default async function Home() {
               <div className="mt-1 font-display text-xl font-black text-navy">{sub?.plans?.name ?? "Su misura"}</div>
             </div>
             <div className="text-right">
-              {/* Con un tetto di passaggi il numero che conta è quanti ne
-                  restano, non quanti sacchi comprende il piano: è la cosa che
-                  il cliente chiedeva al telefono. Senza tetto resta il numero
-                  di prima, che per lui non è cambiato. */}
-              {passaggi?.residui != null ? (
-                <>
-                  <div className="font-display text-2xl font-black text-navy">{passaggi.residui}</div>
-                  <div className="text-[11px] font-bold text-muted">
-                    {passaggi.residui === 1 ? "passaggio che resta" : "passaggi che restano"}
-                  </div>
-                </>
-              ) : sub?.plans ? (
-                <>
-                  <div className="font-display text-2xl font-black text-navy">{sub.plans.bags_per_week}</div>
-                  <div className="text-[11px] font-bold text-muted">{sub.plans.bags_per_week === 1 ? "sacco/sett" : "sacchi/sett"}</div>
-                </>
-              ) : null}
+              <div className="font-display text-2xl font-black text-navy">{sub.plans.bags_per_week}</div>
+              <div className="text-[11px] font-bold text-muted">{sub.plans.bags_per_week === 1 ? "sacco/sett" : "sacchi/sett"}</div>
             </div>
           </div>
-          {passaggi?.spettanti != null && (
-            <p className="mt-3 border-t border-line pt-3 text-xs font-semibold text-muted">
-              {passaggi.oltre > 0
-                ? `Hai usato ${passaggi.usati} passaggi su ${passaggi.spettanti} compresi. Gli altri te li conteggiamo a parte: ti scriviamo noi.`
-                : passaggi.residui === 0
-                  ? `Li hai usati tutti in questo periodo${passaggi.scadeIl ? `, che finisce il ${fmtDate(passaggi.scadeIl)}` : ""}. Se te ne serve un altro, scrivici.`
-                  : `${passaggi.usati} usati su ${passaggi.spettanti}${passaggi.scadeIl ? ` · da usare entro il ${fmtDate(passaggi.scadeIl)}` : ""}`}
-            </p>
-          )}
           {rigaQuando(etichetta, fmtDate) && (
             <p className="mt-3 border-t border-line pt-3 text-xs font-semibold text-muted">{rigaQuando(etichetta, fmtDate)}</p>
           )}

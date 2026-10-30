@@ -5,7 +5,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { stripe, siteUrl } from "@/lib/stripe";
 import { creaClienteStripe, allineaClienteStripe } from "@/lib/stripe-customer";
 import { METODI_CHECKOUT } from "@/lib/metodi-accettati";
-import { prezzoUltimoRitiro } from "@/lib/saldo-gettoni";
+import { prezzoUltimoRitiro } from "@/lib/saldo-ritiri";
 import { notifyVuoleAbbonamento } from "@/lib/notify";
 
 /** Il cliente ricompra un ritiro da solo.
@@ -63,7 +63,7 @@ export async function compraUnRitiro() {
     payment_intent_data: { setup_future_usage: "off_session" },
     success_url: `${siteUrl()}/app/prenota?ritiro=comprato`,
     cancel_url: `${siteUrl()}/app?pagamento=annullato`,
-    metadata: { supabase_user_id: user.id, una_tantum: "1", descrizione, gettoni: "1" },
+    metadata: { supabase_user_id: user.id, una_tantum: "1", descrizione, ritiri: "1" },
   });
   if (!session.url) throw new Error("Stripe non ha restituito un link");
 
@@ -78,7 +78,7 @@ export async function compraUnRitiro() {
     checkout_session_id: session.id,
     expires_at: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
     una_tantum: true,
-    gettoni: 1,
+    ritiri: 1,
   });
 
   redirect(session.url);

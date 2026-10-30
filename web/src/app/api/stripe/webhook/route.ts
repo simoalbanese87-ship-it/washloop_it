@@ -111,20 +111,25 @@ export async function POST(request: NextRequest) {
 
         // Ha comprato dei ritiri: si accreditano adesso, che è quando i soldi
         // sono arrivati. Nessun abbonamento da allineare, nessuna disdetta da
-        // programmare — un gettone non finisce, si consuma.
+        // programmare — un ritiro comprato non finisce, si consuma.
         //
         // `pagamento_ref` è unico: questo webhook viene ritentato, e senza quel
         // vincolo un retry regalerebbe i ritiri una seconda volta. L'`upsert`
         // con `ignoreDuplicates` rende il secondo passaggio un niente invece
         // che un errore che fa ritentare per sempre.
-        const quantiGettoni = Number.parseInt(session.metadata?.gettoni ?? "", 10);
-        if (userId && Number.isInteger(quantiGettoni) && quantiGettoni > 0) {
+        //
+        // Si legge anche `gettoni`: è il nome che aveva questa chiave per
+        // mezza giornata, il 30 ottobre, e un link già mandato a un cliente
+        // continua a viaggiare con quello. Chi ha il link in mano deve poter
+        // pagare.
+        const quantiRitiri = Number.parseInt(session.metadata?.ritiri ?? session.metadata?.gettoni ?? "", 10);
+        if (userId && Number.isInteger(quantiRitiri) && quantiRitiri > 0) {
           await db
-            .from("gettoni")
+            .from("ritiri_comprati")
             .upsert(
               {
                 customer_id: userId,
-                quanti: quantiGettoni,
+                quanti_ritiri: quantiRitiri,
                 motivo: "acquisto",
                 pagamento_ref: rif,
                 note: session.metadata?.descrizione ?? null,
@@ -171,6 +176,40 @@ export async function POST(request: NextRequest) {
         // qualsiasi altra cosa — se il banner "pagamento non riuscito" resta in
         // app a chi ha appena pagato, è peggio che non averlo mai messo.
         after(() => chiudiRecupero(inv.customer));
+
+        // Il rinnovo accredita i ritiri dell'abbonamento, se ne ha un numero.
+        //
+        // Sta qui e non su `customer.subscription.updated` perché il diritto
+        // nasce dal **pagamento**, non dal cambio di stato: un rinnovo fallito
+        // non deve regalare ritiri. L'identificativo della fattura rende
+        // l'accredito unico, quindi un retry del webhook non raddoppia il mese.
+        //
+        // I ritiri non scadono: quelli non usati restano e si sommano. È la
+        // differenza con il tetto di `passaggi_per_ciclo`, che li faceva
+        // scadere col ciclo — una cliente che aveva pagato si sentiva dire
+        // «da usare entro il 14/11».
+        after(async () => {
+          const { data: abb } = await db
+            .from("subscriptions")
+            .select("id, user_id, ritiri_per_rinnovo")
+            .eq("stripe_customer_id", inv.customer)
+            .not("ritiri_per_rinnovo", "is", null)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle<{ id: string; user_id: string | null; ritiri_per_rinnovo: number | null }>();
+          if (!abb?.user_id || !abb.ritiri_per_rinnovo) return;
+          await db.from("ritiri_comprati").upsert(
+            {
+              customer_id: abb.user_id,
+              quanti_ritiri: abb.ritiri_per_rinnovo,
+              motivo: "rinnovo",
+              subscription_id: abb.id,
+              pagamento_ref: inv.id,
+              note: inv.number ? `Rinnovo · fattura ${inv.number}` : "Rinnovo dell'abbonamento",
+            },
+            { onConflict: "pagamento_ref", ignoreDuplicates: true },
+          );
+        });
 
         // I capi extra su questa fattura: qui, e solo qui, si sa che i soldi
         // sono arrivati. `charged_at` diceva «l'ho chiesto a Stripe», che è
