@@ -162,19 +162,41 @@ export async function GET(req: Request) {
 
         const eta = new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString();
 
-        // La fascia di riconsegna preferita, onorata quando esiste davvero:
-        // primo slot delivery all'ora richiesta e non prima che il bucato sia
-        // pronto. Se non c'è, l'ordine nasce senza e la programma l'ops — come
-        // succedeva a tutti prima che la scelta esistesse.
+        // La fascia di riconsegna: prima quella preferita, poi comunque una.
+        //
+        // Prima qui c'era solo il primo passaggio — «l'ora che il cliente ha
+        // chiesto» — e se quell'ora non esisteva fra le fasce aperte l'ordine
+        // nasceva senza riconsegna. È esattamente quello che è successo: le
+        // ricorrenze erano state salvate con `delivery_hhmm = 09:00`, poi il
+        // calendario generale ha spostato le riconsegne al venerdì pomeriggio,
+        // e da allora **ogni** ordine generato di notte è nato senza fascia.
+        // Nessuno se n'era accorto perché l'ordine si crea lo stesso: manca
+        // solo la metà che riguarda il ritorno.
+        //
+        // La regola adesso: l'ora chiesta se c'è, altrimenti la prima fascia
+        // utile dopo che il bucato è pronto. Una riconsegna che si può
+        // spostare è meglio di una riconsegna che non c'è — e l'ops se la
+        // ritrova già in calendario invece che in un elenco di eccezioni.
+        const liberaDopoEta = (deliverySlots ?? [])
+          .filter((d) => d.starts_at >= eta)
+          .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+
+        const haPosto = async (d: { id: string; capacity: number | null }) => {
+          if (d.capacity == null) return true;
+          const { count } = await sb
+            .from("orders")
+            .select("id", { count: "exact", head: true })
+            .eq("delivery_slot_id", d.id)
+            .neq("status", "cancelled");
+          return (count ?? 0) < d.capacity;
+        };
+
         let deliverySlotId: string | null = null;
-        if (rec.delivery_hhmm) {
-          const candidato = (deliverySlots ?? [])
-            .filter((d) => romeHHMM(d.starts_at) === rec.delivery_hhmm && d.starts_at >= eta)
-            .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0];
-          if (candidato) {
-            const { count } = await sb.from("orders").select("id", { count: "exact", head: true }).eq("delivery_slot_id", candidato.id).neq("status", "cancelled");
-            if (candidato.capacity == null || (count ?? 0) < candidato.capacity) deliverySlotId = candidato.id;
-          }
+        const preferite = rec.delivery_hhmm
+          ? liberaDopoEta.filter((d) => romeHHMM(d.starts_at) === rec.delivery_hhmm)
+          : [];
+        for (const d of [...preferite, ...liberaDopoEta]) {
+          if (await haPosto(d)) { deliverySlotId = d.id; break; }
         }
 
         const destinazione = await destinazioneDi(rec.customer_id, slot.laundry_id, slot.servizio ?? null);
