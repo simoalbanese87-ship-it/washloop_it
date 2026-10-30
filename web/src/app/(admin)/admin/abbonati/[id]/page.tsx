@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
 import { saldoPassaggi } from "@/lib/passaggi-abbonamento";
+import { saldoGettoni } from "@/lib/saldo-gettoni";
 import { saldoCapiCompresi, type SaldoCapiCompresi } from "@/lib/capi-compresi-abbonamento";
 import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco, aggiornaIndirizzo, cambiaCanone, impostaPassaggi, portaAvantiPassaggi } from "@/lib/actions/admin-customer";
 import { ricalcolaCompiti } from "@/lib/actions/compiti";
@@ -28,6 +29,7 @@ import { etichettaAbbonamento, rigaQuando } from "@/lib/stato-abbonamento";
 import { cadenzaTesto } from "@/lib/durata-abbonamento";
 import { saldoAddebiti } from "@/lib/addebiti-netti";
 import { OneOffPaymentForm } from "@/components/admin/OneOffPaymentForm";
+import { VendiRitiriForm } from "@/components/admin/VendiRitiriForm";
 import { CardSetupForm } from "@/components/admin/CardSetupForm";
 import { ATTESA_GIORNI } from "@/lib/dunning-piano";
 
@@ -122,7 +124,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
 
   // Verità da Stripe + tutto quello che la scheda non mostrava: incassi
   // registrati (ricevute e fatture) e capi fuori abbonamento.
-  const [stripeSub, incassi, capi, { data: nota }, passaggi, capiCompresi, { data: listinoCapi }, { data: categorieCapi }, { data: pianiAttivi }] = await Promise.all([
+  const [stripeSub, incassi, capi, { data: nota }, passaggi, gettoni, capiCompresi, { data: listinoCapi }, { data: categorieCapi }, { data: pianiAttivi }] = await Promise.all([
     sub?.stripe_subscription_id ? abbonamentoDaStripe(sub.stripe_subscription_id, sub.stripe_customer_id ?? null) : Promise.resolve(null),
     incassiCliente(id),
     capiSpecialiCliente(id),
@@ -133,6 +135,9 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     // ha già usati. La conta sta in `passaggi-abbonamento.ts`, col service
     // client, perché è un numero che si dice a un cliente che paga.
     saldoPassaggi(svc, id),
+    // I ritiri comprati e non ancora usati. Non appartengono a un ciclo e non
+    // scadono: sono una cassa a parte rispetto ai passaggi dell'abbonamento.
+    saldoGettoni(svc, id),
     // I capi compresi nel canone e quanti ne restano in questo periodo. Stessa
     // regola dei passaggi: service client, perché decide cosa si addebita.
     saldoCapiCompresi(svc, id),
@@ -1187,6 +1192,36 @@ export default async function CustomerPage({ params, searchParams }: { params: P
               `active` sarebbe finito sotto «Proponi un piano diverso», cioè
               nascosto proprio a chi non ha ancora niente — che è il caso per
               cui serve. */}
+          {/* I ritiri comprati. Sta prima dei due moduli di pagamento perché è
+              la prima cosa da sapere prima di mandargli un altro link: se ne
+              ha ancora in cassa, un secondo acquisto non gli serve. */}
+          {gettoni.accreditati > 0 && (
+            <div className="mt-4 rounded-[16px] border border-line bg-white p-4">
+              <h3 className="font-display text-sm font-extrabold text-navy">Ritiri in cassa</h3>
+              <div className="mt-2 flex items-baseline gap-3">
+                <div className="font-display text-3xl font-black text-navy">{gettoni.residui}</div>
+                <div className="text-xs font-bold text-muted">
+                  {gettoni.usati} {gettoni.usati === 1 ? "usato" : "usati"} su {gettoni.accreditati} comprati
+                </div>
+              </div>
+              <p className="mt-1 text-[11px] font-medium text-muted">
+                Non scadono. Se ne consuma uno a ogni ritiro prenotato; un ritiro annullato lo restituisce.
+              </p>
+              {gettoni.oltre > 0 && (
+                <p className="mt-2 rounded-[10px] bg-[#C0392B]/8 px-2.5 py-1.5 text-[11px] font-semibold text-[#C0392B]">
+                  {gettoni.oltre === 1 ? "Un ritiro" : `${gettoni.oltre} ritiri`} oltre quelli comprati: è una
+                  telefonata da fare, non un errore da correggere qui.
+                </p>
+              )}
+            </div>
+          )}
+
+          <VendiRitiriForm
+            customerId={id}
+            prezzoListinoCents={servizioDelCliente?.price_cli_cents ?? prezzoStiro}
+            servizioNome={servizioDelCliente?.nome ?? null}
+          />
+
           <OneOffPaymentForm customerId={id} />
 
           <CardSetupForm customerId={id} />

@@ -108,6 +108,30 @@ export async function POST(request: NextRequest) {
             dataIso: new Date().toISOString(),
           });
         }
+
+        // Ha comprato dei ritiri: si accreditano adesso, che è quando i soldi
+        // sono arrivati. Nessun abbonamento da allineare, nessuna disdetta da
+        // programmare — un gettone non finisce, si consuma.
+        //
+        // `pagamento_ref` è unico: questo webhook viene ritentato, e senza quel
+        // vincolo un retry regalerebbe i ritiri una seconda volta. L'`upsert`
+        // con `ignoreDuplicates` rende il secondo passaggio un niente invece
+        // che un errore che fa ritentare per sempre.
+        const quantiGettoni = Number.parseInt(session.metadata?.gettoni ?? "", 10);
+        if (userId && Number.isInteger(quantiGettoni) && quantiGettoni > 0) {
+          await db
+            .from("gettoni")
+            .upsert(
+              {
+                customer_id: userId,
+                quanti: quantiGettoni,
+                motivo: "acquisto",
+                pagamento_ref: rif,
+                note: session.metadata?.descrizione ?? null,
+              },
+              { onConflict: "pagamento_ref", ignoreDuplicates: true },
+            );
+        }
       }
       break;
     }

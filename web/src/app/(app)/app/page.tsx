@@ -18,6 +18,8 @@ type RecRow = {
 };
 
 import { saldoPassaggi } from "@/lib/passaggi-abbonamento";
+import { dirittoAPrenotare } from "@/lib/diritto-a-prenotare";
+import { puoPrenotare } from "@/lib/puo-prenotare";
 import { createServiceClient } from "@/lib/supabase/server";
 
 const ACTIVE_ORDER: OrderStatus[] = ["pickup_scheduled", "picked_up", "at_laundry", "washing", "ready", "delivery_scheduled", "out_for_delivery"];
@@ -60,10 +62,19 @@ export default async function Home() {
   // lettura negata da RLS torna vuota invece di dare errore. `null` per chi non
   // ha un tetto, cioè quasi tutti: a loro non si dice niente di nuovo.
   const io2 = (await supabase.auth.getUser()).data.user?.id ?? null;
-  const passaggi = io2 ? await saldoPassaggi(createServiceClient(), io2) : null;
+  const svcIo = createServiceClient();
+  // I ritiri comprati stanno accanto ai passaggi e non dentro: sono una cassa
+  // a parte, non appartengono a un periodo e non scadono.
+  const [passaggi, diritto] = await Promise.all([
+    io2 ? saldoPassaggi(svcIo, io2) : Promise.resolve(null),
+    io2 ? dirittoAPrenotare(io2, svcIo) : Promise.resolve(null),
+  ]);
 
   const aConsumo = io?.a_consumo === true;
-  const active = sub?.status === "active" || sub?.status === "trialing" || aConsumo;
+  const active = diritto
+    ? puoPrenotare(diritto)
+    : sub?.status === "active" || sub?.status === "trialing" || aConsumo;
+  const ritiriInCassa = diritto?.gettoni ?? 0;
   // Fattura rimasta aperta: è diverso da «non si è mai abbonato», e va detto
   // con parole diverse. Prima entrambi finivano nello stesso ramo e a chi
   // pagava da mesi comparive «Attiva un abbonamento».
@@ -287,6 +298,27 @@ export default async function Home() {
           di passaggi concordato: sono proprio gli accordi su misura — Marta
           Savino, due volte al mese — a non avere un `plans`, ed erano gli unici
           a non vedere da nessuna parte quanti passaggi gli restassero. */}
+      {/* I ritiri comprati. Riquadro suo perché non è un piano: non ha un
+          periodo, non ha un rinnovo, e l'unica cosa che conta è quanti ne
+          restano. */}
+      {ritiriInCassa > 0 && (
+        <section className="rounded-[22px] border border-line bg-white p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-display text-[11px] font-extrabold uppercase tracking-[0.16em] text-blue">I tuoi ritiri</div>
+              <div className="mt-1 font-display text-xl font-black text-navy">Comprati, non a canone</div>
+            </div>
+            <div className="text-right">
+              <div className="font-display text-2xl font-black text-navy">{ritiriInCassa}</div>
+              <div className="text-[11px] font-bold text-muted">{ritiriInCassa === 1 ? "ritiro che resta" : "ritiri che restano"}</div>
+            </div>
+          </div>
+          <p className="mt-3 border-t border-line pt-3 text-xs font-semibold text-muted">
+            Non scadono: se ne consuma uno ogni volta che prenoti, e un ritiro annullato te lo restituisce.
+          </p>
+        </section>
+      )}
+
       {active && (sub?.plans || passaggi?.spettanti != null) && (
         <section className="rounded-[22px] border border-line bg-white p-5">
           <div className="flex items-center justify-between">

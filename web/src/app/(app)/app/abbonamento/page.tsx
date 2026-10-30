@@ -14,11 +14,11 @@ type Sub = { status: string; current_period_end: string | null; cancel_at_period
 
 const euro = (cents: number) => (cents / 100).toLocaleString("it-IT");
 
-export default async function AbbonamentoPage({ searchParams }: { searchParams: Promise<{ need?: string }> }) {
+export default async function AbbonamentoPage({ searchParams }: { searchParams: Promise<{ need?: string; richiesta?: string; ritiro?: string }> }) {
   const supabase = await createClient();
   const now = new Date();
   const monthStartIso = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
-  const [{ need }, { data: plans }, { data: sub }, { data: monthOrders }, { data: monthSpecials }, { data: camicia }] = await Promise.all([
+  const [{ need, richiesta, ritiro }, { data: plans }, { data: sub }, { data: monthOrders }, { data: monthSpecials }, { data: camicia }] = await Promise.all([
     searchParams,
     supabase.from("plans").select("id, code, name, price_month_cents, pickups_per_week, turnaround_hours").eq("active", true).order("sort").returns<Plan[]>(),
     supabase.from("subscriptions").select("status, current_period_end, cancel_at_period_end, cancel_at, plan_id, last_failed_invoice_url, prova_fine_at, prova_ordine_id, termina_dopo_settimane, custom_price_cents, plans(name)").order("created_at", { ascending: false }).limit(1).maybeSingle<Sub>(),
@@ -93,6 +93,24 @@ export default async function AbbonamentoPage({ searchParams }: { searchParams: 
         <h1 className="mt-1.5 font-display text-[26px] font-black tracking-[-0.02em] text-navy">Il tuo piano</h1>
         <p className="mt-1.5 text-sm font-medium text-muted">Cambia, metti in pausa o disdici quando vuoi.</p>
       </div>
+
+      {/* È appena arrivata la sua richiesta: glielo si dice, se no preme due
+          volte e a noi arrivano due mail per la stessa persona. */}
+      {richiesta && (
+        <div className="rounded-[18px] border border-blue/30 bg-blue/5 p-4 text-sm font-semibold text-navy">
+          Richiesta ricevuta: ti scriviamo noi con il prezzo dell&apos;abbonamento. Intanto, se ti serve un ritiro
+          subito, puoi comprarne uno singolo.
+        </div>
+      )}
+
+      {/* Ha premuto «compra un altro ritiro» ma non c'è un prezzo già
+          concordato con lui: inventarne uno sarebbe peggio che chiederlo. */}
+      {ritiro === "prezzo" && (
+        <div className="rounded-[18px] border border-[#C9881F]/35 bg-[#C9881F]/10 p-4 text-sm font-semibold text-[#C9881F]">
+          Per comprare un ritiro singolo serve un prezzo concordato: scrivici a{" "}
+          <a href="mailto:info@washloop.it" className="underline">info@washloop.it</a> e te lo mandiamo subito.
+        </div>
+      )}
 
       {need && !active && !sofferenza && (
         <div className="rounded-[18px] border border-blue/30 bg-blue/5 p-4 text-sm font-semibold text-navy">

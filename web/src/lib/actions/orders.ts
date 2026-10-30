@@ -26,6 +26,7 @@ import { allineaProva } from "@/lib/prova-stripe";
 import { oreDiLavorazione, ORE_LAVANDERIA } from "@/lib/turnaround";
 import { portaAPronto } from "@/lib/pronto";
 import { puoPrenotare, perchePuoNonPrenotare } from "@/lib/puo-prenotare";
+import { dirittoAPrenotare } from "@/lib/diritto-a-prenotare";
 import { IN_LAVORAZIONE } from "@/lib/consegne-da-caricare";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
@@ -76,9 +77,13 @@ export async function createPickup(formData: FormData) {
   const destinazione = await destinazioneOrdine(createServiceClient(), user.id, slot?.laundry_id, slot?.servizio);
   const laundry_id = String(formData.get("laundry_id") ?? "") || destinazione.laundryId;
 
-  // Gate: serve un abbonamento attivo, oppure l'accordo a consumo (difesa lato
-  // server). La regola sta in `puo-prenotare.ts` con i suoi test.
-  if (!puoPrenotare({ statoAbbonamento: sub?.status, aConsumo: io?.a_consumo })) {
+  // Gate: serve un abbonamento attivo che copra il ritiro, un gettone comprato
+  // o l'accordo a consumo (difesa lato server). La regola sta in
+  // `puo-prenotare.ts` con i suoi test; le quantità le raccoglie
+  // `dirittoAPrenotare` col service client, perché un saldo letto con la
+  // sessione del cliente può tornare vuoto invece che negare.
+  const diritto = await dirittoAPrenotare(user.id);
+  if (!puoPrenotare(diritto)) {
     redirect("/app/abbonamento?need=1");
   }
   const turnaround = oreDiLavorazione({ tipoServizio: io?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours });
@@ -95,6 +100,10 @@ export async function createPickup(formData: FormData) {
       eta_ready_at: eta,
       bags: Number.isFinite(bags) && bags > 0 ? bags : 1,
       notes: String(formData.get("notes") ?? "") || null,
+      // Il gettone si consuma adesso, alla prenotazione, non alla riconsegna:
+      // è scritto sull'ordine e non in un contatore, così un annullo lo
+      // restituisce da solo.
+      gettone_at: diritto.consumaGettone ? new Date().toISOString() : null,
       status: "pickup_scheduled" as OrderStatus,
     })
     .select("id")
@@ -168,8 +177,9 @@ export async function bookPickup(input: {
   const destinazione = await destinazioneOrdine(createServiceClient(), user.id, slot?.laundry_id, slot?.servizio);
   const laundry_id = input.laundry_id || destinazione.laundryId;
 
-  if (!puoPrenotare({ statoAbbonamento: sub?.status, aConsumo: io?.a_consumo })) {
-    return { ok: false, error: perchePuoNonPrenotare({ statoAbbonamento: sub?.status, aConsumo: io?.a_consumo }) ?? "Serve un abbonamento attivo." };
+  const diritto = await dirittoAPrenotare(user.id);
+  if (!puoPrenotare(diritto)) {
+    return { ok: false, error: perchePuoNonPrenotare(diritto) ?? "Serve un abbonamento attivo." };
   }
   const turnaround = oreDiLavorazione({ tipoServizio: io?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours });
   const eta = slot?.starts_at ? new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString() : null;
@@ -186,6 +196,9 @@ export async function bookPickup(input: {
       eta_ready_at: eta,
       bags,
       notes: input.notes || null,
+      // Vedi `createPickup`: il gettone si consuma alla prenotazione, e sta
+      // scritto sull'ordine perché l'annullo lo restituisca da solo.
+      gettone_at: diritto.consumaGettone ? new Date().toISOString() : null,
       status: "pickup_scheduled" as OrderStatus,
     })
     .select("id")

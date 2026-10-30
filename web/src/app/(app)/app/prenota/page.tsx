@@ -5,6 +5,9 @@ import { hasActiveSubscription } from "@/lib/auth";
 import { pickupCounts, deliveryCounts } from "@/lib/slots";
 import { oreDiLavorazione } from "@/lib/turnaround";
 import { saldoPassaggi } from "@/lib/passaggi-abbonamento";
+import { dirittoAPrenotare } from "@/lib/diritto-a-prenotare";
+import { puoPrenotare } from "@/lib/puo-prenotare";
+import { compraUnRitiro, chiediAbbonamento } from "@/lib/actions/ritiri";
 import { fasciaPermessa } from "@/lib/servizio-fascia";
 import { isTipoServizio } from "@/lib/tipo-servizio";
 
@@ -66,13 +69,24 @@ export default async function PrenotaPage() {
   })).filter((c) => c.items.length > 0);
 
   const aConsumo = io?.a_consumo === true;
-  const active = abbonato || aConsumo;
 
-  // Il saldo dei passaggi, per chi ne ha un numero concordato. Si mostra e
-  // basta: chi li ha finiti prenota lo stesso — un passaggio in più è una
-  // conversazione, non un errore da bloccare al cliente che sta prenotando.
+  // Chi può prenotare, e con quale borsa. Dal 30 ottobre non è più un sì o un
+  // no: i ritiri comprati sono una quantità, e chi li ha finiti è fermo. La
+  // regola sta in `puo-prenotare.ts`, le quantità le raccoglie
+  // `dirittoAPrenotare` col service client — con la sessione del cliente un
+  // saldo può tornare vuoto invece che negare, e un vuoto per sbaglio
+  // bloccherebbe chi ha pagato.
   const userId = (await supabase.auth.getUser()).data.user?.id ?? null;
-  const passaggi = userId ? await saldoPassaggi(createServiceClient(), userId) : null;
+  const svc = createServiceClient();
+  const [passaggi, diritto] = await Promise.all([
+    userId ? saldoPassaggi(svc, userId) : Promise.resolve(null),
+    userId ? dirittoAPrenotare(userId, svc) : Promise.resolve(null),
+  ]);
+  const active = diritto ? puoPrenotare(diritto) : abbonato || aConsumo;
+  // Ha comprato dei ritiri e li ha finiti: non è uno che non ha mai cominciato,
+  // e non deve leggere la pagina di chi non ha mai cominciato.
+  const ritiriFiniti = !!diritto && !active && (diritto.gettoniAccreditati ?? 0) > 0;
+  const ritiriInCassa = diritto?.gettoni ?? 0;
   const noAddress = !addresses || addresses.length === 0;
   const sofferenza = !aConsumo && (sub?.status === "past_due" || sub?.status === "unpaid");
 
@@ -87,7 +101,31 @@ export default async function PrenotaPage() {
           {/* Chi ha una fattura aperta non è un nuovo utente: dirgli «attiva un
               piano» quando paga da mesi è il modo più veloce per farlo scrivere
               all'assistenza. */}
-          {sofferenza ? (
+          {ritiriFiniti ? (
+            /* Due strade, e tutt'e due sue: ricomprare lo stesso ritiro allo
+               stesso prezzo, che è un gesto solo, oppure chiedere
+               l'abbonamento — che non si compra da un bottone, perché il
+               canone si concorda. */
+            <section className="rounded-[18px] border border-line bg-white p-5">
+              <h2 className="font-display text-lg font-black text-navy">Hai usato tutti i ritiri che hai comprato</h2>
+              <p className="mt-2 text-sm font-medium text-muted">
+                Ne hai fatti {diritto!.gettoniAccreditati}. Puoi comprarne un altro allo stesso prezzo, oppure passare
+                all&apos;abbonamento: in quel caso il prezzo lo concordiamo insieme e ti scriviamo noi.
+              </p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <form action={compraUnRitiro}>
+                  <button type="submit" className="inline-flex rounded-full bg-gradient-to-br from-blue to-cyan px-6 py-3 font-display text-sm font-extrabold text-white shadow-[0_10px_24px_-10px_rgba(0,200,240,0.7)]">
+                    Compra un altro ritiro →
+                  </button>
+                </form>
+                <form action={chiediAbbonamento}>
+                  <button type="submit" className="inline-flex rounded-full border-2 border-navy/25 px-6 py-3 font-display text-sm font-extrabold text-navy hover:bg-navy/5">
+                    Voglio l&apos;abbonamento
+                  </button>
+                </form>
+              </div>
+            </section>
+          ) : sofferenza ? (
             <section className="rounded-[18px] border border-[#C0392B]/30 bg-[#C0392B]/5 p-5">
               <h2 className="font-display text-lg font-black text-navy">Pagamento non riuscito</h2>
               <p className="mt-2 text-sm font-medium text-muted">
@@ -123,6 +161,12 @@ export default async function PrenotaPage() {
         </>
       ) : (
         <>
+          {ritiriInCassa > 0 && (
+            <section className="rounded-[18px] border border-line bg-white px-4 py-3 text-sm font-semibold text-navy">
+              {ritiriInCassa === 1 ? "Ti resta 1 ritiro comprato" : `Ti restano ${ritiriInCassa} ritiri comprati`}.
+              Non scadono: se ne consuma uno quando prenoti.
+            </section>
+          )}
           {passaggi?.spettanti != null && (
             <section
               className={`rounded-[18px] border px-4 py-3 text-sm font-semibold ${
@@ -134,8 +178,8 @@ export default async function PrenotaPage() {
               {passaggi.residui === 0 ? (
                 <>
                   Hai usato tutti i {passaggi.spettanti} passaggi di questo periodo
-                  {passaggi.scadeIl ? `, che finisce il ${fmtGiorno(passaggi.scadeIl)}` : ""}. Puoi prenotare lo
-                  stesso: ti scriviamo noi per accordarci.
+                  {passaggi.scadeIl ? `, che finisce il ${fmtGiorno(passaggi.scadeIl)}` : ""}. Questo ritiro lo paga
+                  uno dei ritiri che hai comprato a parte.
                 </>
               ) : (
                 <>

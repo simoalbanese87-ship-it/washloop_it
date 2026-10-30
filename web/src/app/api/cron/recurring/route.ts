@@ -8,6 +8,7 @@ import { assegnaRiderIniziale } from "@/lib/assegna-rider";
 import { allineaProva } from "@/lib/prova-stripe";
 import { oreDiLavorazione } from "@/lib/turnaround";
 import { puoPrenotare } from "@/lib/puo-prenotare";
+import { dirittoAPrenotare } from "@/lib/diritto-a-prenotare";
 import { eseguiCron } from "@/lib/cron-log";
 
 /** Cron giornaliero: genera gli ordini delle ricorrenze settimanali attive,
@@ -67,6 +68,8 @@ export async function GET(req: Request) {
     let created = 0;
     let skippedFull = 0;
     const turnaroundCache = new Map<string, number>();
+    // Gettoni ancora spendibili stanotte, cliente per cliente.
+    const gettoniCache = new Map<string, number>();
 
     // I giorni della settimana che cadono davvero nella finestra guardata.
     // Serve per non gridare al guasto quando non c'è niente che non va: una
@@ -108,7 +111,7 @@ export async function GET(req: Request) {
       // posto.
       let turnaround = turnaroundCache.get(rec.customer_id) ?? -1;
       if (turnaround === -1) {
-        const [{ data: sub }, { data: prof }] = await Promise.all([
+        const [{ data: sub }, { data: prof }, diritto] = await Promise.all([
           sb
             .from("subscriptions")
             .select("status, plans(turnaround_hours)")
@@ -121,11 +124,17 @@ export async function GET(req: Request) {
             .select("tipo_servizio, a_consumo")
             .eq("id", rec.customer_id)
             .maybeSingle<{ tipo_servizio: string | null; a_consumo: boolean | null }>(),
+          dirittoAPrenotare(rec.customer_id, sb),
         ]);
-        turnaround = puoPrenotare({ statoAbbonamento: sub?.status, aConsumo: prof?.a_consumo })
+        turnaround = puoPrenotare(diritto)
           ? oreDiLavorazione({ tipoServizio: prof?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours })
           : 0;
         turnaroundCache.set(rec.customer_id, turnaround);
+        // Quanti gettoni può ancora bruciare questo giro. Si tiene il conto a
+        // parte perché dentro una sola notte lo stesso cliente può avere più
+        // fasce buone, e il saldo letto all'inizio non si accorgerebbe dei
+        // ritiri appena creati.
+        gettoniCache.set(rec.customer_id, diritto.consumaGettone ? diritto.gettoni ?? 0 : 0);
       }
       // 0 = non ha diritto al servizio: niente generazione.
       if (turnaround === 0) continue;
@@ -200,6 +209,10 @@ export async function GET(req: Request) {
         }
 
         const destinazione = await destinazioneDi(rec.customer_id, slot.laundry_id, slot.servizio ?? null);
+        // Un ritiro generato è un ritiro prenotato: se a pagarlo è un gettone,
+        // il gettone si consuma qui come se l'avesse aperto il cliente.
+        const gettoniRimasti = gettoniCache.get(rec.customer_id) ?? 0;
+        const conGettone = gettoniRimasti > 0;
         const { data: ins, error } = await sb.from("orders").insert({
           customer_id: rec.customer_id,
           address_id: rec.address_id,
@@ -212,9 +225,11 @@ export async function GET(req: Request) {
           notes: rec.notes,
           status: "pickup_scheduled",
           recurring_id: rec.id,
+          gettone_at: conGettone ? new Date().toISOString() : null,
         }).select("id").single();
         if (!error && ins) {
           created++;
+          if (conGettone) gettoniCache.set(rec.customer_id, gettoniRimasti - 1);
           // I ritiri settimanali li genera questo cron di notte: senza questa
           // riga nascevano tutti senza rider, e il calendario del mattino era
           // rosso su ogni riga.

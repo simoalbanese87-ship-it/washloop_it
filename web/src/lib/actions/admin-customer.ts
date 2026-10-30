@@ -8,6 +8,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { stripe, siteUrl } from "@/lib/stripe";
 import { syncSubscription } from "@/lib/subscription-sync";
 import { creaClienteStripe } from "@/lib/stripe-customer";
+import { dirittoAPrenotare } from "@/lib/diritto-a-prenotare";
 import { notifyNewCustomer, notifyRecurringChanged, notifyOrderStatus } from "@/lib/notify";
 import { zoneIdForCap } from "@/lib/zones";
 import { geocodeAddress } from "@/lib/geo";
@@ -446,12 +447,22 @@ export async function impostaServizioSacco(formData: FormData) {
  *  metterci in mezzo un secondo inserimento di carta è il modo più efficace di
  *  perderlo. */
 export async function createOneOffPaymentLink(
-  input: { customer_id: string; description?: string; amount_eur: string },
+  input: {
+    customer_id: string;
+    description?: string;
+    amount_eur: string;
+    /** Quanti ritiri accredita questo pagamento. È la strada per vendere
+     *  ritiri senza aprire un abbonamento: il cliente paga una volta, si
+     *  ritrova N gettoni che non scadono, e non c'è nessuna disdetta da
+     *  programmare né nessun rinnovo da fermare. */
+    gettoni?: number | string;
+  },
 ): Promise<{ url: string } | { error: string }> {
   try {
     await requireAdmin();
     const customerId = String(input.customer_id ?? "");
     const amount = eurToCents(String(input.amount_eur ?? ""));
+    const gettoni = gettoniValidi(input.gettoni);
     const description = (input.description ?? "").trim() || "WashLoop · pagamento una tantum";
     if (!customerId) return { error: "Cliente mancante" };
     if (!Number.isFinite(amount) || amount <= 0) return { error: "Importo non valido" };
@@ -500,7 +511,15 @@ export async function createOneOffPaymentLink(
       // `supabase_user_id` serve al webhook per registrare l'incasso sul
       // cliente giusto: senza, quei soldi arriverebbero su Stripe e non
       // comparirebbero in nessun registro.
-      metadata: { supabase_user_id: customerId, una_tantum: "1", descrizione: description },
+      metadata: {
+        supabase_user_id: customerId,
+        una_tantum: "1",
+        descrizione: description,
+        // Il webhook accredita i gettoni leggendo di qui: al momento del link
+        // la riga in `gettoni` non può esistere, perché i soldi non sono
+        // ancora entrati.
+        ...(gettoni ? { gettoni: String(gettoni) } : {}),
+      },
     });
     if (!session.url) return { error: "Stripe non ha restituito un link" };
 
@@ -514,6 +533,7 @@ export async function createOneOffPaymentLink(
       expires_at: session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null,
       created_by: me?.id ?? null,
       una_tantum: true,
+      gettoni,
     });
     revalidatePath(`/admin/abbonati/${customerId}`);
 
@@ -521,6 +541,16 @@ export async function createOneOffPaymentLink(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Errore nella creazione del link" };
   }
+}
+
+/** Quanti ritiri vende un link, o `null` se non ne vende.
+ *
+ *  Un elenco corto e chiuso come le durate: questo numero diventa un credito
+ *  che non scade, e un refuso qui è servizio regalato per sempre. */
+function gettoniValidi(v: unknown): number | null {
+  const n = typeof v === "string" ? Number(v.trim()) : typeof v === "number" ? v : NaN;
+  if (!Number.isInteger(n) || n < 1 || n > 24) return null;
+  return n;
 }
 
 /** Reinvia le credenziali a un cliente: genera una nuova password temporanea e
@@ -1357,6 +1387,10 @@ export async function adminCreatePickup(formData: FormData) {
   // nessuno: al telefono si prenota anche quello che l'app non lascerebbe fare,
   // ed è il motivo per cui questa azione esiste.
   const destinazione = await destinazioneOrdine(svc, customerId, slot!.laundry_id, slot!.servizio);
+  // Non blocca, ma conta: se questo ritiro lo paga un gettone comprato, il
+  // gettone si consuma anche quando a prenotare è l'operatore al telefono.
+  // Senza, il ritiro fatto per telefono sarebbe un ritiro gratis.
+  const diritto = await dirittoAPrenotare(customerId, svc);
 
   const { data, error } = await svc
     .from("orders")
@@ -1372,6 +1406,7 @@ export async function adminCreatePickup(formData: FormData) {
       eta_ready_at: eta,
       bags,
       notes: notes || null,
+      gettone_at: diritto.consumaGettone ? new Date().toISOString() : null,
       staff_notes: "Ritiro creato dall'amministrazione per conto del cliente.",
       status: "pickup_scheduled" as OrderStatus,
     })

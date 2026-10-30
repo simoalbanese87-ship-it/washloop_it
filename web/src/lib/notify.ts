@@ -655,3 +655,49 @@ export async function notificaExtraIncassati(orderId: string, totaleCents: numbe
     console.error(`[notify] notificaExtraIncassati(${orderId}) fallita:`, err);
   }
 }
+
+/** «Un cliente vuole passare all'abbonamento».
+ *
+ *  Arriva dal bottone che vede chi ha finito i ritiri comprati. Non è un
+ *  acquisto e non può esserlo: il canone si concorda al telefono, e un prezzo
+ *  deciso da un bottone sarebbe un prezzo deciso da nessuno. Quindi avvisa chi
+ *  quel prezzo lo fa, con il link alla scheda già pronto.
+ *
+ *  Stessa forma di `notifySegnalazioneOps`: email e push a tutti gli admin, e
+ *  se qualcosa va storto non si rompe il gesto del cliente. */
+export async function notifyVuoleAbbonamento(customerId: string) {
+  try {
+    const svc = createServiceClient();
+    const { data: prof } = await svc
+      .from("profiles")
+      .select("full_name, client_code, tipo_servizio")
+      .eq("id", customerId)
+      .maybeSingle<{ full_name: string | null; client_code: string | null; tipo_servizio: string | null }>();
+    const chi = prof?.full_name?.trim() || "Un cliente";
+    const codice = prof?.client_code ? ` (${prof.client_code})` : "";
+
+    const { data: admins } = await svc.from("profiles").select("id").eq("role", "admin");
+    for (const a of admins ?? []) {
+      const email = await userEmail(svc, a.id);
+      if (email) {
+        const html = renderEmail({
+          title: "Vuole passare all'abbonamento",
+          body:
+            `<strong>${chi}</strong>${codice} ha finito i ritiri comprati e ha chiesto l'abbonamento.` +
+            `<br/><br/>Il prezzo lo concordi tu: apri la sua scheda e mandagli il link.`,
+          emoji: "🙋",
+          preheader: `${chi} vuole l'abbonamento`,
+          cta: { label: "Apri la scheda", href: `${site()}/admin/abbonati/${customerId}` },
+        });
+        await sendMail({ to: email, subject: `Richiesta abbonamento · ${chi}`, html });
+      }
+      await sendPush(a.id, {
+        title: "Vuole l'abbonamento",
+        body: `${chi}${codice} ha finito i ritiri comprati.`,
+        url: `/admin/abbonati/${customerId}`,
+      });
+    }
+  } catch (err) {
+    console.error(`[notify] notifyVuoleAbbonamento(${customerId}) fallita:`, err);
+  }
+}
