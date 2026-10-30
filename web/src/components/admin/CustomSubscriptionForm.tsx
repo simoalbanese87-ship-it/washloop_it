@@ -28,6 +28,7 @@ export function CustomSubscriptionForm({
   const [amount, setAmount] = useState("");
   const [settimane, setSettimane] = useState("");
   const [sacchi, setSacchi] = useState("");
+  const [ritiri, setRitiri] = useState("");
   const [servizio, setServizio] = useState<string>(servizioAttuale ?? "");
   const [prova, setProva] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -55,6 +56,7 @@ export function CustomSubscriptionForm({
       prova_settimana: prova && !aTermine,
       settimane,
       sacchi,
+      ritiri,
       tipo_servizio: servizio,
     });
     setLoading(false);
@@ -128,6 +130,20 @@ export function CustomSubscriptionForm({
         <label className="text-xs font-bold text-muted">Sacchi a settimana (facoltativo)
           <input value={sacchi} onChange={(e) => setSacchi(e.target.value)} type="number" step="1" min="1" placeholder="es. 1" className={input} />
         </label>
+        {/* Quanti ritiri comprende il canone. È l'accordo «due volte al mese»
+            scritto come numero: i ritiri si accreditano a ogni rinnovo pagato,
+            **non scadono**, e quelli che avanzano si sommano al mese dopo.
+            Vuoto = abbonamento a cadenza libera, cioè quello di sempre. */}
+        {!aTermine && (
+          <label className="text-xs font-bold text-muted">Ritiri compresi al mese (facoltativo)
+            <input value={ritiri} onChange={(e) => setRitiri(e.target.value)} type="number" step="1" min="1" max="24" placeholder="es. 2" className={input} />
+            <span className="mt-1 block font-medium normal-case text-muted">
+              {ritiri
+                ? "Si accreditano a ogni rinnovo pagato e non scadono: quelli non usati si sommano al mese dopo."
+                : "Vuoto: prenota quando vuole, la cadenza la dà il calendario delle fasce."}
+            </span>
+          </label>
+        )}
         {/* La prima settimana gratuita si concede qui e solo qui: una persona
             alla volta, mentre si concorda il prezzo. Sul checkout del sito non
             c'è, di proposito. */}

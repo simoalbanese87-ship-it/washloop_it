@@ -179,6 +179,10 @@ export async function POST(request: NextRequest) {
 
         // Il rinnovo accredita i ritiri dell'abbonamento, se ne ha un numero.
         //
+        // Solo i rinnovi veri: il primo giro lo accredita `syncSubscription`,
+        // che è l'unico posto in cui si sa che l'abbonamento ha un numero
+        // prima ancora che la riga esista. Due strade, nessuna sovrapposizione.
+        //
         // Sta qui e non su `customer.subscription.updated` perché il diritto
         // nasce dal **pagamento**, non dal cambio di stato: un rinnovo fallito
         // non deve regalare ritiri. L'identificativo della fattura rende
@@ -189,6 +193,7 @@ export async function POST(request: NextRequest) {
         // scadere col ciclo — una cliente che aveva pagato si sentiva dire
         // «da usare entro il 14/11».
         after(async () => {
+          if (inv.billing_reason !== "subscription_cycle") return;
           const { data: abb } = await db
             .from("subscriptions")
             .select("id, user_id, ritiri_per_rinnovo")

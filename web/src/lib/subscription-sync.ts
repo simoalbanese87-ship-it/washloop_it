@@ -127,6 +127,42 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<{ ok: 
         .eq("stripe_subscription_id", sub.id)
         .is("bags_per_week", null);
     }
+    // Quanti ritiri dà ogni rinnovo, concordati al momento del link. Stessa
+    // regola dei sacchi: si scrive solo se la colonna è vuota, così una
+    // correzione fatta in pannello non viene cancellata dal prossimo evento.
+    //
+    // Subito dopo si accredita il **primo** giro, sul periodo appena pagato.
+    // Qui e non sulla fattura perché l'ordine degli eventi Stripe non è
+    // garantito: se `invoice.payment_succeeded` arrivasse prima di questa
+    // riga, l'abbonamento non avrebbe ancora un numero e il cliente avrebbe
+    // pagato senza ricevere niente. I rinnovi successivi li accredita la
+    // fattura, che ha `billing_reason = subscription_cycle`: le due strade non
+    // si sovrappongono mai, e `pagamento_ref` le rende comunque uniche.
+    const ritiriRinnovo = sub.metadata?.ritiri_per_rinnovo ? parseInt(sub.metadata.ritiri_per_rinnovo, 10) : NaN;
+    if (Number.isFinite(ritiriRinnovo) && ritiriRinnovo > 0) {
+      await db.from("subscriptions")
+        .update({ ritiri_per_rinnovo: ritiriRinnovo })
+        .eq("stripe_subscription_id", sub.id)
+        .is("ritiri_per_rinnovo", null);
+      const { data: riga } = await db
+        .from("subscriptions")
+        .select("id")
+        .eq("stripe_subscription_id", sub.id)
+        .maybeSingle<{ id: string }>();
+      if (riga && userId && sub.status !== "trialing") {
+        await db.from("ritiri_comprati").upsert(
+          {
+            customer_id: userId,
+            quanti_ritiri: ritiriRinnovo,
+            motivo: "rinnovo",
+            subscription_id: riga.id,
+            pagamento_ref: `avvio:${riga.id}`,
+            note: "Primo accredito dell'abbonamento",
+          },
+          { onConflict: "pagamento_ref", ignoreDuplicates: true },
+        );
+      }
+    }
     // L'abbonamento a termine si chiude da solo: un ciclo, e via. Stripe
     // Checkout non accetta `cancel_at` fra i dati della subscription, quindi
     // la disdetta si mette qui, subito dopo la nascita.

@@ -127,6 +127,12 @@ export async function createCustomSubscriptionLink(
      *  l'abbonamento nasceva senza dire che lavoro è e i ritiri partivano
      *  verso il posto sbagliato. */
     tipo_servizio?: string;
+    /** Quanti ritiri comprende il canone, accreditati a ogni rinnovo.
+     *
+     *  È l'accordo «due volte al mese» scritto come numero: senza, quel
+     *  patto vive in una chat e nessuno sa dire quante volte restano. Vuoto
+     *  = abbonamento a cadenza libera, cioè quello storico. */
+    ritiri?: number | string;
   },
 ): Promise<{ url: string } | { error: string }> {
   try {
@@ -134,6 +140,7 @@ export async function createCustomSubscriptionLink(
     const customerId = String(input.customer_id ?? "");
     const amount = eurToCents(String(input.amount_eur ?? ""));
     const conProva = input.prova_settimana === true;
+    const ritiriRinnovo = ritiriValidi(input.ritiri);
     // Durata a termine: un ciclo solo, lungo N settimane. `null` = mensile che
     // si rinnova, cioè il comportamento storico di questo link.
     const settimane = settimaneValide(input.settimane);
@@ -232,6 +239,7 @@ export async function createCustomSubscriptionLink(
           // durata mette anche la disdetta a fine ciclo.
           ...(settimane ? { termina_dopo_settimane: String(settimane) } : {}),
           ...(sacchi ? { bags_per_week: String(sacchi) } : {}),
+          ...(ritiriRinnovo ? { ritiri_per_rinnovo: String(ritiriRinnovo) } : {}),
         },
         ...(conProva
           ? {
@@ -286,6 +294,7 @@ export async function createCustomSubscriptionLink(
       // una prova di una settimana: la frase sarebbe falsa proprio dove conta.
       settimane,
       sacchi,
+      ritiri: ritiriRinnovo,
     });
     revalidatePath(`/admin/abbonati/${customerId}`);
 
