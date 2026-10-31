@@ -50,7 +50,7 @@ const FAQ_PAGINA = [
   },
   {
     q: "Chi lava i capi?",
-    a: "Lavanderie professionali partner, con cui lavoriamo a contratto. Non sono lavatrici domestiche e non sono un capannone anonimo: ogni sacco viaggia con il suo codice e sappiamo sempre in quale lavanderia si trova.",
+    a: "Laboratori professionali. Non sono lavatrici domestiche: ogni sacco viaggia con il suo codice e sappiamo sempre dove si trova e in che fase è.",
   },
   {
     q: "In quanto tempo rispondete?",

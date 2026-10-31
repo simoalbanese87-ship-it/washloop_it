@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isComeConosciuto } from "@/lib/come-conosciuto";
 import { messaggioAuth } from "@/lib/auth-messaggi";
 
 /** Registra una persona e la lascia con una sessione valida in mano.
@@ -72,9 +71,6 @@ export async function segnaConsenso(
   userId: string,
   quando: string,
   telefono?: string,
-  /** Come dice di averci conosciuto. Facoltativo: `null` quando non risponde,
-   *  che è diverso da «altro» e va tenuto distinto. */
-  comeConosciuto?: string | null,
 ): Promise<void> {
   try {
     // Il telefono si scrive esplicitamente sul profilo: nei metadati dell'utente
@@ -82,7 +78,6 @@ export async function segnaConsenso(
     // deve chiamare qualcuno sotto casa.
     const campi: Record<string, string> = { terms_accepted_at: quando };
     if (telefono?.trim()) campi.phone = telefono.trim();
-    if (isComeConosciuto(comeConosciuto)) campi.come_conosciuto = comeConosciuto;
     await supabase.from("profiles").update(campi).eq("id", userId);
   } catch (err) {
     console.error("[registrazione] consenso non scritto sul profilo:", err);
