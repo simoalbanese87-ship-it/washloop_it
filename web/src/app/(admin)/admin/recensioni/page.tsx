@@ -134,8 +134,8 @@ export default async function RecensioniPage() {
       <Card className="mb-4">
         <h2 className="font-display text-lg font-extrabold text-navy">Come funziona da sola</h2>
         <p className="mt-2 text-sm font-medium leading-relaxed text-muted">
-          L&apos;invito viaggia dentro l&apos;email «Consegnato», alla <strong>prima</strong> riconsegna e una volta
-          sola per persona. Il momento è quello giusto: il bucato è appena tornato e l&apos;impressione è fresca.
+          L&apos;invito viaggia dentro l&apos;email «Consegnato», alla <strong>prima</strong>{" "}
+          riconsegna e una volta sola per persona. Il momento è quello giusto: il bucato è appena tornato e l&apos;impressione è fresca.
           Chiederlo più tardi vuol dire chiederlo a freddo; chiederlo a ogni consegna vuol dire non ottenerlo più.
         </p>
         <p className="mt-3 text-sm font-medium leading-relaxed text-muted">
