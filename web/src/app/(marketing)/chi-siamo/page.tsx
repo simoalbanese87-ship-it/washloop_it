@@ -54,7 +54,7 @@ const FAQ_PAGINA = [
   },
   {
     q: "Dove vengono lavati i capi?",
-    a: "In laboratori professionali. Non sono lavatrici domestiche: sono posti attrezzati per lavorare volumi veri, con macchinari professionali. Ogni sacco viaggia con il suo codice e in ogni momento sappiamo dove si trova e in che fase è.",
+    a: "In laboratori professionali, attrezzati per lavorare volumi veri. Ogni sacco viaggia con il suo codice e in ogni momento sappiamo dove si trova e in che fase è.",
   },
   {
     q: "Avete un negozio?",
@@ -185,15 +185,14 @@ export default function ChiSiamoPage() {
               non la provincia. Una geografia è una traccia che un concorrente
               segue in dieci minuti, e quei rapporti restano nostri. Quello che
               il cliente ha diritto di sapere è un'altra cosa: che il lavoro lo
-              fa un professionista e non una lavatrice in cantina, e che il suo
-              sacco non si perde di vista un momento. */}
+              fa un professionista, e che il suo sacco non si perde di vista un
+              momento. */}
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             <div className="rounded-[24px] border border-line bg-ice p-7">
               <h3 className="font-display text-lg font-extrabold text-navy">Chi li lavora</h3>
               <p className="mt-3 text-sm font-medium leading-relaxed text-muted">
                 <strong className="text-navy">Laboratori professionali</strong>, attrezzati per volumi veri e con
-                macchinari da lavanderia. Non sono lavatrici domestiche, e non è un garage: è il
-                mestiere di qualcuno che lo fa tutto il giorno.
+                macchinari da lavanderia: è il mestiere di qualcuno che lo fa tutto il giorno.
               </p>
             </div>
             <div className="rounded-[24px] border border-line bg-ice p-7">

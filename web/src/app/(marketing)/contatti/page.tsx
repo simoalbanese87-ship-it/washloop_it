@@ -50,7 +50,7 @@ const FAQ_PAGINA = [
   },
   {
     q: "Chi lava i capi?",
-    a: "Laboratori professionali. Non sono lavatrici domestiche: ogni sacco viaggia con il suo codice e sappiamo sempre dove si trova e in che fase è.",
+    a: "Laboratori professionali. Ogni sacco viaggia con il suo codice e sappiamo sempre dove si trova e in che fase è.",
   },
   {
     q: "In quanto tempo rispondete?",
