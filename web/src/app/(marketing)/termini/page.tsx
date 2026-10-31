@@ -47,6 +47,8 @@ export default function TerminiPage() {
           <li>Ritiri e consegne avvengono negli <strong>slot orari resi disponibili da WashLoop</strong> e selezionati dal Cliente in fase di prenotazione.</li>
           <li>Il Cliente rende disponibile il bucato all'orario concordato e garantisce l'accesso per ritiro/consegna.</li>
           <li>I tempi di riconsegna ("pronto entro") sono indicativi e dipendono dal piano e dal carico di lavoro.</li>
+          <li>Il Cliente può <strong>spostare o annullare un ritiro dalla propria area personale fino a 24 ore prima</strong> dell'inizio della fascia prenotata. Entro le 24 ore il giro è già organizzato: la modifica resta possibile scrivendo a info@washloop.it, e WashLoop la esegue compatibilmente con il giro della giornata.</li>
+          <li>Il servizio comprende <strong>un ritiro a settimana</strong> (da lunedì a domenica). Ritiri aggiuntivi si concordano con WashLoop.</li>
         </ul>
       </LegalSection>
 

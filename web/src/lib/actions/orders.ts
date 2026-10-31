@@ -28,6 +28,7 @@ import { portaAPronto } from "@/lib/pronto";
 import { puoPrenotare, perchePuoNonPrenotare } from "@/lib/puo-prenotare";
 import { dirittoAPrenotare, ritiriPerSettimana } from "@/lib/diritto-a-prenotare";
 import { settimanaRoma, giornoEsteso } from "@/lib/settimana-roma";
+import { siPuoAncoraCambiare, scadenzaDetta } from "@/lib/finestra-ritiro";
 import { IN_LAVORAZIONE } from "@/lib/consegne-da-caricare";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
@@ -1190,9 +1191,15 @@ async function permessoSulRitiro(orderId: string) {
   const svc = createServiceClient();
   const { data: ordine } = await svc
     .from("orders")
-    .select("id, status, customer_id, pickup_slot_id")
+    .select("id, status, customer_id, pickup_slot_id, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)")
     .eq("id", orderId)
-    .maybeSingle<{ id: string; status: OrderStatus; customer_id: string | null; pickup_slot_id: string | null }>();
+    .maybeSingle<{
+      id: string;
+      status: OrderStatus;
+      customer_id: string | null;
+      pickup_slot_id: string | null;
+      pickup_slot: { starts_at: string } | { starts_at: string }[] | null;
+    }>();
   if (!ordine) return { ok: false as const, errore: "Ritiro non trovato." };
 
   const admin = me.role === "admin";
@@ -1203,6 +1210,20 @@ async function permessoSulRitiro(orderId: string) {
       errore: admin
         ? "Il sacco è già stato ritirato: da qui in poi si sposta la riconsegna, non il ritiro."
         : "Il sacco è già in viaggio: per cambiare qualcosa scrivici, facciamo noi.",
+    };
+  }
+
+  // Ventiquattro ore prima, e non un minuto dopo. Un buco aperto alle 07:50 su
+  // un giro delle 08:00 non lo riempie più nessuno: il furgone parte lo stesso
+  // e quel posto resta vuoto. **Vale solo per il cliente**: dal pannello si
+  // sposta e si disdice sempre, perché la regola serve a far arrivare la
+  // richiesta a una persona, non a dire di no.
+  const fascia = Array.isArray(ordine.pickup_slot) ? ordine.pickup_slot[0] : ordine.pickup_slot;
+  if (!admin && !siPuoAncoraCambiare(fascia?.starts_at)) {
+    const quando = scadenzaDetta(fascia?.starts_at);
+    return {
+      ok: false as const,
+      errore: `Mancano meno di 24 ore al ritiro: da qui in poi lo sistemiamo noi.${quando ? ` Si poteva cambiare fino a ${quando}.` : ""} Scrivici a info@washloop.it e facciamo subito.`,
     };
   }
   return { ok: true as const, admin, ordine };

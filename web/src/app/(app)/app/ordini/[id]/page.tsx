@@ -8,6 +8,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { signedProofUrl, statusIndex, ORDER_STATUS_LABEL, ITEM_STATUS_LABEL, type OrderStatus, type ItemStatus } from "@/lib/orders";
 import { fmtDate, fmtFull, eurCents } from "@/lib/format";
 import { spostaRitiro, spostaRiconsegna, clienteDisdiceRitiro } from "@/lib/actions/orders";
+import { siPuoAncoraCambiare, scadenzaDetta } from "@/lib/finestra-ritiro";
 import { deliveryCounts, pickupCounts } from "@/lib/slots";
 import { fasceProponibili } from "@/lib/riconsegna";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
@@ -131,9 +132,17 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
 
   const inProgress = statusIndex(order.status) < statusIndex("delivered");
 
-  // Finché il sacco è ancora a casa, la data si cambia e il ritiro si disdice.
-  // Prima non si poteva fare niente delle due, e l'unica strada era scriverci.
-  const modificabile = order.status === "requested" || order.status === "pickup_scheduled";
+  // Finché il sacco è ancora a casa **e mancano più di 24 ore**, la data si
+  // cambia e il ritiro si disdice. Dopo no: un buco aperto mezz'ora prima del
+  // giro non lo riempie più nessuno. La regola, con i test, sta in
+  // `finestra-ritiro.ts`; qui si decide solo cosa mostrare.
+  const inizioRitiro = unoSolo(order.pickup_slot)?.starts_at ?? null;
+  const dentroLaFinestra = siPuoAncoraCambiare(inizioRitiro);
+  const primaDelRitiro = order.status === "requested" || order.status === "pickup_scheduled";
+  const modificabile = primaDelRitiro && dentroLaFinestra;
+  // Passata la scadenza il cliente non resta davanti a una pagina muta: gli si
+  // dice che da lì in poi lo sistemiamo noi, e come chiedercelo.
+  const scadutaLaFinestra = primaDelRitiro && !dentroLaFinestra;
   let alternative: { id: string; starts_at: string; ends_at: string; liberi: number }[] = [];
   if (modificabile) {
     const { data: slots } = await supabase
@@ -259,12 +268,31 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
       {/* Cambiare idea è normale: si sposta la fascia o si disdice, finché il
           sacco è ancora a casa. Dopo il ritiro sparisce, perché il bucato è già
           in viaggio e non sarebbe più una promessa che possiamo mantenere. */}
+      {scadutaLaFinestra && (
+        <section className="rounded-[18px] border border-line bg-white p-5">
+          <div className="font-display text-sm font-extrabold text-navy">Ci siamo quasi</div>
+          <p className="mt-1 text-sm font-medium text-muted">
+            Mancano meno di 24 ore al ritiro, quindi da qui in poi lo sistemiamo noi: scrivici e lo spostiamo o lo
+            annulliamo subito.
+          </p>
+          <a
+            href="mailto:info@washloop.it"
+            className="mt-4 inline-flex rounded-full border-2 border-navy/25 px-5 py-2.5 font-display text-sm font-extrabold text-navy hover:bg-navy/5"
+          >
+            Scrivici
+          </a>
+        </section>
+      )}
+
       {modificabile && (
         <section className="rounded-[18px] border border-line bg-white p-5">
           <div className="font-display text-sm font-extrabold text-navy">Cambia o annulla il ritiro</div>
           {order.pickup_slot && (
             <p className="mt-1 text-sm font-medium text-muted">
               Adesso passiamo <span className="font-bold text-navy">{fmtFull(order.pickup_slot.starts_at)}</span>.
+              {scadenzaDetta(inizioRitiro) && (
+                <> Puoi cambiare fino a <span className="font-bold text-navy">{scadenzaDetta(inizioRitiro)}</span>.</>
+              )}
             </p>
           )}
 

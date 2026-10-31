@@ -537,7 +537,9 @@ export function BookFlow({
             <div><span className="font-display font-extrabold text-navy">Capi speciali</span><span className="mt-0.5 block font-medium text-muted">Mettili in un sacco separato: riconosciuti e addebitati in automatico secondo il listino.</span></div>
           </div>
 
-          <p className="text-center text-xs font-medium text-muted">Ritiro e consegna sono inclusi nel tuo abbonamento.</p>
+          <p className="text-center text-xs font-medium text-muted">
+            Puoi spostarlo o annullarlo fino a 24 ore prima. Dopo, scrivici e lo sistemiamo noi.
+          </p>
         </div>
       )}
 
