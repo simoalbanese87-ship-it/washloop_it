@@ -3,7 +3,11 @@ import { Logo } from "@/components/Logo";
 import { signOut } from "@/lib/actions/auth";
 import { NavLinks } from "./NavLinks";
 
-export type NavItem = { href: string; label: string };
+/** Un gruppo di sottovoci. Il titolo è facoltativo: con una manciata di voci
+ *  un'intestazione è rumore, con tredici è l'unico modo di trovarle. */
+export type NavSub = { titolo?: string; voci: { href: string; label: string }[] };
+
+export type NavItem = { href: string; label: string; sub?: NavSub[] };
 
 export function AppShell({
   nav,
