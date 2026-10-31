@@ -38,9 +38,9 @@ const PASSI = [
 
 const REGOLE = [
   "Il regalo scatta sul **primo acquisto** del tuo amico, non sui rinnovi successivi.",
-  "Vale **qualsiasi piano a listino**: Small, Medium o Large.",
+  "Vale **qualsiasi piano a listino**: Lava e stira o Solo stiro.",
   "**Nessun limite**: porti tre amici, ricevi tre settimane.",
-  "La settimana è calcolata sul **tuo** piano, non sul suo: su uno Small vale 40 €.",
+  "La settimana è calcolata sul **tuo** piano, non sul suo: su Lava e stira vale 40 €.",
   "Il credito resta sul tuo account e si consuma alla prima fattura utile.",
 ];
 

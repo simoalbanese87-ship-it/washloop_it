@@ -58,7 +58,7 @@ const FAQ_PAGINA = [
   },
   {
     q: "Quanto costa la lavanderia a domicilio a Milano?",
-    a: "WashLoop è un abbonamento mensile: 160 € per 1 sacco a settimana, 280 € per 2, 390 € per 3. Ritiro e riconsegna sono sempre inclusi, non si pagano a parte. Ogni sacchetto comprende fino a 3 camicie stirate.",
+    a: "WashLoop è un abbonamento mensile e i piani sono due: Lava e stira a 160 € al mese — un sacco a settimana, lavato, stirato e piegato — e Solo stiro a 122 € al mese, per chi la lavatrice la fa da sé. Ritiro e riconsegna sono sempre inclusi, non si pagano a parte. Ogni sacco comprende fino a 3 camicie stirate.",
   },
   {
     q: "In quali zone di Milano ritirate?",

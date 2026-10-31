@@ -31,7 +31,7 @@ export default function TerminiPage() {
 
       <LegalSection n="4" title="Abbonamenti, prezzi e rinnovo automatico">
         <ul className="list-disc space-y-1.5 pl-5">
-          <li>Sono disponibili i piani <strong>Small, Medium e Large</strong>, che si differenziano per il numero di sacchi inclusi a settimana. Prezzi e contenuti aggiornati sono nella pagina prezzi.</li>
+          <li>Sono disponibili i piani <strong>Lava e stira</strong> (lavaggio, stiratura e piega) e <strong>Solo stiro</strong> (stiratura e piega di capi già lavati dal Cliente). Prezzi e contenuti aggiornati sono nella pagina prezzi.</li>
           <li>L'abbonamento è <strong>mensile a rinnovo automatico</strong>: salvo disdetta, si rinnova e viene addebitato automaticamente alla scadenza di ogni periodo, sul metodo di pagamento registrato.</li>
           <li>I prezzi sono comprensivi di IVA ove applicabile.</li>
           <li>La prenotazione dei ritiri richiede un abbonamento attivo.</li>
