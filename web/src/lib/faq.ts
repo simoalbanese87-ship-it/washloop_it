@@ -7,7 +7,7 @@ import { LEGAL } from "@/lib/legal";
  *  ESCLUSIVAMENTE su questi testi. Tenerle in due copie avrebbe significato
  *  che prima o poi l'assistente avrebbe risposto con informazioni vecchie. */
 export const FAQ: { q: string; a: string }[] = [
-  { q: "Che differenza c'è fra Solo stiro e Lava e stira?", a: "Chi fa il lavoro, e quando. Con il Solo stiro lavi tu in casa e noi stiriamo: ritiro il mercoledì, riconsegna il venerdì, 48 ore. Con Lava e stira ci diamo tutto noi — lavaggio, asciugatura, stiratura e piegatura — con ritiro il martedì e riconsegna entro 3 giorni feriali." },
+  { q: "Che differenza c'è fra Solo stiro e lavanderia?", a: "Chi fa il lavoro, e quando. Con il Solo stiro lavi tu in casa e noi stiriamo: ritiro il mercoledì, riconsegna il venerdì, 48 ore. Con la lavanderia ci diamo tutto noi — lavaggio, asciugatura, stiratura e piegatura — con ritiro il martedì e riconsegna entro 3 giorni feriali." },
   { q: "Quanti sacchi e ritiri sono inclusi?", a: "Un sacco a settimana, con un ritiro fisso a settimana. In ogni sacco di lavanderia sono comprese fino a 3 camicie stirate; dalla quarta in poi ogni camicia si addebita a listino. Se ti serve di più, costruiamo un abbonamento su misura: scrivici." },
   { q: "Quanto è grande il sacco? Quanto ci sta?", a: "Il sacco è da 30 litri: è un carico di lavatrice pieno, quello che caricheresti in casa in una volta. Non devi contare i capi né pesare niente — si contano i sacchi, non i pezzi. Dentro va tutto quello che finirebbe in lavatrice: magliette, camicie, pantaloni, biancheria, asciugamani, lenzuola." },
   { q: "Ho più camicie di quelle comprese. Cosa succede?", a: "Le camicie oltre quelle comprese nel sacco si addebitano a listino, una per una: le vedi nell'ordine prima che vengano lavorate, e non serve un secondo sacco." },
@@ -77,7 +77,7 @@ export function contestoAssistente(): string {
     "- La riconsegna la programma WashLoop: il cliente non sceglie la fascia, viene avvisato per email con giorno e ora.",
     "- Il sacco ha un'etichetta con QR e codice cliente (WL-####), che il rider scansiona a ritiro e consegna.",
     "- A ogni pagamento parte una ricevuta via email. La fattura si ottiene solo su richiesta, dall'area personale, alla voce «Ricevuta e fattura».",
-    "- I servizi in vendita sono due: Lava e stira (ritiro il martedi', riconsegna entro 3 giorni feriali) e Solo stiro (capi gia' lavati dal cliente, ritiro il mercoledi', riconsegna il venerdi', 48 ore). Chi ha bisogno di qualcosa di diverso — piu' ritiri, un ritmo suo, volumi alti — concorda un abbonamento su misura.",
+    "- I servizi in vendita sono due: lavanderia, con l'abbonamento Small (ritiro il martedi', riconsegna entro 3 giorni feriali) e Solo stiro (capi gia' lavati dal cliente, ritiro il mercoledi', riconsegna il venerdi', 48 ore). Chi ha bisogno di qualcosa di diverso — piu' ritiri, un ritmo suo, volumi alti — concorda un abbonamento su misura.",
     "- Il sacco e' da 30 litri e resta del cliente finche' e' cliente. Il pulito torna in una scatola rigida che gira: si lascia fuori vuota al ritiro successivo.",
     "- Il rider non entra in casa e non tiene chiavi: il sacco si lascia fuori dalla porta o si consegna di persona.",
     `- Contatti: ${LEGAL.email}, telefono ${LEGAL.phone}.`,

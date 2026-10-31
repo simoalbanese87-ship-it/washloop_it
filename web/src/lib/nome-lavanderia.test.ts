@@ -45,5 +45,5 @@ test("la sede dice il servizio con le parole dell'anagrafica", () => {
   assert.equal(tipoServizioDellaSede(undefined), null);
   // L'etichetta è quella che l'ops vede nel pannello, non una nuova.
   assert.equal(TIPO_SERVIZIO_LABEL[tipoServizioDellaSede("stiro")!], "Solo stiro");
-  assert.equal(TIPO_SERVIZIO_LABEL[tipoServizioDellaSede("lavanderia")!], "Lava e stira");
+  assert.equal(TIPO_SERVIZIO_LABEL[tipoServizioDellaSede("lavanderia")!], "Lavanderia");
 });

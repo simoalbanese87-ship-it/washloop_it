@@ -1,4 +1,4 @@
-/** Che servizio fa quel cliente: lava e stira, solo stiro, solo lavanderia.
+/** Che servizio fa quel cliente: lavanderia, solo stiro, solo lavanderia.
  *
  *  Non si deduce da nessun dato che abbiamo — un abbonamento Small non dice se
  *  quella persona ci manda camicie da stirare o bucato da lavare. Lo sa chi
@@ -14,7 +14,7 @@ export const TIPI_SERVIZIO = ["lava_stira", "solo_stiro", "solo_lavanderia"] as 
 export type TipoServizio = (typeof TIPI_SERVIZIO)[number];
 
 export const TIPO_SERVIZIO_LABEL: Record<TipoServizio, string> = {
-  lava_stira: "Lava e stira",
+  lava_stira: "Lavanderia",
   solo_stiro: "Solo stiro",
   solo_lavanderia: "Solo lavanderia",
 };

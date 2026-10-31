@@ -106,8 +106,8 @@ export default async function ComeFunziona() {
       n: "01",
       t: "Scegli il servizio",
       d: lavanderia && stiro
-        ? `Lava e stira a ${eur(lavanderia.price_month_cents)} al mese se vuoi liberarti di tutto, Solo stiro a ${eur(stiro.price_month_cents)} se la lavatrice la fai tu. Se non ti ci ritrovi, chiedi una soluzione su misura.`
-        : "Lava e stira se vuoi liberarti di tutto, Solo stiro se la lavatrice la fai tu, oppure una soluzione su misura.",
+        ? `Lavanderia a ${eur(lavanderia.price_month_cents)} al mese se vuoi liberarti di tutto, Solo stiro a ${eur(stiro.price_month_cents)} se la lavatrice la fai tu. Se non ti ci ritrovi, chiedi una soluzione su misura.`
+        : "Lavanderia se vuoi liberarti di tutto, Solo stiro se la lavatrice la fai tu, oppure una soluzione su misura.",
       nota: "Nessun costo di attivazione, nessun vincolo di durata.",
     },
     {
@@ -140,7 +140,7 @@ export default async function ComeFunziona() {
       n: "07",
       t: "Lavoriamo i capi",
       d: lavanderia && stiro
-        ? `Con Lava e stira: lavaggio, asciugatura, stiratura e piegatura in lavanderia professionale, pronto in ${lavanderia.turnaround_hours} ore. Con Solo stiro: stiratura e piega in stireria, pronto in ${stiro.turnaround_hours} ore.`
+        ? `Con la lavanderia: lavaggio, asciugatura, stiratura e piegatura in lavanderia professionale, pronto in ${lavanderia.turnaround_hours} ore. Con Solo stiro: stiratura e piega in stireria, pronto in ${stiro.turnaround_hours} ore.`
         : "Lavaggio, stiratura e piegatura in lavanderia professionale.",
     },
     {
