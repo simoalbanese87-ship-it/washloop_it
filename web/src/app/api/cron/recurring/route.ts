@@ -8,7 +8,8 @@ import { assegnaRiderIniziale } from "@/lib/assegna-rider";
 import { allineaProva } from "@/lib/prova-stripe";
 import { oreDiLavorazione } from "@/lib/turnaround";
 import { puoPrenotare } from "@/lib/puo-prenotare";
-import { dirittoAPrenotare } from "@/lib/diritto-a-prenotare";
+import { dirittoAPrenotare, ritiriPerSettimana } from "@/lib/diritto-a-prenotare";
+import { settimanaRoma } from "@/lib/settimana-roma";
 import { eseguiCron } from "@/lib/cron-log";
 
 /** Cron giornaliero: genera gli ordini delle ricorrenze settimanali attive,
@@ -207,6 +208,12 @@ export async function GET(req: Request) {
         for (const d of [...preferite, ...liberaDopoEta]) {
           if (await haPosto(d)) { deliverySlotId = d.id; break; }
         }
+
+        // Un ritiro a settimana vale anche per i ritiri generati: se il cliente
+        // se n'è già prenotato uno a mano in quella settimana, il cron non
+        // gliene aggiunge un secondo.
+        const settimanePrese = await ritiriPerSettimana(rec.customer_id, sb);
+        if (settimanePrese.has(settimanaRoma(slot.starts_at))) continue;
 
         const destinazione = await destinazioneDi(rec.customer_id, slot.laundry_id, slot.servizio ?? null);
         // Un ritiro generato è un ritiro prenotato: se a pagarlo è uno di

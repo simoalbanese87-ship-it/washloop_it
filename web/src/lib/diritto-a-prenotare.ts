@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceClient } from "@/lib/supabase/server";
 import { saldoRitiri } from "@/lib/saldo-ritiri";
 import { canoneACadenzaLibera, type ChiPrenota } from "@/lib/puo-prenotare";
+import { settimanaRoma } from "@/lib/settimana-roma";
 
 /** Tutto quello che serve per decidere se uno può prenotare, raccolto una
  *  volta sola.
@@ -55,4 +56,52 @@ export async function dirittoAPrenotare(customerId: string, svcIn?: SupabaseClie
   };
 
   return { ...chi, consumaRitiro: !canoneACadenzaLibera(chi) && ritiri.residui > 0 };
+}
+
+/** Il ritiro che il cliente ha già in una certa settimana.
+ *
+ *  **Un ritiro a settimana** è la regola del servizio, e fino al 31 ottobre
+ *  2026 non era scritta: reggeva perché la lavanderia ha un giorno solo. Lo
+ *  stiro ne ha due, e lì bastava prenotarli entrambi.
+ *
+ *  Si contano **solo i ritiri vivi**: chi disdice il martedì libera la
+ *  settimana e può riprendere il mercoledì. Cambiare idea non consuma niente —
+ *  e nemmeno il ritiro comprato, che torna con l'annullo.
+ *
+ *  `escludiOrdine` serve a chi **sposta** un ritiro: senza, l'ordine
+ *  inciamperebbe in se stesso e non si potrebbe spostarlo dentro la sua
+ *  settimana.
+ *
+ *  Si guarda dall'inizio della settimana in corso in avanti: quello che è
+ *  successo prima non limita niente. */
+export type RitiroInSettimana = { settimana: string; quandoIso: string };
+
+export async function ritiriPerSettimana(
+  customerId: string,
+  svcIn?: SupabaseClient,
+  opts?: { escludiOrdine?: string | null },
+): Promise<Map<string, RitiroInSettimana>> {
+  const svc = svcIn ?? createServiceClient();
+  const inizio = `${settimanaRoma(new Date())}T00:00:00.000Z`;
+
+  const { data } = await svc
+    .from("orders")
+    .select("id, created_at, pickup_slot:slots!orders_pickup_slot_id_fkey(starts_at)")
+    .eq("customer_id", customerId)
+    .neq("status", "cancelled")
+    .gte("created_at", new Date(Date.parse(inizio) - 60 * 86_400_000).toISOString())
+    .returns<{ id: string; created_at: string; pickup_slot: { starts_at: string } | null }[]>();
+
+  const per = new Map<string, RitiroInSettimana>();
+  for (const o of data ?? []) {
+    if (opts?.escludiOrdine && o.id === opts.escludiOrdine) continue;
+    // La fascia di ritiro è il fatto; la data di creazione è il ripiego per i
+    // pochi ordini nati senza fascia, come fa il conto dei passaggi.
+    const quandoIso = o.pickup_slot?.starts_at ?? o.created_at;
+    if (quandoIso < inizio) continue;
+    const settimana = settimanaRoma(quandoIso);
+    const gia = per.get(settimana);
+    if (!gia || quandoIso < gia.quandoIso) per.set(settimana, { settimana, quandoIso });
+  }
+  return per;
 }

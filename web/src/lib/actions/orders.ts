@@ -26,7 +26,8 @@ import { allineaProva } from "@/lib/prova-stripe";
 import { oreDiLavorazione, ORE_LAVANDERIA } from "@/lib/turnaround";
 import { portaAPronto } from "@/lib/pronto";
 import { puoPrenotare, perchePuoNonPrenotare } from "@/lib/puo-prenotare";
-import { dirittoAPrenotare } from "@/lib/diritto-a-prenotare";
+import { dirittoAPrenotare, ritiriPerSettimana } from "@/lib/diritto-a-prenotare";
+import { settimanaRoma, giornoEsteso } from "@/lib/settimana-roma";
 import { IN_LAVORAZIONE } from "@/lib/consegne-da-caricare";
 
 /** Cliente: crea un ordine prenotando una lavanderia + slot di ritiro.
@@ -85,6 +86,14 @@ export async function createPickup(formData: FormData) {
   const diritto = await dirittoAPrenotare(user.id);
   if (!puoPrenotare(diritto)) {
     redirect("/app/abbonamento?need=1");
+  }
+  // Un ritiro a settimana. La regola sta in `settimana-roma.ts` e conta solo i
+  // ritiri vivi: chi disdice libera la settimana e può riprendere.
+  const giaQuestaSettimana = slot?.starts_at
+    ? (await ritiriPerSettimana(user.id)).get(settimanaRoma(slot.starts_at))
+    : undefined;
+  if (giaQuestaSettimana) {
+    redirect(`/app/prenota?err=${encodeURIComponent(messaggioSettimanaPiena(giaQuestaSettimana.quandoIso))}`);
   }
   const turnaround = oreDiLavorazione({ tipoServizio: io?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours });
   const eta = slot?.starts_at ? new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString() : null;
@@ -180,6 +189,15 @@ export async function bookPickup(input: {
   const diritto = await dirittoAPrenotare(user.id);
   if (!puoPrenotare(diritto)) {
     return { ok: false, error: perchePuoNonPrenotare(diritto) ?? "Serve un abbonamento attivo." };
+  }
+  // Un ritiro a settimana. Il menu di prenotazione nasconde già i giorni delle
+  // settimane occupate: questa è la difesa lato server, perché una fascia
+  // nascosta si può comunque spedire a mano.
+  const giaQuestaSettimana = slot?.starts_at
+    ? (await ritiriPerSettimana(user.id)).get(settimanaRoma(slot.starts_at))
+    : undefined;
+  if (giaQuestaSettimana) {
+    return { ok: false, error: messaggioSettimanaPiena(giaQuestaSettimana.quandoIso) };
   }
   const turnaround = oreDiLavorazione({ tipoServizio: io?.tipo_servizio, orePiano: sub?.plans?.turnaround_hours });
   const eta = slot?.starts_at ? new Date(new Date(slot.starts_at).getTime() + turnaround * 3600_000).toISOString() : null;
@@ -989,6 +1007,14 @@ export async function setEta(formData: FormData) {
 // L'unico modo era cancellare l'ordine e rifarlo — perdendo la traccia di cosa
 // era stato promesso.
 
+/** La frase di chi ha già il suo ritiro in quella settimana.
+ *
+ *  Una sola, usata dalle tre strade del cliente: dice **quale** ritiro ha già,
+ *  perché «hai già un ritiro» senza la data fa aprire il calendario a cercarlo. */
+function messaggioSettimanaPiena(quandoIso: string): string {
+  return `Hai già un ritiro questa settimana, ${giornoEsteso(quandoIso)}. Il prossimo puoi prenotarlo dalla settimana dopo — oppure sposta quello che hai.`;
+}
+
 /** Stati in cui il sacco non è ancora stato ritirato: fin qui la data si cambia. */
 const PRIMA_DEL_RITIRO: OrderStatus[] = ["requested", "pickup_scheduled"];
 
@@ -1197,6 +1223,21 @@ export async function spostaRitiro(formData: FormData) {
   // La capacità della fascia la difende il trigger in database: qui si traduce
   // solo il suo errore in una frase leggibile.
   const svc = createServiceClient();
+
+  // Un ritiro a settimana, ma solo per il cliente: dal pannello si sposta dove
+  // serve. L'ordine che si sta spostando si esclude dal conto, se no
+  // inciamperebbe in se stesso e non lo si potrebbe muovere dentro la sua
+  // settimana — che è proprio il caso più comune.
+  if (dalCliente && p.ordine.customer_id) {
+    const { data: destinazione } = await svc
+      .from("slots")
+      .select("starts_at")
+      .eq("id", pickup_slot_id)
+      .maybeSingle<{ starts_at: string }>();
+    const settimane = await ritiriPerSettimana(p.ordine.customer_id, svc, { escludiOrdine: id });
+    const gia = destinazione ? settimane.get(settimanaRoma(destinazione.starts_at)) : undefined;
+    if (gia) redirect(`${dove}?err=${encodeURIComponent(messaggioSettimanaPiena(gia.quandoIso))}`);
+  }
   const { error } = await svc
     .from("orders")
     .update({ pickup_slot_id, status: "pickup_scheduled" as OrderStatus })

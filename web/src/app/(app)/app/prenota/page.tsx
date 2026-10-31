@@ -4,7 +4,8 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/auth";
 import { pickupCounts, deliveryCounts } from "@/lib/slots";
 import { oreDiLavorazione } from "@/lib/turnaround";
-import { dirittoAPrenotare } from "@/lib/diritto-a-prenotare";
+import { dirittoAPrenotare, ritiriPerSettimana } from "@/lib/diritto-a-prenotare";
+import { settimanaRoma, giornoEsteso } from "@/lib/settimana-roma";
 import { puoPrenotare } from "@/lib/puo-prenotare";
 import { compraUnRitiro, chiediAbbonamento } from "@/lib/actions/ritiri";
 import { fasciaPermessa } from "@/lib/servizio-fascia";
@@ -33,6 +34,17 @@ export default async function PrenotaPage() {
     supabase.from("special_items_public").select("category_id, name, price_cli_cents, sort").order("sort").returns<Item[]>(),
   ]);
 
+  // Chi può prenotare, con quale borsa, e quali settimane ha già usato. Col
+  // service client, come tutto quello che decide: una lettura negata da RLS
+  // torna vuota invece di dare errore, e un saldo vuoto per sbaglio
+  // bloccherebbe chi ha pagato.
+  const userId = (await supabase.auth.getUser()).data.user?.id ?? null;
+  const svc = createServiceClient();
+  const [diritto, settimanePrese] = await Promise.all([
+    userId ? dirittoAPrenotare(userId, svc) : Promise.resolve(null),
+    userId ? ritiriPerSettimana(userId, svc) : Promise.resolve(new Map()),
+  ]);
+
   // Posti residui per slot (capacità − ordini non annullati già agganciati).
   const [counts, dCounts] = await Promise.all([
     pickupCounts(supabase, (rawSlots ?? []).map((s) => s.id)),
@@ -45,9 +57,21 @@ export default async function PrenotaPage() {
   // martedì — vedere una data che non può usare è un errore che si scopre
   // dopo averla scelta. La regola, con i test, sta in `servizio-fascia.ts`.
   const mioServizio = isTipoServizio(io?.tipo_servizio) ? io.tipo_servizio : null;
-  const slots: Slot[] = (rawSlots ?? []).filter((s) => fasciaPermessa(s.servizio, mioServizio)).map((s) => ({
-    id: s.id, starts_at: s.starts_at, ends_at: s.ends_at, laundry_id: s.laundry_id, remaining: residuo(s, counts),
-  }));
+  // Un ritiro a settimana: i giorni delle settimane in cui ne ha già uno non si
+  // mostrano proprio. Rifiutarlo alla fine sarebbe peggio — sceglie il giorno,
+  // fa tre passi e scopre di no mentre conferma.
+  const slots: Slot[] = (rawSlots ?? [])
+    .filter((s) => fasciaPermessa(s.servizio, mioServizio))
+    .filter((s) => !settimanePrese.has(settimanaRoma(s.starts_at)))
+    .map((s) => ({
+      id: s.id, starts_at: s.starts_at, ends_at: s.ends_at, laundry_id: s.laundry_id, remaining: residuo(s, counts),
+    }));
+  // Il prossimo ritiro che ha già: si dice, se no la settimana sparita sembra
+  // un errore del sito.
+  const prossimoSuo = [...settimanePrese.values()]
+    .map((r) => r.quandoIso)
+    .filter((iso) => iso >= nowIso)
+    .sort()[0] ?? null;
   const deliverySlots: Slot[] = (rawDelivery ?? []).map((s) => ({
     id: s.id, starts_at: s.starts_at, ends_at: s.ends_at, laundry_id: s.laundry_id, remaining: residuo(s, dCounts),
   }));
@@ -71,9 +95,6 @@ export default async function PrenotaPage() {
   // `dirittoAPrenotare` col service client — con la sessione del cliente un
   // saldo può tornare vuoto invece che negare, e un vuoto per sbaglio
   // bloccherebbe chi ha pagato.
-  const userId = (await supabase.auth.getUser()).data.user?.id ?? null;
-  const svc = createServiceClient();
-  const diritto = userId ? await dirittoAPrenotare(userId, svc) : null;
   const active = diritto ? puoPrenotare(diritto) : abbonato || aConsumo;
   // Ha finito i ritiri comprati: non è uno che non ha mai cominciato, e non
   // deve leggere la pagina di chi non ha mai cominciato.
@@ -167,6 +188,12 @@ export default async function PrenotaPage() {
         </>
       ) : (
         <>
+          {prossimoSuo && (
+            <section className="rounded-[18px] border border-line bg-white px-4 py-3 text-sm font-semibold text-navy">
+              Hai già un ritiro {giornoEsteso(prossimoSuo)}: quella settimana non compare qui sotto. Se ti serve un
+              altro giorno, spostalo dalla pagina del ritiro.
+            </section>
+          )}
           {ritiriInCassa > 0 && (
             <section className="rounded-[18px] border border-line bg-white px-4 py-3 text-sm font-semibold text-navy">
               {ritiriInCassa === 1 ? "Ti resta 1 ritiro" : `Ti restano ${ritiriInCassa} ritiri`}. Non scadono: se ne
