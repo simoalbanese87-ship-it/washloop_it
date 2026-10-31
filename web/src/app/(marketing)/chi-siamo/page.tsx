@@ -206,9 +206,9 @@ export default function ChiSiamoPage() {
             </div>
           </div>
           <p className="mt-8 max-w-2xl text-base font-medium leading-relaxed text-muted">
-            Ogni sacco ha un <strong className="text-navy">codice cucito sull&apos;etichetta</strong>: dal momento
-            in cui il rider lo prende sotto casa a quando torna, sappiamo in quale laboratorio si
-            trova e in che fase è. È anche il motivo per cui nell&apos;app vedi a che punto è il tuo
+            Ogni sacco ha un <strong className="text-navy">codice suo sul tag</strong>: dal momento
+            in cui il rider lo prende sotto casa a quando torna, sappiamo dove si trova e in che
+            fase è. È anche il motivo per cui nell&apos;app vedi a che punto è il tuo
             bucato senza telefonare a nessuno.
           </p>
         </div>
