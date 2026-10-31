@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
 import { createOnboardingAddress, collegaInvito } from "@/lib/actions/onboarding";
+import { COME_CONOSCIUTO, COME_CONOSCIUTO_DOMANDA } from "@/lib/come-conosciuto";
 import { startCheckout } from "@/lib/actions/billing";
 import { sendWelcomeIfNeeded } from "@/lib/actions/welcome";
 import { registraUtente, segnaConsenso } from "@/lib/registrazione";
@@ -48,6 +49,7 @@ export function OnboardingWizard({ plans, initialPlanCode, codiceInvito, invitan
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [accepted, setAccepted] = useState(false);
+  const [comeConosciuto, setComeConosciuto] = useState("");
 
   const [street, setStreet] = useState("");
   const [civico, setCivico] = useState("");
@@ -80,7 +82,7 @@ export function OnboardingWizard({ plans, initialPlanCode, codiceInvito, invitan
     // Prova del consenso sul profilo (GDPR) e benvenuto: entrambi best-effort,
     // fuori dalla strada che porta al passo successivo. Prima erano davanti, e
     // un intoppo lasciava la persona ferma sul modulo con l'account già creato.
-    void segnaConsenso(supabase, esito.userId, acceptedAt, phone);
+    void segnaConsenso(supabase, esito.userId, acceptedAt, phone, comeConosciuto || null);
     void sendWelcomeIfNeeded();
     // Porta un amico: il codice dell'invito, se c'è, si lega adesso. Anche
     // questo best-effort e fuori strada: non deve poter fermare un'iscrizione.
@@ -184,6 +186,23 @@ export function OnboardingWizard({ plans, initialPlanCode, codiceInvito, invitan
                 <input className={input} type="email" autoComplete="email" placeholder="tu@email.it" value={email} onChange={(e) => setEmail(e.target.value)} />
                 <input className={input} type="tel" required placeholder="Telefono" value={phone} onChange={(e) => setPhone(e.target.value)} />
                 <PasswordField className={input} value={password} onChange={setPassword} email={email} nome={fullName} />
+                {/* Facoltativo di proposito: è un'iscrizione, non un
+                    questionario. Ma è l'unico posto da cui si può sapere chi
+                    arriva dal passaparola o da una risposta di ChatGPT —
+                    nessuno dei due lascia una traccia tecnica. */}
+                <label className="block">
+                  <span className="mb-1.5 block text-[12px] font-bold text-white/55">Come ci hai conosciuto? (facoltativo)</span>
+                  <select
+                    className={input}
+                    value={comeConosciuto}
+                    onChange={(e) => setComeConosciuto(e.target.value)}
+                  >
+                    <option value="">Preferisco non dirlo</option>
+                    {COME_CONOSCIUTO.map((c) => (
+                      <option key={c} value={c}>{COME_CONOSCIUTO_DOMANDA[c]}</option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <label className="mt-4 flex cursor-pointer items-start gap-3 text-[13px] font-medium leading-relaxed text-white">
                 <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} className="mt-0.5 h-5 w-5 flex-none accent-[#00c8f0]" />

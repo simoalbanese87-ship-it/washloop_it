@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentoDaStripe, incassiCliente, capiSpecialiCliente, statoAbbonamentoItaliano } from "@/lib/cliente-360";
 import { saldoRitiri } from "@/lib/saldo-ritiri";
+import { etichettaComeConosciuto } from "@/lib/come-conosciuto";
 import { saldoCapiCompresi, type SaldoCapiCompresi } from "@/lib/capi-compresi-abbonamento";
 import { changeSubscription, addCustomerCharge, voidCustomerCharge, editCustomerCharge, resendCredentials, deleteCustomer, updateRecurringPickup, addRecurringPickup, setRecurringActive, addCustomerAddress, adminCreatePickup, sollecitaOra, aggiornaAnagraficaCliente, cambiaEmailAccesso, addebitoTemporaneo, impostaSacchiSettimana, terminaProvaOra, impostaAConsumo, impostaServizioSacco, aggiornaIndirizzo, cambiaCanone, impostaRitiriPerRinnovo, accreditaRitiri } from "@/lib/actions/admin-customer";
 import { ricalcolaCompiti } from "@/lib/actions/compiti";
@@ -46,7 +47,7 @@ const input = "h-10 w-full rounded-[12px] border border-line bg-ice px-3 text-sm
 
 
 type ServizioSacco = { id: string; codice: string; nome: string; price_cli_cents: number; laundries: { name: string } | null };
-type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null; tags_delivered_at: string | null; borsa_consegnata_at: string | null; materiale_rientrato_at: string | null;
+type Prof = { id: string; full_name: string | null; phone: string | null; client_code: string | null; role: string; created_at: string; a_consumo: boolean | null; tipo_servizio: string | null; servizio_sacco_id: string | null; tags_delivered_at: string | null; borsa_consegnata_at: string | null; materiale_rientrato_at: string | null; come_conosciuto: string | null;
   billing_wants_invoice: boolean | null; billing_name: string | null; billing_address: string | null; billing_cap: string | null;
   billing_city: string | null; billing_tax_code: string | null; billing_vat: string | null; billing_sdi: string | null; billing_pec: string | null };
 type Sub = { id: string; status: string; bags_per_week: number | null; termina_dopo_settimane: number | null; prova_fine_at: string | null; prova_tetto_at: string | null; prova_ordine_id: string | null; cancel_at_period_end: boolean | null; cancel_at: string | null; dunning_step: number | null; dunning_last_sent_at: string | null; last_failed_invoice_url: string | null; last_failed_at: string | null; plan_id: string | null; custom_price_cents: number | null; passaggi_per_ciclo: number | null; passaggi_riportati: number | null; ritiri_per_rinnovo: number | null; manual: boolean; current_period_end: string | null; activated_at: string | null; stripe_subscription_id: string | null; stripe_customer_id: string | null; plans: { name: string; price_month_cents: number; bags_per_week: number | null; servizio: string | null } | null };
@@ -96,7 +97,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   const { ok, warn } = await searchParams;
   const svc = createServiceClient();
 
-  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, a_consumo, tipo_servizio, servizio_sacco_id, tags_delivered_at, borsa_consegnata_at, materiale_rientrato_at, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
+  const { data: profile } = await svc.from("profiles").select("id, full_name, phone, client_code, role, created_at, a_consumo, tipo_servizio, servizio_sacco_id, tags_delivered_at, borsa_consegnata_at, materiale_rientrato_at, come_conosciuto, billing_wants_invoice, billing_name, billing_address, billing_cap, billing_city, billing_tax_code, billing_vat, billing_sdi, billing_pec").eq("id", id).maybeSingle<Prof>();
   const tipoServizio = isTipoServizio(profile?.tipo_servizio) ? profile.tipo_servizio : null;
   if (!profile) notFound();
 
@@ -296,7 +297,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   return (
     <>
       <Link href="/admin/persone" className="font-display text-sm font-bold text-blue hover:underline">← Persone</Link>
-      <PageTitle kicker="Cliente" title={profile.full_name ?? "Cliente"} sub={`${email}${profile.client_code ? ` · ${profile.client_code}` : ""} · ${profile.phone ?? "SENZA TELEFONO"} · Iscritto il ${fmtDate(profile.created_at)}`} />
+      <PageTitle kicker="Cliente" title={profile.full_name ?? "Cliente"} sub={`${email}${profile.client_code ? ` · ${profile.client_code}` : ""} · ${profile.phone ?? "SENZA TELEFONO"} · Iscritto il ${fmtDate(profile.created_at)}${etichettaComeConosciuto(profile.come_conosciuto) ? ` · ci ha conosciuti da: ${etichettaComeConosciuto(profile.come_conosciuto)}` : ""}`} />
 
       {/* Il pagamento fallito si vede appena si apre la scheda.
           Il riquadro dettagliato c'è già più in basso, dentro «Abbonamento» —
