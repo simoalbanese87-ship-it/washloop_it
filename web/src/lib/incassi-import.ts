@@ -87,7 +87,10 @@ export async function importaIncassiDaStripe(): Promise<EsitoImport> {
           // "saltata" = incassato, ricevuta e basta. Vedi sopra: niente
           // emissione fiscale retroattiva.
           stato: "saltata",
-          created_at: new Date((f.status_transitions?.paid_at ?? f.created) * 1000).toISOString(),
+          // La data di pagamento su Stripe. Va in `incassato_at`, che è la
+          // colonna su cui si contano gli incassi; `created_at` resta quando
+          // la riga è nata, come dice il suo nome.
+          incassato_at: new Date((f.status_transitions?.paid_at ?? f.created) * 1000).toISOString(),
         });
       }
 

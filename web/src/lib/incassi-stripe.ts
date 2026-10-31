@@ -1,24 +1,26 @@
 import "server-only";
 import { stripe } from "@/lib/stripe";
 
-/** Gli incassi letti da Stripe, che è dove i soldi arrivano davvero.
+/** Di cosa è fatto un mese di incassi, secondo Stripe.
  *
- *  Perché esiste
- *  -------------
- *  Il pannello mostrava «0 € incassati questo mese» mentre gli abbonamenti
- *  venivano pagati. Non era un errore di calcolo: la Home legge la tabella
- *  `invoices`, che si popola dal webhook `invoice.payment_succeeded` — e quel
- *  webhook non arriva. La tabella è vuota da sempre, quindi ogni mese risulta
- *  a zero.
+ *  Perché esiste ancora
+ *  --------------------
+ *  **Non per contare i soldi.** Quelli si contano in `cassa.ts`, dal registro,
+ *  con una regola sola: la data in cui si muovono. Questo file nacque per
+ *  supplire a un webhook che non arrivava e la tabella restava vuota; da
+ *  allora il registro è completo, e tenere due fonti per lo stesso numero ha
+ *  prodotto esattamente quello che doveva produrre — la Home diceva 690,60 €
+ *  e la pagina Incassi 733,10 € per lo stesso ottobre.
  *
- *  Il webhook va sistemato (è configurazione nel cruscotto Stripe), ma finché
- *  la fonte del numero è un evento che può non arrivare, quel numero non è
- *  affidabile. Qui si chiede a Stripe, che è l'unico posto che sa con certezza
- *  quanto è stato incassato.
+ *  Resta per una cosa che il registro non sa: **se una fattura è un canone o
+ *  un extra**. Lo dice `billing_reason`, che vive su Stripe e basta. Serve a
+ *  colorare le barre del grafico, non ad alzarle: se Stripe non risponde il
+ *  totale non cambia di un centesimo e la barra si disegna di un pezzo solo.
  *
- *  Si contano le **fatture pagate** e non i pagamenti grezzi: una fattura pagata
- *  è un incasso riconciliato, mentre i `charge` includono tentativi, rimborsi
- *  parziali e movimenti che non sono ricavo.
+ *  Si guardano le **fatture pagate** e non i pagamenti grezzi: una fattura
+ *  pagata è un incasso riconciliato, mentre i `charge` includono tentativi e
+ *  movimenti che non sono ricavo. Per questo qui i pagamenti singoli non ci
+ *  sono — e per questo questo file non può essere la fonte dei totali.
  */
 
 export type IncassoMese = {
@@ -93,51 +95,3 @@ export async function incassiStripePerMese(
   }
 }
 
-/** I rimborsi già registrati sulle ricevute, per mese.
- *
- *  Stripe non toglie l'importo rimborsato da `amount_paid` della fattura: per
- *  lui quella fattura resta pagata, ed è corretto — è successo. Ma per noi
- *  «incassato» significa «rimasto», e senza questa sottrazione la home
- *  continuerebbe a contare soldi già tornati al cliente mentre la pagina
- *  incassi, che ora li toglie, direbbe un'altra cifra. Due totali diversi nello
- *  stesso pannello e nessuno che sa quale credere.
- *
- *  La fonte è `invoices.rimborsato_cents`, che scrive il webhook
- *  `charge.refunded`. */
-export async function rimborsiPerMese(
-  dallIso: string,
-  /** Dove si sta accumulando il rimborso, pezzo per pezzo: serve a togliere un
-   *  canone restituito dalla fetta dei canoni e non da quella degli extra. Si
-   *  riempie solo se chi chiama passa la mappa `stripe_invoice_id → pezzo`. */
-  pezzoDi?: Map<string, PezzoIncasso>,
-  perPezzo?: Map<string, { canoniCents: number; extraCents: number }>,
-): Promise<Map<string, number>> {
-  const { createServiceClient } = await import("@/lib/supabase/server");
-  const per = new Map<string, number>();
-  try {
-    const { data } = await createServiceClient()
-      .from("invoices")
-      .select("rimborsato_cents, rimborsato_at, stripe_invoice_id")
-      .not("rimborsato_at", "is", null)
-      .gte("rimborsato_at", dallIso)
-      .returns<{ rimborsato_cents: number | null; rimborsato_at: string; stripe_invoice_id: string | null }[]>();
-    for (const r of data ?? []) {
-      // Il rimborso pesa sul mese in cui il denaro è uscito, non su quello in
-      // cui era entrato: è così che lo vede il conto corrente.
-      const k = meseRoma(Math.floor(Date.parse(r.rimborsato_at) / 1000));
-      const quanto = r.rimborsato_cents ?? 0;
-      per.set(k, (per.get(k) ?? 0) + quanto);
-      if (perPezzo) {
-        const acc = perPezzo.get(k) ?? { canoniCents: 0, extraCents: 0 };
-        // Se non sappiamo da dove veniva — fattura più vecchia della finestra
-        // letta su Stripe — si toglie dai canoni, che è il grosso.
-        if (r.stripe_invoice_id && pezzoDi?.get(r.stripe_invoice_id) === "extra") acc.extraCents += quanto;
-        else acc.canoniCents += quanto;
-        perPezzo.set(k, acc);
-      }
-    }
-  } catch (err) {
-    console.error("[incassi] lettura dei rimborsi fallita:", err);
-  }
-  return per;
-}

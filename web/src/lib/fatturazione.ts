@@ -61,6 +61,11 @@ export async function registraIncasso(input: {
         amount_cents: input.amountCents,
         user_id: input.userId ?? null,
         numero_ricevuta,
+        // Il giorno in cui i soldi si sono mossi, non quello in cui è arrivato
+        // il webhook. Stripe ritenta per tre giorni: senza questa riga un
+        // incasso del 31 poteva finire contato a novembre, e la cassa del mese
+        // dipendeva da quando una richiesta HTTP andava a buon fine.
+        incassato_at: input.dataIso,
         // "saltata" = incassato, ricevuta e basta. È la normalità del regime
         // scelto col commercialista, non un'eccezione: la riga nasce così e
         // diventa "da_emettere" solo per chi la fattura l'ha chiesta davvero.

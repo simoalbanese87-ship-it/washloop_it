@@ -105,7 +105,10 @@ export async function POST(request: NextRequest) {
             amountCents: session.amount_total ?? 0,
             userId,
             descrizione: session.metadata?.descrizione ?? "Pagamento una tantum",
-            dataIso: new Date().toISOString(),
+            // La data del pagamento, non quella dell'evento: su un checkout
+            // singolo Stripe non emette nessuna fattura, quindi è l'unico
+            // momento in cui questa data si può scrivere giusta.
+            dataIso: new Date((session.created ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
           });
         }
 
@@ -337,21 +340,32 @@ export async function POST(request: NextRequest) {
       const ch = event.data.object as unknown as {
         id: string;
         invoice: string | null;
+        payment_intent: string | null;
         amount_refunded: number;
         refunded: boolean;
+        refunds?: { data?: { created?: number }[] };
       };
       after(async () => {
         try {
-          // Senza fattura non c'è ricevuta da segnare: un rimborso su un
-          // pagamento fuori abbonamento non passa da questo registro.
-          if (!ch.invoice || !ch.amount_refunded) return;
+          if (!ch.amount_refunded) return;
+          // La ricevuta è quella della fattura, oppure — per un pagamento
+          // singolo — quella registrata sul PaymentIntent. Prima questo ramo
+          // usciva subito senza fattura, e un rimborso su un acquisto fuori
+          // abbonamento non toglieva niente dalla cassa: i soldi uscivano e il
+          // pannello continuava a contarli come incassati.
+          const riferimento = ch.invoice ?? ch.payment_intent;
+          if (!riferimento) return;
+          // Il giorno in cui il denaro è tornato al cliente, detto da Stripe.
+          // `now()` sarebbe il giorno in cui è arrivato l'evento: su un retry
+          // sposterebbe un'uscita di un giorno, o di mese se è il 31.
+          const quando = ch.refunds?.data?.[0]?.created;
           const { error } = await db
             .from("invoices")
             .update({
-              rimborsato_at: new Date().toISOString(),
+              rimborsato_at: new Date((quando ?? Math.floor(Date.now() / 1000)) * 1000).toISOString(),
               rimborsato_cents: ch.amount_refunded,
             })
-            .eq("stripe_invoice_id", ch.invoice);
+            .eq("stripe_invoice_id", riferimento);
           if (error) throw new Error(error.message);
         } catch (err) {
           await registraGuasto("stripe", "Rimborso non segnato sulla ricevuta", {

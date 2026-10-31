@@ -2,6 +2,7 @@ import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { abbonamentiAttivi } from "@/lib/admin-metrics";
 import { eAggiustamentoDiCanone } from "@/lib/categoria-addebito";
+import { cassaTraLe, confiniMeseRoma, meseCorrente } from "@/lib/cassa";
 
 /** Le righe che compongono un numero della Home.
  *
@@ -97,24 +98,30 @@ export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false, 
     }
 
     case "incassato-mese": {
-      const scelto = /^\d{4}-\d{2}$/.test(mese ?? "") ? mese! : null;
-      const [anno, m] = scelto ? scelto.split("-").map(Number) : [0, 0];
-      const dal = scelto ? new Date(Date.UTC(anno, m - 1, 1)).toISOString() : monthStart;
-      const al = scelto ? new Date(Date.UTC(anno, m, 1)).toISOString() : null;
-      const nomeMese = scelto
-        ? new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", month: "long", year: "numeric" }).format(new Date(Date.UTC(anno, m - 1, 1)))
+      const scelto = /^\d{4}-\d{2}$/.test(mese ?? "") ? mese! : meseCorrente();
+      const [anno, m] = scelto.split("-").map(Number);
+      // Gli stessi confini della Home: in ora di Roma, non in UTC.
+      const { dalIso: dal, alIso: al } = confiniMeseRoma(scelto);
+      const nomeMese = mese
+        ? new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", month: "long", year: "numeric" }).format(new Date(Date.UTC(anno, m - 1, 15)))
         : null;
 
-      let query = svc
+      // Per la data dei soldi, come ovunque: questa lista apre il numero della
+      // Home, e un elenco che non somma al riquadro da cui si arriva è peggio
+      // di nessun elenco.
+      const query = svc
         .from("invoices")
-        .select("id, amount_cents, created_at, stato, fic_number, user_id, rimborsato_at, rimborsato_cents, profiles(full_name, is_test)")
-        .gte("created_at", dal);
-      if (al) query = query.lt("created_at", al);
+        .select("id, amount_cents, incassato_at, created_at, stato, fic_number, user_id, rimborsato_at, rimborsato_cents, profiles(full_name, is_test)")
+        .gte("incassato_at", dal)
+        .lt("incassato_at", al);
       const { data: righe } = await query
-        .order("created_at", { ascending: false })
-        .returns<{ id: string; amount_cents: number; created_at: string; stato: string; fic_number: string | null; user_id: string | null; rimborsato_at: string | null; rimborsato_cents: number | null; profiles: { full_name: string | null; is_test: boolean } | null }[]>();
+        .order("incassato_at", { ascending: false })
+        .returns<{ id: string; amount_cents: number; incassato_at: string | null; created_at: string; stato: string; fic_number: string | null; user_id: string | null; rimborsato_at: string | null; rimborsato_cents: number | null; profiles: { full_name: string | null; is_test: boolean } | null }[]>();
 
       const utili = (righe ?? []).filter((r) => includiProva || !r.profiles?.is_test);
+      // I rimborsi usciti in questo mese, anche quando la ricevuta che
+      // annullano è di un altro: sono soldi che se ne sono andati adesso.
+      const cassa = await cassaTraLe(svc, dal, al);
       // I soldi restituiti non sono incassi.
       //
       // Il numero in Home li toglieva già, questa lista no: i 160 € rimborsati
@@ -124,17 +131,21 @@ export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false, 
       //
       // La riga **resta**, con scritto quanto è tornato indietro: un movimento
       // di soldi che sparisce è peggio di uno spiegato.
+      // Sulla riga si mostra il netto della ricevuta, che è quello che il
+      // cliente ha pagato davvero per quella cosa; il totale in fondo è la
+      // cassa del mese, che toglie anche i rimborsi usciti ora su ricevute di
+      // prima.
       const netto = (r: { amount_cents: number; rimborsato_cents: number | null }) =>
         r.amount_cents - (r.rimborsato_cents ?? 0);
       return {
         titolo: nomeMese ? `Incassato a ${nomeMese}` : "Incassato questo mese",
         spiegazione: nomeMese
-          ? `Pagamenti arrivati su Stripe in ${nomeMese}. Ogni riga è un incasso registrato: questi sono soldi sul conto, non previsioni.`
-          : "Pagamenti realmente arrivati su Stripe dal primo del mese. Ogni riga è un incasso registrato: questi sono soldi sul conto, non previsioni.",
+          ? `Soldi entrati in ${nomeMese}. Il totale toglie anche i rimborsi usciti in ${nomeMese} su ricevute di mesi prima: è la cassa, non la somma delle righe.`
+          : "Soldi entrati dal primo del mese. Il totale toglie anche i rimborsi usciti in questi giorni su ricevute di mesi prima: è la cassa, non la somma delle righe.",
         righe: utili.map((r) => ({
           etichetta: r.profiles?.full_name ?? "—",
           dettaglio: [
-            data(r.created_at),
+            data(r.incassato_at ?? r.created_at),
             r.fic_number ? `fattura n. ${r.fic_number}` : "ricevuta",
             r.rimborsato_at
               ? `rimborsati ${(r.rimborsato_cents ?? 0) / 100 === r.amount_cents / 100 ? "tutti i" : ""} ${((r.rimborsato_cents ?? 0) / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })} il ${data(r.rimborsato_at)}`
@@ -143,7 +154,7 @@ export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false, 
           importoCents: netto(r),
           href: r.user_id ? `/admin/abbonati/${r.user_id}` : undefined,
         })),
-        totaleCents: utili.reduce((t, r) => t + netto(r), 0),
+        totaleCents: cassa.nettoCents,
       };
     }
 

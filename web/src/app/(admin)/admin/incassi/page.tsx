@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { createServiceClient } from "@/lib/supabase/server";
+import { cassaTraLe } from "@/lib/cassa";
 import { ficMode } from "@/lib/fic";
 import { riemettiFattura, importaIncassi, rimborsaIncasso } from "@/lib/actions/fatture";
-import { fmtFull } from "@/lib/format";
+import { fmtFull, romeLocalToISO } from "@/lib/format";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 
 export const dynamic = "force-dynamic";
@@ -51,15 +52,25 @@ const ETICHETTA: Record<string, string> = {
   saltata: "Ricevuta",
 };
 
-/** Estremi ISO del periodo. `dal`/`al` sono giorni civili italiani (YYYY-MM-DD);
- *  `al` è inclusivo, quindi arriva a fine giornata. */
+/** Estremi ISO del periodo. `dal`/`al` sono giorni civili **italiani**
+ *  (YYYY-MM-DD); `al` è inclusivo, quindi arriva a fine giornata.
+ *
+ *  Gli estremi si costruiscono dall'ora di Roma e non da `T00:00:00.000Z`:
+ *  mezzanotte UTC in Italia sono le due del mattino, e un incasso fatto fra
+ *  l'una e le due dell'ultimo giorno del mese finiva fuori dal periodo che lo
+ *  conteneva. */
 function periodo(dal?: string, al?: string): { da: string | null; a: string | null } {
   const valido = (d?: string) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null);
   const d = valido(dal);
   const a = valido(al);
+  const giornoDopo = (giorno: string) => {
+    const x = new Date(`${giorno}T12:00:00.000Z`);
+    x.setUTCDate(x.getUTCDate() + 1);
+    return x.toISOString().slice(0, 10);
+  };
   return {
-    da: d ? `${d}T00:00:00.000Z` : null,
-    a: a ? new Date(new Date(`${a}T00:00:00.000Z`).getTime() + 86_400_000).toISOString() : null,
+    da: d ? romeLocalToISO(`${d}T00:00`) : null,
+    a: a ? romeLocalToISO(`${giornoDopo(a)}T00:00`) : null,
   };
 }
 
@@ -88,8 +99,12 @@ export default async function IncassiPage({
   // **del tutto**, e una ricevuta da 60 € con 4 € resi è ancora viva. Filtrarla
   // nella query la faceva sparire dall'elenco, e con lei il bottone per
   // restituire il resto.
-  if (da) q = q.gte("created_at", da);
-  if (a) q = q.lt("created_at", a);
+  // Per **la data dei soldi**, non per quella della riga: è la stessa regola
+  // della Home e del grafico, e sta in `cassa.ts`. Prima qui si filtrava per
+  // `created_at`, che su una riga nata da un webhook ritentato è il giorno
+  // dopo — e il totale di questa pagina non coincideva con quello della Home.
+  if (da) q = q.gte("incassato_at", da);
+  if (a) q = q.lt("incassato_at", a);
   // Il tipo di documento è lo stato della riga: "saltata" = solo ricevuta.
   if (tipo === "ricevuta") q = q.eq("stato", "saltata");
   if (tipo === "fattura") q = q.eq("stato", "emessa");
@@ -99,9 +114,14 @@ export default async function IncassiPage({
   const resaPerIntero = (r: Riga) => (r.rimborsato_cents ?? 0) >= r.amount_cents;
   const righe = (data ?? []).filter((r) => mostraRimborsate || !resaPerIntero(r));
 
-  // Il totale toglie quello che è tornato indietro anche quando le righe sono a
-  // schermo: un rimborso parziale lascia la ricevuta valida per il resto.
-  const totale = righe.reduce((t, r) => t + r.amount_cents - (r.rimborsato_cents ?? 0), 0);
+  // Il totale è **la cassa del periodo**, calcolata dove la calcolano tutti:
+  // entrate per il giorno in cui sono entrate, rimborsi per il giorno in cui
+  // sono usciti. Non si somma riga per riga, e il motivo è un caso vero: il 12
+  // ottobre sono stati resi 12,00 € su una ricevuta di settembre. Sommando le
+  // righe, quell'uscita toglieva da settembre — un mese già chiuso e già
+  // raccontato — e ottobre restava più alto del vero di 12,00 €.
+  const cassa = await cassaTraLe(svc, da, a);
+  const totale = cassa.nettoCents;
   const quanteRimborsate = righe.filter((r) => resaPerIntero(r)).length;
   const ricevute = righe.filter((r) => r.stato === "saltata").length;
   const fatture = righe.filter((r) => r.stato === "emessa").length;

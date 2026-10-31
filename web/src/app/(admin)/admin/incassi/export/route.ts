@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
+import { cassaTraLe } from "@/lib/cassa";
+import { romeLocalToISO } from "@/lib/format";
 
 /** Registro incassi in CSV: è il file che si manda al commercialista.
  *
@@ -19,6 +21,7 @@ type Riga = {
   amount_cents: number;
   stato: string;
   fic_number: string | null;
+  incassato_at: string | null;
   created_at: string;
   rimborsato_at: string | null;
   rimborsato_cents: number | null;
@@ -69,27 +72,41 @@ export async function GET(req: Request) {
   const svc = createServiceClient();
   let q = svc
     .from("invoices")
-    .select("stripe_invoice_id, amount_cents, stato, fic_number, created_at, rimborsato_at, rimborsato_cents, profiles(full_name, client_code)")
-    .order("created_at", { ascending: true });
+    .select("stripe_invoice_id, amount_cents, stato, fic_number, incassato_at, created_at, rimborsato_at, rimborsato_cents, profiles(full_name, client_code)")
+    .order("incassato_at", { ascending: true });
 
-  // Anche qui: un incasso restituito non è un incasso, e il commercialista che
-  // apre questo file non deve scoprirlo da solo.
-  if (!mostraRimborsate) q = q.is("rimborsato_at", null);
   const d = giorno(dal);
   const a = giorno(al);
-  if (d) q = q.gte("created_at", `${d}T00:00:00.000Z`);
+  // Per la data dei soldi e con i confini italiani, come la pagina da cui si
+  // scarica: un file che non torna con quello che si vede a schermo è un file
+  // che qualcuno ricontrollerà a mano.
+  const dalIso = d ? romeLocalToISO(`${d}T00:00`) : null;
+  const giornoDopo = (giorno: string) => {
+    const x = new Date(`${giorno}T12:00:00.000Z`);
+    x.setUTCDate(x.getUTCDate() + 1);
+    return x.toISOString().slice(0, 10);
+  };
   // `al` è inclusivo: si arriva a fine giornata.
-  if (a) q = q.lt("created_at", new Date(new Date(`${a}T00:00:00.000Z`).getTime() + 86_400_000).toISOString());
+  const alIso = a ? romeLocalToISO(`${giornoDopo(a)}T00:00`) : null;
+  if (dalIso) q = q.gte("incassato_at", dalIso);
+  if (alIso) q = q.lt("incassato_at", alIso);
   if (tipo === "ricevuta") q = q.eq("stato", "saltata");
   if (tipo === "fattura") q = q.eq("stato", "emessa");
   if (tipo === "richiesta") q = q.in("stato", ["da_emettere", "errore"]);
 
   const { data } = await q.returns<Riga[]>();
-  const righe = data ?? [];
+  // Si nascondono solo quelle rese **per intero**, come in pagina. Prima
+  // sparivano anche le parziali: una ricevuta da 60 € con 4 € resi usciva dal
+  // file insieme ai suoi 56 € ancora incassati.
+  const resaPerIntero = (r: Riga) => (r.rimborsato_cents ?? 0) >= r.amount_cents;
+  const righe = (data ?? []).filter((r) => mostraRimborsate || !resaPerIntero(r));
 
   const lordoTot = righe.reduce((t, r) => t + r.amount_cents, 0);
   const rimborsatoTot = righe.reduce((t, r) => t + (r.rimborsato_cents ?? 0), 0);
-  const totale = lordoTot - rimborsatoTot;
+  // Il totale è la cassa del periodo, calcolata una volta sola per tutti in
+  // `cassa.ts`: comprende anche i rimborsi usciti ora su ricevute di prima,
+  // che riga per riga non si vedrebbero.
+  const totale = (await cassaTraLe(svc, dalIso, alIso)).nettoCents;
   // Scorporo: gli importi Stripe sono lordi, l'imponibile è il lordo / 1,22.
   // Si scorpora il **netto**, non il lordo: su un incasso restituito non si
   // deve nessuna IVA.
@@ -109,7 +126,7 @@ export async function GET(req: Request) {
             ? "Ricevuta — rimborsata per intero"
             : "Ricevuta";
       return [
-        fmtData(r.created_at),
+        fmtData(r.incassato_at ?? r.created_at),
         r.stripe_invoice_id ?? "",
         r.profiles?.full_name ?? "",
         r.profiles?.client_code ?? "",

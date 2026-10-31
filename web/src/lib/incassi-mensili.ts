@@ -1,6 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
-import { incassiStripePerMese, rimborsiPerMese, type PezzoIncasso } from "@/lib/incassi-stripe";
+import { incassiStripePerMese, type PezzoIncasso } from "@/lib/incassi-stripe";
+import { cassaPerMese, CASSA_VUOTA } from "@/lib/cassa";
 import { rinnoviDelMese, type SubPerRinnovo } from "@/lib/rinnovi-mese";
 
 /** Gli incassi mese per mese, per il grafico a barre della Home.
@@ -38,10 +39,6 @@ export type MeseIncassi = {
   rinnoviAttesi: number;
 };
 
-/** Da dove escono i numeri. Serve a dirlo in pagina: un totale non verificabile
- *  vale meno di un totale che dichiara la propria fonte. */
-export type FonteIncassi = "stripe" | "registro";
-
 /** Anno e mese in ora di Roma: usare `getMonth()` sposterebbe di un mese chi
  *  guarda il primo del mese a mezzanotte e mezza. */
 function annoMeseRoma(d: Date): { anno: number; mese: number } {
@@ -61,48 +58,34 @@ export async function incassiMensili(includiProva = false, quantiMesi = 12): Pro
   const daMese = ((oggi.mese - (quantiMesi - 1) - 1 + 12) % 12) + 1;
   const dallIso = new Date(Date.UTC(daAnno, daMese - 1, 1)).toISOString();
 
-  // Prima si chiede a Stripe, che è dove i soldi arrivano davvero. La tabella
-  // `invoices` resta come ripiego, ma da sola non basta: si popola da un webhook
-  // che non arriva, quindi ogni mese risultava a zero mentre gli abbonamenti
-  // venivano pagati.
+  // **Il totale di ogni barra è la cassa**, la stessa che mostra il numero
+  // grande sopra il grafico: entrate per `incassato_at`, rimborsi per
+  // `rimborsato_at`. Prima il grafico leggeva Stripe e il numero grande anche,
+  // ma la pagina Incassi no — e le due cifre si contraddicevano in mezzo
+  // schermo. Adesso la fonte è una sola, per tutti.
+  const cassa = await cassaPerMese(svc, dallIso);
+
+  // A Stripe si chiede **solo di cosa è fatto** un mese: quanto di quel totale
+  // sono canoni e quanto extra. È un'informazione che il registro non ha — il
+  // `billing_reason` vive su Stripe — e non entra nel totale: se Stripe non
+  // risponde, la barra resta alta uguale e si colora di un pezzo solo.
   const pezzoDi = new Map<string, PezzoIncasso>();
   const daStripe = await incassiStripePerMese(Math.floor(new Date(dallIso).getTime() / 1000), pezzoDi);
 
-  // Stessa sottrazione della home e della pagina incassi: una barra che conta
-  // soldi già restituiti racconta una crescita che non c'è stata. I rimborsi si
-  // tolgono dal pezzo da cui erano entrati, così la pila resta onesta.
-  const rimborsiPerPezzo = new Map<string, { canoniCents: number; extraCents: number }>();
-  const rimborsi = await rimborsiPerMese(dallIso, pezzoDi, rimborsiPerPezzo);
-
   const per = new Map<string, { totaleCents: number; quanti: number; canoniCents: number; extraCents: number }>();
-  if (daStripe) {
-    for (const [k, v] of daStripe) {
-      const resi = rimborsiPerPezzo.get(k) ?? { canoniCents: 0, extraCents: 0 };
-      per.set(k, {
-        totaleCents: v.totaleCents - (rimborsi.get(k) ?? 0),
-        quanti: v.quanti,
-        canoniCents: Math.max(0, v.canoniCents - resi.canoniCents),
-        extraCents: Math.max(0, v.extraCents - resi.extraCents),
-      });
-    }
-  } else {
-    const { data: righe } = await svc
-      .from("invoices")
-      .select("amount_cents, created_at, profiles(is_test)")
-      .gte("created_at", dallIso)
-      .returns<{ amount_cents: number; created_at: string; profiles: { is_test: boolean } | null }[]>();
-    for (const r of righe ?? []) {
-      if (!includiProva && r.profiles?.is_test) continue;
-      const { anno, mese } = annoMeseRoma(new Date(r.created_at));
-      const k = chiaveDi(anno, mese);
-      const acc = per.get(k) ?? { totaleCents: 0, quanti: 0, canoniCents: 0, extraCents: 0 };
-      // Senza Stripe non si sa cos'era: finisce tutto nei canoni, che è il
-      // grosso, e la pila lo dice con una sola fetta.
-      acc.totaleCents += r.amount_cents ?? 0;
-      acc.canoniCents += r.amount_cents ?? 0;
-      acc.quanti++;
-      per.set(k, acc);
-    }
+  for (const [k, c] of cassa) {
+    // Gli extra: quelli che Stripe riconosce come fuori abbonamento, più i
+    // pagamenti singoli, che una fattura Stripe non ce l'hanno e sono extra
+    // per definizione. Il resto è canone — così la somma delle due fette fa
+    // sempre il totale, anche quando le due fonti non si trovano d'accordo.
+    const extraStripe = daStripe?.get(k)?.extraCents ?? 0;
+    const extra = Math.min(c.nettoCents, extraStripe + c.senzaFatturaCents);
+    per.set(k, {
+      totaleCents: c.nettoCents,
+      quanti: c.quanti,
+      canoniCents: Math.max(0, c.nettoCents - extra),
+      extraCents: Math.max(0, extra),
+    });
   }
 
   // I rinnovi ancora da incassare in questo mese. Si chiedono una volta sola,
@@ -117,7 +100,7 @@ export async function incassiMensili(includiProva = false, quantiMesi = 12): Pro
     const d = new Date(Date.UTC(oggi.anno, oggi.mese - 1 - i, 1));
     const { anno, mese } = annoMeseRoma(d);
     const k = chiaveDi(anno, mese);
-    const acc = per.get(k) ?? { totaleCents: 0, quanti: 0, canoniCents: 0, extraCents: 0 };
+    const acc = per.get(k) ?? { ...CASSA_VUOTA, totaleCents: 0, canoniCents: 0, extraCents: 0 };
     const corrente = anno === oggi.anno && mese === oggi.mese;
     out.push({
       chiave: k,

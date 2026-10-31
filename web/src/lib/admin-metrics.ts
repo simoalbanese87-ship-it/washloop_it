@@ -1,7 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { sacchiInLavorazione } from "@/lib/sacchi-in-lavorazione";
-import { incassiStripePerMese, rimborsiPerMese } from "@/lib/incassi-stripe";
+import { cassaTraLe, confiniMeseRoma, meseCorrente } from "@/lib/cassa";
 import { waitlistLeads } from "@/lib/waitlist";
 import { eRicavoDiCompetenza } from "@/lib/categoria-addebito";
 
@@ -134,23 +134,20 @@ export async function revenueMetrics(includiProva = false): Promise<RevenueMetri
   const svc = createServiceClient();
   const { monthStart, yearStart } = bounds();
 
-  const [attivi, { data: specials }, { data: charges }, { data: incassi }] = await Promise.all([
+  // La cassa: una sola regola, la stessa di ogni pagina che mostra incassi —
+  // si conta per il giorno in cui i soldi si muovono, e vale tutto quello che è
+  // passato dal conto, fattura Stripe o pagamento singolo. Sta in `cassa.ts`,
+  // col perché per esteso.
+  const mese = confiniMeseRoma(meseCorrente());
+  const [attivi, { data: specials }, { data: charges }, cassaMese, cassaAnno] = await Promise.all([
     abbonamentiAttivi(includiProva),
     svc.from("order_specials").select("price_cli_cents, qty, created_at, refunded_at, orders(status)").gte("created_at", yearStart)
       .returns<{ price_cli_cents: number; qty: number; created_at: string; refunded_at: string | null; orders: { status: string } | null }[]>(),
     svc.from("customer_charges").select("amount_cents, kind, status, categoria, created_at").neq("status", "void").gte("created_at", yearStart)
       .returns<{ amount_cents: number; kind: string; status: string; categoria: string | null; created_at: string }[]>(),
-    svc.from("invoices").select("amount_cents, created_at, profiles(is_test)").gte("created_at", yearStart)
-      .returns<{ amount_cents: number; created_at: string; profiles: { is_test: boolean } | null }[]>(),
+    cassaTraLe(svc, mese.dalIso, mese.alIso),
+    cassaTraLe(svc, yearStart),
   ]);
-
-  // Gli incassi veri li sa Stripe. La tabella `invoices` si popola da un webhook
-  // che non arriva, quindi da sola dava zero mentre gli abbonamenti venivano
-  // pagati: resta come ripiego se Stripe non risponde.
-  const stripePerMese = await incassiStripePerMese(Math.floor(new Date(yearStart).getTime() / 1000));
-  // Quello che è tornato indietro non è incassato, da qualunque fonte venga il
-  // totale: Stripe lascia la fattura «pagata» anche dopo un rimborso.
-  const rimborsi = await rimborsiPerMese(yearStart);
 
   // Solo i paganti. Chi è in prova gratuita prenota e viene servito, ma non
   // versa ancora niente: sommarlo al prezzo pieno gonfierebbe il ricorrente di
@@ -184,23 +181,8 @@ export async function revenueMetrics(includiProva = false): Promise<RevenueMetri
     if (c.created_at >= monthStart) extraMonthCents += v;
   }
 
-  let incassatoMeseCents = 0, incassatoAnnoCents = 0;
-  if (stripePerMese) {
-    const meseCorrente = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit" })
-      .format(new Date())
-      .slice(0, 7);
-    for (const [k, v] of stripePerMese) {
-      const netto = v.totaleCents - (rimborsi.get(k) ?? 0);
-      incassatoAnnoCents += netto;
-      if (k === meseCorrente) incassatoMeseCents += netto;
-    }
-  } else {
-    for (const i of incassi ?? []) {
-      if (!includiProva && i.profiles?.is_test) continue;
-      incassatoAnnoCents += i.amount_cents ?? 0;
-      if (i.created_at >= monthStart) incassatoMeseCents += i.amount_cents ?? 0;
-    }
-  }
+  const incassatoMeseCents = cassaMese.nettoCents;
+  const incassatoAnnoCents = cassaAnno.nettoCents;
 
   return { coreMrrCents, coreYearProjCents: coreMrrCents * 12, extraMonthCents, extraYearCents, incassatoMeseCents, incassatoAnnoCents };
 }
