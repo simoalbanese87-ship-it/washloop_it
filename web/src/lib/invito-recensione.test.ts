@@ -13,11 +13,11 @@ test("il nome si riduce al primo pezzo, con la maiuscola", () => {
 test("senza nome non si inventa un saluto vuoto", () => {
   assert.equal(nomeDiCortesia(null), null);
   assert.equal(nomeDiCortesia("   "), null);
-  assert.match(corpoInvito(null, NOVE), /^Da settembre abbiamo/);
+  assert.match(corpoInvito(null, NOVE), /^Da settembre ti abbiamo/);
 });
 
 test("l'apertura sono i suoi numeri, scritti a parole", () => {
-  assert.match(corpoInvito("Fabia", NOVE), /^Ciao Fabia, da settembre abbiamo ritirato e riportato <strong>nove sacchi<\/strong> tuoi\./);
+  assert.match(corpoInvito("Fabia", NOVE), /^Ciao Fabia, da settembre ti abbiamo ritirato e riportato <strong>nove sacchi<\/strong>\./);
 });
 
 test("un sacco solo non diventa «un sacchi»", () => {

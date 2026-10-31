@@ -72,8 +72,8 @@ export function aParole(n: number): string {
  *
  *  Quattro mosse, e sono tutte misurate altrove prima che qui:
  *
- *  - si apre con **i suoi numeri**, non con i nostri. «Da settembre abbiamo
- *    ritirato e riportato nove sacchi tuoi» rende la richiesta ovvia senza
+ *  - si apre con **i suoi numeri**, non con i nostri. «Da settembre ti
+ *    abbiamo ritirato e riportato nove sacchi» rende la richiesta ovvia senza
  *    doverla giustificare: chi ci ha usato nove volte sa già perché gli
  *    stiamo scrivendo. È anche l'unica riga che non potremmo scrivere se non
  *    lo fossimo davvero;
@@ -93,7 +93,7 @@ export function corpoInvito(nome: string | null, storia: StoriaCliente): string 
 
   const grezza =
     storia.sacchi >= 2
-      ? `${ciao}${da}abbiamo ritirato e riportato <strong>${aParole(storia.sacchi)} sacchi</strong> tuoi.`
+      ? `${ciao}${da}ti abbiamo ritirato e riportato <strong>${aParole(storia.sacchi)} sacchi</strong>.`
       : storia.sacchi === 1
         ? `${ciao}${da}ti abbiamo ritirato e riportato il primo sacco.`
         : `${ciao}${da}ritiriamo e riportiamo il tuo bucato.`;
