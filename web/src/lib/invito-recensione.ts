@@ -22,9 +22,10 @@
  *  Modulo puro e senza dipendenze: il testo si legge e si corregge qui, e i
  *  test lo tengono fermo. */
 
-export const OGGETTO_INVITO = "Due righe su Google?";
-export const TITOLO_INVITO = "Due righe su Google?";
-export const PREHEADER_INVITO = "Se è andata bene, una recensione vale più di qualsiasi pubblicità.";
+export const OGGETTO_INVITO = "Ci aiuti a crescere?";
+export const TITOLO_INVITO = "Ci aiuti a crescere?";
+export const PREHEADER_INVITO = "Su Google abbiamo una recensione sola. La seconda può essere la tua.";
+export const CTA_INVITO = "Scrivi due righe su Google";
 
 /** Il nome con cui si apre l'email.
  *
@@ -42,19 +43,32 @@ export function nomeDiCortesia(nomeCompleto: string | null | undefined): string 
 
 /** Il corpo dell'email, in HTML.
  *
- *  Tre cose, in quest'ordine: che cosa chiediamo, perché conta, e la via
- *  d'uscita per chi invece ha qualcosa da dirci in privato. L'ultima non è
- *  gentilezza: chiedere una recensione senza offrire un canale privato è il
- *  modo in cui una lamentela diventa pubblica. */
+ *  Perché è scritta così
+ *  ---------------------
+ *  Non si chiede una recensione: si chiede una mano. È la stessa azione, ma
+ *  «lasciaci una recensione» mette la persona al servizio di un nostro numero,
+ *  mentre «aiutaci a crescere» le dice che cosa cambia davvero — e per
+ *  un'attività di tre mesi è la verità, non una cortesia.
+ *
+ *  Il dato va detto preciso e va detto giusto: **una** recensione, non zero.
+ *  Un numero gonfiato al ribasso per fare pena si smonta da solo nel momento
+ *  in cui la persona clicca e vede la scheda.
+ *
+ *  Poi le tre righe nell'ordine che conta: chi siamo (piccoli, e si vede),
+ *  che cosa chiediamo (un minuto), e la porta sul retro per chi invece ha
+ *  qualcosa da ridire. L'ultima non è gentilezza: chiedere una recensione
+ *  senza offrire un canale privato è il modo in cui una lamentela diventa
+ *  pubblica. */
 export function corpoInvito(nome: string | null): string {
-  const saluto = nome ? `Ciao ${nome}, ti` : "Ti";
+  const saluto = nome ? `Ciao ${nome}, siamo` : "Siamo";
   return (
-    `${saluto} scriviamo per una cosa sola, e piccola: su Google WashLoop non ha ancora nessuna recensione.` +
-    `<br/><br/>Il giro l'hai visto tutto — il ritiro sotto casa, il lavaggio, il sacco che torna. ` +
-    `Se è andata bene, due righe su Google ci aiutano più di qualsiasi pubblicità: siamo pochissimi, ` +
-    `e chi ci cerca per ora trova una scheda vuota.` +
-    `<br/><br/>Ci vuole un minuto. Se invece qualcosa non è andato come doveva, ` +
-    `<a href="mailto:info@washloop.it">scrivici</a>: preferiamo saperlo noi.`
+    `${saluto} partiti da pochi mesi e siamo in pochissimi: nessun negozio, nessun call center. ` +
+    `I sacchi li ritiriamo e li riportiamo noi.` +
+    `<br/><br/>Per crescere ci serve una cosa che non si compra — quello che dice chi ci ha già provato. ` +
+    `Su Google per ora abbiamo <strong>una recensione sola</strong>: la seconda potrebbe essere la tua.` +
+    `<br/><br/>Ti porta via un minuto, e per un'attività piccola come la nostra conta più di qualsiasi ` +
+    `pubblicità. Se invece c'è qualcosa che non ha funzionato, <a href="mailto:info@washloop.it">scrivicelo</a> ` +
+    `prima: preferiamo saperlo noi e rimediare.`
   );
 }
 

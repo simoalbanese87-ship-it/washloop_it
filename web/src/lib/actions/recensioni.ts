@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { renderEmail, sendMail } from "@/lib/email";
 import {
+  CTA_INVITO,
   OGGETTO_INVITO,
   TITOLO_INVITO,
   PREHEADER_INVITO,
@@ -32,9 +33,8 @@ export async function anteprimaInvito(nomeCompleto: string | null, unsubUrl: str
   return renderEmail({
     title: TITOLO_INVITO,
     body: corpoInvito(nomeDiCortesia(nomeCompleto)),
-    emoji: "⭐",
     preheader: PREHEADER_INVITO,
-    cta: link ? { label: "Lascia una recensione", href: link } : undefined,
+    cta: link ? { label: CTA_INVITO, href: link } : undefined,
     footerNote: NOTA_FONDO_INVITO,
     unsubUrl,
   });
