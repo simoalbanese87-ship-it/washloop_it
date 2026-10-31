@@ -125,7 +125,8 @@ export type RevenueMetrics = {
   coreYearProjCents: number;
   extraMonthCents: number;
   extraYearCents: number;
-  /** Soldi realmente arrivati su Stripe nel mese / nell'anno. */
+  /** La cassa del mese / dell'anno: entrate meno rimborsi, contati per il
+   *  giorno in cui i soldi si sono mossi. La regola sta in `cassa.ts`. */
   incassatoMeseCents: number;
   incassatoAnnoCents: number;
 };

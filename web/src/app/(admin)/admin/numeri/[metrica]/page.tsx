@@ -44,7 +44,7 @@ export default async function DettaglioNumero({
               {d.totaleCents !== undefined ? eur(d.totaleCents) : (d.totaleQuantita ?? d.righe.length)}
             </div>
             <div className="mt-1 text-sm font-medium text-muted">
-              {d.righe.length} {d.righe.length === 1 ? "voce" : "voci"} · la somma delle righe qui sotto
+              {d.totaleNonSommaRighe ?? `${d.righe.length} ${d.righe.length === 1 ? "voce" : "voci"} · la somma delle righe qui sotto`}
             </div>
           </div>
           <Link

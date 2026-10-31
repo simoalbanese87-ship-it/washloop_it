@@ -216,7 +216,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
         <Link href={`/admin/numeri/incassato-mese${includiProva ? "?prova=1" : ""}`} className="block rounded-[18px] border border-line bg-ice/50 p-5 transition-colors hover:border-navy/25">
           <div className="font-display text-[38px] font-black leading-none text-[#1F8A5B]">{eurCents(rev.incassatoMeseCents)}</div>
           <div className="mt-1.5 font-display text-sm font-extrabold text-navy">Incassato questo mese →</div>
-          <div className="text-xs font-medium text-muted">Soldi realmente arrivati su Stripe · {eurCents(rev.incassatoAnnoCents)} da inizio anno</div>
+          <div className="text-xs font-medium text-muted">Entrate meno rimborsi, per il giorno in cui i soldi si sono mossi · {eurCents(rev.incassatoAnnoCents)} da inizio anno</div>
         </Link>
 
         <GraficoIncassi mesi={mesiIncassi} prova={includiProva} />

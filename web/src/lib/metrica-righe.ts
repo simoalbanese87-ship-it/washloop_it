@@ -27,6 +27,11 @@ export type RigaMetrica = {
 export type DettaglioMetrica = {
   titolo: string;
   spiegazione: string;
+  /** Il totale **non** è la somma delle righe, e la pagina non deve dire che
+   *  lo è. Succede sugli incassi: un rimborso uscito questo mese su una
+   *  ricevuta di un altro toglie dal totale senza avere una riga qui dentro.
+   *  Una cifra che non torna con l'elenco sotto va spiegata, non nascosta. */
+  totaleNonSommaRighe?: string;
   righe: RigaMetrica[];
   totaleCents?: number;
   totaleQuantita?: number;
@@ -155,6 +160,10 @@ export async function righeMetrica(chiave: ChiaveMetrica, includiProva = false, 
           href: r.user_id ? `/admin/abbonati/${r.user_id}` : undefined,
         })),
         totaleCents: cassa.nettoCents,
+        totaleNonSommaRighe:
+          cassa.nettoCents === utili.reduce((t, r) => t + netto(r), 0)
+            ? undefined
+            : `${utili.length} ${utili.length === 1 ? "voce" : "voci"} · il totale toglie anche i rimborsi usciti in questi giorni su ricevute di prima`,
       };
     }
 
