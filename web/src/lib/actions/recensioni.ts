@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { renderEmail, sendMail } from "@/lib/email";
+import { candidatiRecensione } from "@/lib/candidati-recensione";
 import {
   CTA_INVITO,
   OGGETTO_INVITO,
@@ -12,6 +13,7 @@ import {
   NOTA_FONDO_INVITO,
   corpoInvito,
   nomeDiCortesia,
+  type StoriaCliente,
 } from "@/lib/invito-recensione";
 
 async function requireAdmin() {
@@ -28,11 +30,15 @@ const linkRecensione = () => process.env.GOOGLE_REVIEW_URL?.trim() || null;
  *  Esportata perché la pagina del pannello mostra **esattamente** questo HTML
  *  in un riquadro: un'anteprima ricostruita a parte è un'anteprima che prima o
  *  poi dice una cosa diversa da quella che parte. */
-export async function anteprimaInvito(nomeCompleto: string | null, unsubUrl: string): Promise<string> {
+export async function anteprimaInvito(
+  nomeCompleto: string | null,
+  storia: StoriaCliente,
+  unsubUrl: string,
+): Promise<string> {
   const link = linkRecensione();
   return renderEmail({
     title: TITOLO_INVITO,
-    body: corpoInvito(nomeDiCortesia(nomeCompleto)),
+    body: corpoInvito(nomeDiCortesia(nomeCompleto), storia),
     preheader: PREHEADER_INVITO,
     cta: link ? { label: CTA_INVITO, href: link } : undefined,
     footerNote: NOTA_FONDO_INVITO,
@@ -84,12 +90,22 @@ export async function mandaCopiaDiProva(formData: FormData): Promise<void> {
   const svc = createServiceClient();
   const destinatario = await destinatarioDi(svc, a);
   if (!destinatario) throw new Error(`${a} non è né un cliente né un lead: non ho un link di disiscrizione da metterci.`);
-  const { nome, unsubUrl } = destinatario;
+  const { unsubUrl } = destinatario;
+
+  // La prova non è un fac-simile: mostra l'email del primo della lista, numeri
+  // suoi compresi. Un'anteprima con dati finti nasconde proprio la riga che
+  // può venire storta — quella che dice quanti sacchi.
+  const { daInvitare } = await candidatiRecensione(svc);
+  const esempio = daInvitare[0];
 
   await sendMail({
     to: a,
     subject: `[prova] ${OGGETTO_INVITO}`,
-    html: await anteprimaInvito(nome, unsubUrl),
+    html: await anteprimaInvito(
+      esempio?.nome ?? destinatario.nome,
+      esempio?.storia ?? { sacchi: 0, meseDiPartenza: null },
+      unsubUrl,
+    ),
     kind: "marketing",
     unsubUrl,
   });
@@ -120,6 +136,10 @@ export async function mandaInvito(formData: FormData): Promise<void> {
   if (!profilo) throw new Error("Cliente non trovato.");
   if (profilo.recensione_chiesta_at) throw new Error("A questa persona l'invito è già stato chiesto.");
 
+  const { daInvitare } = await candidatiRecensione(svc);
+  const storia = daInvitare.find((c) => c.id === id)?.storia;
+  if (!storia) throw new Error("Questo cliente non ha consegne: non c'è niente da raccontare.");
+
   const { data: email } = await svc.auth.admin.getUserById(id);
   const indirizzo = email?.user?.email?.trim().toLowerCase();
   if (!indirizzo) throw new Error("Questo cliente non ha un indirizzo email.");
@@ -137,7 +157,7 @@ export async function mandaInvito(formData: FormData): Promise<void> {
   await sendMail({
     to: indirizzo,
     subject: OGGETTO_INVITO,
-    html: await anteprimaInvito(profilo.full_name, unsubUrl),
+    html: await anteprimaInvito(profilo.full_name, storia, unsubUrl),
     kind: "marketing",
     unsubUrl,
   });

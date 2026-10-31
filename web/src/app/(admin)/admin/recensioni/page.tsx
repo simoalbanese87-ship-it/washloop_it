@@ -1,41 +1,10 @@
 import { Card, PageTitle } from "@/components/app/AppShell";
 import { BottoneInvio } from "@/components/ui/BottoneInvio";
 import { createServiceClient } from "@/lib/supabase/server";
-import { abbonamentoVivo } from "@/lib/puo-prenotare";
+import { candidatiRecensione } from "@/lib/candidati-recensione";
 import { anteprimaInvito, mandaCopiaDiProva, mandaInvito } from "@/lib/actions/recensioni";
 
 export const dynamic = "force-dynamic";
-
-type Profilo = {
-  id: string;
-  full_name: string | null;
-  client_code: string | null;
-  is_test: boolean | null;
-  recensione_chiesta_at: string | null;
-};
-
-type Ordine = { customer_id: string | null; status: string; delivery_slot_id: string | null };
-type Abbonamento = { user_id: string; status: string; cancel_at: string | null };
-
-/** Chi ha un abbonamento ancora in piedi.
- *
- *  Due campi, non uno: `cancel_at` è la data in cui l'abbonamento finisce, e
- *  fino a quel giorno lo stato su Stripe resta `active`. Guardarne uno solo fa
- *  risultare attivo chi ha già disdetto.
- *
- *  Chi ha due abbonamenti — uno chiuso e uno nuovo — è un cliente attivo, non
- *  un cliente perso: basta che uno dei due sia vivo.
- *
- *  Sta fuori dal componente perché legge l'ora, e una pagina che legge l'ora
- *  mentre disegna non è pura. */
-function chiHaUnAbbonamentoVivo(abbonamenti: Abbonamento[], ora = Date.now()): Set<string> {
-  const vivi = new Set<string>();
-  for (const s of abbonamenti) {
-    const scaduto = s.cancel_at != null && Date.parse(s.cancel_at) <= ora;
-    if (abbonamentoVivo(s.status) && !scaduto) vivi.add(s.user_id);
-  }
-  return vivi;
-}
 
 const giorno = (iso: string | null) =>
   iso
@@ -64,53 +33,17 @@ const giorno = (iso: string | null) =>
  *  quella che parte. */
 export default async function RecensioniPage() {
   const svc = createServiceClient();
+  const { daInvitare, invitati } = await candidatiRecensione(svc);
 
-  const [{ data: profili }, { data: ordini }, { data: abbonamenti }] = await Promise.all([
-    svc.from("profiles").select("id, full_name, client_code, is_test, recensione_chiesta_at").returns<Profilo[]>(),
-    svc.from("orders").select("customer_id, status, delivery_slot_id").returns<Ordine[]>(),
-    svc.from("subscriptions").select("user_id, status, cancel_at").returns<Abbonamento[]>(),
-  ]);
-
-  const consegne = new Map<string, number>();
-  const fasceDaLeggere = new Map<string, string[]>();
-  for (const o of ordini ?? []) {
-    if (!o.customer_id || !["delivered", "completed"].includes(o.status)) continue;
-    consegne.set(o.customer_id, (consegne.get(o.customer_id) ?? 0) + 1);
-    if (o.delivery_slot_id) {
-      fasceDaLeggere.set(o.customer_id, [...(fasceDaLeggere.get(o.customer_id) ?? []), o.delivery_slot_id]);
-    }
-  }
-
-  const idFasce = [...new Set([...fasceDaLeggere.values()].flat())];
-  const { data: fasce } = idFasce.length
-    ? await svc.from("slots").select("id, starts_at").in("id", idFasce).returns<{ id: string; starts_at: string }[]>()
-    : { data: [] as { id: string; starts_at: string }[] };
-  const quando = new Map((fasce ?? []).map((f) => [f.id, f.starts_at]));
-
-  const vivo = chiHaUnAbbonamentoVivo(abbonamenti ?? []);
-
-  const righe = (profili ?? [])
-    .filter((p) => !p.is_test && (consegne.get(p.id) ?? 0) > 0)
-    .map((p) => {
-      const date = (fasceDaLeggere.get(p.id) ?? []).map((id) => quando.get(id)).filter((d): d is string => !!d);
-      const ultima = date.sort().at(-1) ?? null;
-      return {
-        ...p,
-        consegne: consegne.get(p.id) ?? 0,
-        ultima,
-        attivo: vivo.has(p.id),
-      };
-    })
-    .sort((a, b) => (b.ultima ?? "").localeCompare(a.ultima ?? ""));
-
-  const daInvitare = righe.filter((r) => !r.recensione_chiesta_at);
-  const invitati = righe.filter((r) => r.recensione_chiesta_at);
-
-  // L'anteprima si guarda con un nome vero, non con «Mario Rossi»: il saluto è
-  // la prima riga che si legge, ed è l'unica cosa che cambia da persona a
-  // persona.
-  const esempio = daInvitare[0]?.full_name ?? "Fabia Marconi";
-  const html = await anteprimaInvito(esempio, "https://washloop.it/api/email/unsubscribe?t=anteprima");
+  // L'anteprima si guarda con un cliente vero, numeri compresi: è la riga che
+  // dice «nove sacchi» quella che può venire storta, e con un nome finto non
+  // la si vedrebbe mai.
+  const esempio = daInvitare[0];
+  const html = await anteprimaInvito(
+    esempio?.nome ?? "Fabia Marconi",
+    esempio?.storia ?? { sacchi: 9, meseDiPartenza: "settembre" },
+    "https://washloop.it/api/email/unsubscribe?t=anteprima",
+  );
 
   const configurata = !!process.env.GOOGLE_REVIEW_URL?.trim();
 
@@ -187,19 +120,19 @@ export default async function RecensioniPage() {
                 key={r.id}
                 className="flex flex-wrap items-center gap-3 rounded-[16px] border border-line bg-ice px-4 py-3"
               >
-                <span className="font-display text-sm font-extrabold text-navy">{r.full_name ?? "Cliente"}</span>
+                <span className="font-display text-sm font-extrabold text-navy">{r.nome ?? "Cliente"}</span>
                 <span className="rounded-full bg-white px-2.5 py-1 font-display text-xs font-bold text-navy">
-                  {r.client_code ?? "—"}
+                  {r.codice ?? "—"}
                 </span>
                 <span
                   className={`rounded-full px-2.5 py-1 font-display text-xs font-bold ${
-                    r.attivo ? "bg-[#1F8A5B]/15 text-[#1F8A5B]" : "bg-[#C0392B]/12 text-[#C0392B]"
+                    r.abbonamentoVivo ? "bg-[#1F8A5B]/15 text-[#1F8A5B]" : "bg-[#C0392B]/12 text-[#C0392B]"
                   }`}
                 >
-                  {r.attivo ? "Abbonamento attivo" : "Abbonamento chiuso"}
+                  {r.abbonamentoVivo ? "Abbonamento attivo" : "Abbonamento chiuso"}
                 </span>
                 <span className="text-xs font-medium text-muted">
-                  {r.consegne} {r.consegne === 1 ? "consegna" : "consegne"} · ultima {giorno(r.ultima)}
+                  {r.consegne} {r.consegne === 1 ? "consegna" : "consegne"} · ultima {giorno(r.ultimaConsegna)}
                 </span>
                 <form action={mandaInvito} className="ml-auto">
                   <input type="hidden" name="id" value={r.id} />
@@ -224,9 +157,9 @@ export default async function RecensioniPage() {
           <div className="mt-3 space-y-2">
             {invitati.map((r) => (
               <div key={r.id} className="flex flex-wrap items-center gap-3 px-1 py-1.5">
-                <span className="font-display text-sm font-extrabold text-navy">{r.full_name ?? "Cliente"}</span>
+                <span className="font-display text-sm font-extrabold text-navy">{r.nome ?? "Cliente"}</span>
                 <span className="text-xs font-medium text-muted">
-                  invitato il {giorno(r.recensione_chiesta_at)} · {r.consegne}{" "}
+                  invitato il {giorno(r.chiestaAt)} · {r.consegne}{" "}
                   {r.consegne === 1 ? "consegna" : "consegne"}
                 </span>
               </div>

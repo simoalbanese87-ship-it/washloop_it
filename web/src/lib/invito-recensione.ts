@@ -22,10 +22,10 @@
  *  Modulo puro e senza dipendenze: il testo si legge e si corregge qui, e i
  *  test lo tengono fermo. */
 
-export const OGGETTO_INVITO = "Ci aiuti a crescere?";
-export const TITOLO_INVITO = "Ci aiuti a crescere?";
-export const PREHEADER_INVITO = "Su Google abbiamo una recensione sola. La seconda può essere la tua.";
-export const CTA_INVITO = "Scrivi due righe su Google";
+export const OGGETTO_INVITO = "Com'è andata finora?";
+export const TITOLO_INVITO = "Com'è andata finora?";
+export const PREHEADER_INVITO = "Se ti va, raccontalo su Google: bastano trenta secondi.";
+export const CTA_INVITO = "Racconta com'è andata";
 
 /** Il nome con cui si apre l'email.
  *
@@ -41,34 +41,72 @@ export function nomeDiCortesia(nomeCompleto: string | null | undefined): string 
   return primo.charAt(0).toUpperCase() + primo.slice(1);
 }
 
+/** I numeri di quella persona, quelli veri. */
+export type StoriaCliente = {
+  /** Sacchi già ritirati e riportati. */
+  sacchi: number;
+  /** Il mese del primo ritiro, già scritto a parole: «settembre». */
+  meseDiPartenza: string | null;
+};
+
+const PAROLA = [
+  "zero", "un", "due", "tre", "quattro", "cinque", "sei", "sette", "otto", "nove",
+  "dieci", "undici", "dodici", "tredici", "quattordici", "quindici", "sedici",
+  "diciassette", "diciotto", "diciannove", "venti",
+];
+
+/** Un numero piccolo si scrive a parole: «nove sacchi» si legge, «9 sacchi»
+ *  sembra una fattura. Sopra il venti si torna alle cifre. */
+export function aParole(n: number): string {
+  return n >= 0 && n <= 20 ? PAROLA[n] : String(n);
+}
+
 /** Il corpo dell'email, in HTML.
  *
  *  Perché è scritta così
  *  ---------------------
- *  Non si chiede una recensione: si chiede una mano. È la stessa azione, ma
- *  «lasciaci una recensione» mette la persona al servizio di un nostro numero,
- *  mentre «aiutaci a crescere» le dice che cosa cambia davvero — e per
- *  un'attività di tre mesi è la verità, non una cortesia.
+ *  Chiedere basta: fra chi riceve una richiesta, la grande maggioranza la
+ *  recensione la scrive. Il lavoro dell'email non è convincere — è chiedere in
+ *  chiaro e togliere ogni attrito. Un testo che argomenta troppo sposta
+ *  l'attenzione sul perché, che è un problema nostro.
  *
- *  Il dato va detto preciso e va detto giusto: **una** recensione, non zero.
- *  Un numero gonfiato al ribasso per fare pena si smonta da solo nel momento
- *  in cui la persona clicca e vede la scheda.
+ *  Quattro mosse, e sono tutte misurate altrove prima che qui:
  *
- *  Poi le tre righe nell'ordine che conta: chi siamo (piccoli, e si vede),
- *  che cosa chiediamo (un minuto), e la porta sul retro per chi invece ha
- *  qualcosa da ridire. L'ultima non è gentilezza: chiedere una recensione
- *  senza offrire un canale privato è il modo in cui una lamentela diventa
- *  pubblica. */
-export function corpoInvito(nome: string | null): string {
-  const saluto = nome ? `Ciao ${nome}, siamo` : "Siamo";
+ *  - si apre con **i suoi numeri**, non con i nostri. «Da settembre abbiamo
+ *    ritirato e riportato nove sacchi tuoi» rende la richiesta ovvia senza
+ *    doverla giustificare: chi ci ha usato nove volte sa già perché gli
+ *    stiamo scrivendo. È anche l'unica riga che non potremmo scrivere se non
+ *    lo fossimo davvero;
+ *  - **«le leggiamo tutte»**: la paura vera è scrivere nel vuoto;
+ *  - **aiuta chi deve scegliere**, non aiuta noi. Una richiesta che serve a
+ *    qualcun altro si accoglie meglio di una che serve a chi la fa;
+ *  - **il tempo detto in chiaro** — trenta secondi — e l'asticella bassa:
+ *    «va benissimo anche una riga».
+ *
+ *  Quello che non c'è, e di proposito: nessun numero di stelle suggerito e
+ *  nessuno sconto in cambio (Google vieta entrambi, e si vede lontano un
+ *  miglio), nessun lamento sulle nostre dimensioni, nessuna richiesta di
+ *  dirci che cosa non va — questa email chiede una cosa sola. */
+export function corpoInvito(nome: string | null, storia: StoriaCliente): string {
+  const ciao = nome ? `Ciao ${nome}, ` : "";
+  const da = storia.meseDiPartenza ? `da ${storia.meseDiPartenza} ` : "";
+
+  const grezza =
+    storia.sacchi >= 2
+      ? `${ciao}${da}abbiamo ritirato e riportato <strong>${aParole(storia.sacchi)} sacchi</strong> tuoi.`
+      : storia.sacchi === 1
+        ? `${ciao}${da}ti abbiamo ritirato e riportato il primo sacco.`
+        : `${ciao}${da}ritiriamo e riportiamo il tuo bucato.`;
+
+  // Senza nome la frase comincia dal «da settembre»: la maiuscola gliela
+  // rimettiamo qui, perché il saluto che la portava non c'è.
+  const apertura = ciao ? grezza : grezza.charAt(0).toUpperCase() + grezza.slice(1);
+
   return (
-    `${saluto} partiti da pochi mesi e siamo in pochissimi: nessun negozio, nessun call center. ` +
-    `I sacchi li ritiriamo e li riportiamo noi.` +
-    `<br/><br/>Per crescere ci serve una cosa che non si compra — quello che dice chi ci ha già provato. ` +
-    `Su Google per ora abbiamo <strong>una recensione sola</strong>: la seconda potrebbe essere la tua.` +
-    `<br/><br/>Ti porta via un minuto, e per un'attività piccola come la nostra conta più di qualsiasi ` +
-    `pubblicità. Se invece c'è qualcosa che non ha funzionato, <a href="mailto:info@washloop.it">scrivicelo</a> ` +
-    `prima: preferiamo saperlo noi e rimediare.`
+    `${apertura}` +
+    `<br/><br/>Se ti va, racconta su Google com'è andata. Le leggiamo tutte, una per una — e sono la prima ` +
+    `cosa che guarda chi sta decidendo se affidare il suo bucato a qualcuno che ancora non conosce.` +
+    `<br/><br/>Bastano trenta secondi. Va benissimo anche una riga.`
   );
 }
 
