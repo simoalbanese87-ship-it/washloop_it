@@ -116,5 +116,18 @@ export function corpoInvito(nome: string | null, storia: StoriaCliente): string 
  *  commerciale — e promette che non si ripete. La promessa è mantenuta dal
  *  codice: `recensione_chiesta_at` si scrive prima dell'invio, e sia
  *  l'automatismo sia il pannello saltano chi ce l'ha già. */
+/** La fascia che si mette in cima alle copie di prova.
+ *
+ *  Una prova mandata a un cliente vero è un'email vera che arriva nella sua
+ *  casella: deve capirlo nel primo secondo, senza aprire niente e senza
+ *  chiedersi se deve fare qualcosa. Per questo sta sopra al titolo, non in
+ *  fondo, e dice anche cosa succederà dopo. */
+export const BANNER_PROVA =
+  `<div style="margin:0 0 20px;padding:12px 16px;border-radius:12px;background:#FFF4D6;` +
+  `border:1px solid #E8C45A;font-size:14px;line-height:1.5;color:#7A5A12">` +
+  `<strong>Questa è una prova.</strong> La stiamo controllando prima di mandarla davvero: ` +
+  `puoi ignorarla. Se ti va di scrivere la recensione lo stesso, funziona — ma non serve.` +
+  `</div>`;
+
 export const NOTA_FONDO_INVITO =
   "Ricevi questa email perché sei cliente WashLoop. È una richiesta una tantum: non te la rimandiamo.";

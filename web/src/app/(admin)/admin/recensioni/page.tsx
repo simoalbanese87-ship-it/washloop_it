@@ -88,24 +88,47 @@ export default async function RecensioniPage() {
           srcDoc={html}
           className="mt-4 h-[620px] w-full rounded-[18px] border border-line bg-[#EEF3F9]"
         />
-        <form action={mandaCopiaDiProva} className="mt-4 flex flex-wrap items-center gap-2">
-          <input
-            type="email"
-            name="a"
-            required
-            placeholder="indirizzo per la copia di prova"
-            className="h-10 min-w-[16rem] flex-1 rounded-[12px] border-2 border-line bg-white px-3 text-sm font-semibold text-navy"
-          />
-          <BottoneInvio
-            attesa="Mando…"
-            className="rounded-full bg-navy px-4 py-2 font-display text-xs font-extrabold text-cyan"
-          >
-            Mandami una copia
-          </BottoneInvio>
+        <form action={mandaCopiaDiProva} className="mt-4 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="email"
+              name="a"
+              required
+              placeholder="a chi mandarla"
+              className="h-10 min-w-[16rem] flex-1 rounded-[12px] border-2 border-line bg-white px-3 text-sm font-semibold text-navy"
+            />
+            <input
+              type="email"
+              name="cc"
+              placeholder="in copia (facoltativo)"
+              className="h-10 min-w-[14rem] flex-1 rounded-[12px] border-2 border-line bg-white px-3 text-sm font-semibold text-navy"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="font-display text-xs font-bold text-navy/55">con i numeri di</label>
+            <select
+              name="dati"
+              defaultValue={esempio?.id ?? ""}
+              className="h-10 rounded-[12px] border-2 border-line bg-white px-2 text-sm font-semibold text-navy"
+            >
+              {[...daInvitare, ...invitati].map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome ?? "Cliente"} · {c.consegne} {c.consegne === 1 ? "sacco" : "sacchi"}
+                </option>
+              ))}
+            </select>
+            <BottoneInvio
+              attesa="Mando…"
+              className="ml-auto rounded-full bg-navy px-4 py-2 font-display text-xs font-extrabold text-cyan"
+            >
+              Manda la prova
+            </BottoneInvio>
+          </div>
         </form>
         <p className="mt-2 text-xs font-medium text-muted">
-          La copia di prova non segna nessuno come invitato. L&apos;indirizzo deve essere già nostro — un cliente o un
-          lead — altrimenti non c&apos;è un link di disiscrizione da metterci.
+          La prova non segna nessuno come invitato: chi la riceve resta nell&apos;elenco qui sotto. Porta in cima una
+          fascia gialla che dice che è una prova, e l&apos;oggetto lo ripete. L&apos;indirizzo deve essere già nostro —
+          un cliente o un lead — altrimenti non c&apos;è un link di disiscrizione da metterci.
         </p>
       </Card>
 

@@ -107,6 +107,7 @@ export async function sendMail({
   text,
   kind = "servizio",
   unsubUrl,
+  cc,
 }: {
   to: string;
   subject: string;
@@ -115,6 +116,12 @@ export async function sendMail({
   kind?: EmailKind;
   /** Obbligatorio per `kind: "marketing"`: la stessa URL che sta nel footer. */
   unsubUrl?: string;
+  /** In copia, per chi deve vedere l'email esattamente come la riceve il
+   *  destinatario. Esiste per le prove interne, non per le comunicazioni
+   *  vere: il controllo dei disiscritti e il link di disiscrizione valgono
+   *  per `to`, non per chi è in copia, e mettere un cliente in copia a
+   *  un altro cliente sarebbe mostrargli un indirizzo che non è suo. */
+  cc?: string;
 }) {
   if (kind === "marketing") {
     if (!unsubUrl) {
@@ -145,6 +152,7 @@ export async function sendMail({
       from: SMTP_FROM,
       replyTo: SMTP_REPLY_TO,
       to,
+      cc,
       subject,
       html,
       text: text ?? stripHtml(html),

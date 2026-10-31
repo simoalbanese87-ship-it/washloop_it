@@ -6,6 +6,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { renderEmail, sendMail } from "@/lib/email";
 import { candidatiRecensione } from "@/lib/candidati-recensione";
 import {
+  BANNER_PROVA,
   CTA_INVITO,
   OGGETTO_INVITO,
   TITOLO_INVITO,
@@ -34,11 +35,12 @@ export async function anteprimaInvito(
   nomeCompleto: string | null,
   storia: StoriaCliente,
   unsubUrl: string,
+  prova = false,
 ): Promise<string> {
   const link = linkRecensione();
   return renderEmail({
     title: TITOLO_INVITO,
-    body: corpoInvito(nomeDiCortesia(nomeCompleto), storia),
+    body: (prova ? BANNER_PROVA : "") + corpoInvito(nomeDiCortesia(nomeCompleto), storia),
     preheader: PREHEADER_INVITO,
     cta: link ? { label: CTA_INVITO, href: link } : undefined,
     footerNote: NOTA_FONDO_INVITO,
@@ -77,14 +79,22 @@ async function destinatarioDi(
   return { nome: lead.full_name, unsubUrl: `${site()}/api/email/unsubscribe?t=${lead.unsub_token}` };
 }
 
-/** Una copia di prova a un indirizzo scelto, senza toccare nessun cliente.
+/** Una copia di prova, senza toccare nessun cliente.
  *
- *  Non scrive `recensione_chiesta_at` e non guarda chi è il destinatario: serve
- *  a vedere com'è fatta l'email prima di mandarla a qualcuno per davvero. */
+ *  Non scrive `recensione_chiesta_at`: chi riceve la prova resta nell'elenco
+ *  di quelli da invitare, e l'invito vero gli arriverà lo stesso.
+ *
+ *  Tre cose si scelgono: a chi va, **con i numeri di chi** (perché la riga che
+ *  può venire storta è proprio quella dei sacchi, e con dati finti non la si
+ *  vedrebbe mai) e chi la riceve in copia. Se la prova va a un cliente vero,
+ *  la fascia in cima glielo dice prima di tutto il resto. */
 export async function mandaCopiaDiProva(formData: FormData): Promise<void> {
   await requireAdmin();
   const a = String(formData.get("a") ?? "").trim().toLowerCase();
+  const cc = String(formData.get("cc") ?? "").trim().toLowerCase() || undefined;
+  const conIDatiDi = String(formData.get("dati") ?? "").trim();
   if (!a.includes("@")) throw new Error("Indirizzo non valido.");
+  if (cc && !cc.includes("@")) throw new Error("L'indirizzo in copia non è valido.");
   if (!linkRecensione()) throw new Error("GOOGLE_REVIEW_URL non è configurata: l'email partirebbe senza il bottone.");
 
   const svc = createServiceClient();
@@ -92,19 +102,19 @@ export async function mandaCopiaDiProva(formData: FormData): Promise<void> {
   if (!destinatario) throw new Error(`${a} non è né un cliente né un lead: non ho un link di disiscrizione da metterci.`);
   const { unsubUrl } = destinatario;
 
-  // La prova non è un fac-simile: mostra l'email del primo della lista, numeri
-  // suoi compresi. Un'anteprima con dati finti nasconde proprio la riga che
-  // può venire storta — quella che dice quanti sacchi.
-  const { daInvitare } = await candidatiRecensione(svc);
-  const esempio = daInvitare[0];
+  const { daInvitare, invitati } = await candidatiRecensione(svc);
+  const tutti = [...daInvitare, ...invitati];
+  const esempio = (conIDatiDi && tutti.find((c) => c.id === conIDatiDi)) || daInvitare[0];
 
   await sendMail({
     to: a,
-    subject: `[prova] ${OGGETTO_INVITO}`,
+    cc,
+    subject: `[PROVA — non è l'email vera] ${OGGETTO_INVITO}`,
     html: await anteprimaInvito(
       esempio?.nome ?? destinatario.nome,
       esempio?.storia ?? { sacchi: 0, meseDiPartenza: null },
       unsubUrl,
+      true,
     ),
     kind: "marketing",
     unsubUrl,
