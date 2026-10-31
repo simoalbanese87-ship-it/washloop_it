@@ -38,7 +38,7 @@ const URL_PAGINA = "https://washloop.it/prezzi";
 export const metadata: Metadata = {
   title: "Prezzi e piani — lavanderia a domicilio a Milano",
   description:
-    "Quanto costa la lavanderia a domicilio a Milano: abbonamento da 160 €/mese con ritiro e riconsegna inclusi, più il listino dei capi pubblicato per intero.",
+    "Quanto costa la lavanderia a domicilio a Milano: abbonamenti da 122 €/mese con ritiro e riconsegna inclusi, più il listino dei capi pubblicato per intero.",
   alternates: { canonical: "/prezzi" },
   openGraph: {
     title: "Prezzi e piani — WashLoop",
@@ -176,6 +176,9 @@ export default async function Prezzi() {
   // lavanderia: è un altro lavoro — i capi li lavi tu — e in mezzo agli altri
   // tre sembrerebbe soltanto «la stessa cosa che costa meno».
   const pianiLavanderia = lista.filter((p) => p.servizio !== "stiro");
+  // Il piano di lavanderia da citare nei confronti: è quello che si paragona a
+  // una lavanderia a capo, non il solo stiro.
+  const pianoLavanderia = pianiLavanderia[0] ?? null;
   const pianoStiro = lista.find((p) => p.servizio === "stiro") ?? null;
   const perSettimana = (p: Piano) => Math.round(p.price_month_cents / SETTIMANE_AL_MESE);
   const perSacco = (p: Piano) => Math.round(p.price_month_cents / SETTIMANE_AL_MESE / p.bags_per_week);
@@ -642,10 +645,25 @@ export default async function Prezzi() {
           <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.02em] text-navy md:text-4xl">
             Perché il conto torna.
           </h2>
+          {/* Il numero si prende dal piano di lavanderia, non dalla seconda riga
+              dell'elenco. Fino al 31 ottobre qui c'era `lista[1]`: da quando i
+              piani in vetrina sono due, quella riga è il **solo stiro**, e la
+              frase metteva il prezzo a sacco dello stiro dentro un confronto
+              con la lavanderia completa — citando per di più un piano da due
+              sacchi che non si vende più. Un numero sbagliato su una pagina che
+              punta tutto sulla trasparenza è il danno peggiore che si possa
+              fare. E il prezzo di mercato adesso porta la sua fonte: una
+              rilevazione nostra, con la data, non un «si dice». */}
           <p className="mt-4 max-w-2xl text-base font-medium text-muted">
-            Una camicia in lavanderia a Milano costa tra i 3 e i 5 € tra lavaggio e stiro. Con un piano da due
-            sacchi, {lista[1] ? eur(perSacco(lista[1])) : "35 €"} a sacco coprono un borsone intero, stirato e
-            riconsegnato.
+            Una camicia lavata e stirata a Milano costa tra <strong className="text-navy">2,40 e 4,00 €</strong>:
+            l&apos;abbiamo verificato su{" "}
+            <Link href="/guide/quanto-costa-lavanderia-a-domicilio-milano" className="font-bold text-blue underline-offset-2 hover:underline">
+              13 lavanderie milanesi, il 29 ottobre 2026
+            </Link>
+            .{pianoLavanderia && (
+              <> Con {pianoLavanderia.name}, <strong className="text-navy">{eur(perSacco(pianoLavanderia))} a sacco</strong> coprono
+              un borsone intero: lavato, stirato, piegato e riportato a casa.</>
+            )}
           </p>
 
           <div className="mt-10 overflow-x-auto rounded-[18px] border border-line">

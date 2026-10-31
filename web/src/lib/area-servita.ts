@@ -94,9 +94,54 @@ export function faqJsonLd(faq: { q: string; a: string }[]) {
   };
 }
 
-/** Il servizio descritto dalla pagina. `offers` con il prezzo di partenza vero:
- *  160 €/mese è il piano Small a listino, non un numero d'effetto. */
-export function servizioJsonLd(nome: string, descrizione: string, url: string) {
+/** I due piani a listino, in euro al mese. Qui e non nel database perché i
+ *  dati strutturati si scrivono quando la pagina viene costruita, e una
+ *  lettura in più su ogni pagina pubblica per due numeri che cambiano una
+ *  volta all'anno non vale il suo costo. Se cambiano a listino, si cambiano
+ *  qui: sono due righe, e il commento dice perché esistono. */
+export const PREZZO_LAVANDERIA = 160;
+export const PREZZO_STIRO = 122;
+
+/** Il servizio descritto dalla pagina, col suo prezzo vero.
+ *
+ *  Fino al 31 ottobre 2026 qui c'era un solo `Offer` da 160 €, su **tutte** le
+ *  pagine: anche su quella del solo stiro, che costa 122. E le pagine
+ *  generali dicevano «da 160 €» mentre il piano più economico ne costa 122 —
+ *  chi confronta il testo con i dati strutturati trovava due prezzi minimi
+ *  diversi, che è esattamente il genere di incoerenza che Google nota.
+ *
+ *  Adesso: una pagina che parla di un servizio solo dichiara il prezzo di quel
+ *  servizio; una pagina che li racconta tutti e due dichiara un intervallo con
+ *  il minimo vero. */
+export function servizioJsonLd(
+  nome: string,
+  descrizione: string,
+  url: string,
+  /** Il prezzo da dichiarare. Un numero per una pagina di un servizio solo,
+   *  `"tutti"` per le pagine generali. Vuoto = tutti, che è il caso storico. */
+  prezzo: number | "tutti" = "tutti",
+) {
+  const offerta =
+    prezzo === "tutti"
+      ? {
+          "@type": "AggregateOffer",
+          priceCurrency: "EUR",
+          lowPrice: String(PREZZO_STIRO),
+          highPrice: String(PREZZO_LAVANDERIA),
+          offerCount: 2,
+        }
+      : {
+          "@type": "Offer",
+          priceCurrency: "EUR",
+          price: String(prezzo),
+          priceSpecification: {
+            "@type": "UnitPriceSpecification",
+            price: String(prezzo),
+            priceCurrency: "EUR",
+            unitText: "mese",
+          },
+        };
+
   return {
     "@type": "Service",
     name: nome,
@@ -108,18 +153,7 @@ export function servizioJsonLd(nome: string, descrizione: string, url: string) {
       { "@type": "City", name: "Milano" },
       ...COMUNI_SERVITI.map((c) => ({ "@type": "City", name: c })),
     ],
-    offers: {
-      "@type": "Offer",
-      priceCurrency: "EUR",
-      price: "160",
-      priceSpecification: {
-        "@type": "UnitPriceSpecification",
-        price: "160",
-        priceCurrency: "EUR",
-        unitText: "mese",
-      },
-      availableAtOrFrom: { "@id": "https://washloop.it/#attivita" },
-    },
+    offers: { ...offerta, availableAtOrFrom: { "@id": "https://washloop.it/#attivita" } },
   };
 }
 
@@ -137,12 +171,15 @@ export function graficoPagina(args: {
   descrizione: string;
   url: string;
   faq?: { q: string; a: string }[];
+  /** Il prezzo che questa pagina dichiara: un numero se parla di un servizio
+   *  solo, altrimenti l'intervallo dei due piani. */
+  prezzo?: number | "tutti";
 }) {
   return {
     "@context": "https://schema.org",
     "@graph": [
       attivitaJsonLd(),
-      servizioJsonLd(args.nomeServizio, args.descrizione, args.url),
+      servizioJsonLd(args.nomeServizio, args.descrizione, args.url, args.prezzo),
       ...(args.faq?.length ? [faqJsonLd(args.faq)] : []),
     ],
   };

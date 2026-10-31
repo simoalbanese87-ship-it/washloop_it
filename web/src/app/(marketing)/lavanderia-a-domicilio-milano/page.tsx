@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ButtonLink } from "@/components/ui/Button";
 import { Bubbles } from "@/components/marketing/Bubbles";
 import { JsonLd } from "@/components/marketing/JsonLd";
-import { ZONE_SERVITE, COMUNI_SERVITI, graficoPagina } from "@/lib/area-servita";
+import { ZONE_SERVITE, COMUNI_SERVITI, graficoPagina, PREZZO_LAVANDERIA } from "@/lib/area-servita";
 import { CAP_MILANO, CAP_COMUNI } from "@/lib/copertura";
 import { VerificaCap } from "@/components/lead/VerificaCap";
 import { OG_IMMAGINE } from "@/lib/og";
@@ -101,6 +101,7 @@ export default function LavanderiaADomicilioMilano() {
           descrizione:
             "Servizio di lavanderia a domicilio in abbonamento a Milano: ritiro settimanale sotto casa, lavaggio e stiratura professionali, riconsegna entro 3 giorni feriali.",
           url: URL_PAGINA,
+          prezzo: PREZZO_LAVANDERIA,
           faq: FAQ_PAGINA,
         })}
       />

@@ -33,7 +33,7 @@ export const metadata: Metadata = {
   // il marchio è già nel titolo, e senza questa riga usciva due volte.
   title: { absolute: "WashLoop — Lavanderia a domicilio a Milano, in abbonamento" },
   description:
-    "Lavanderia a domicilio a Milano in abbonamento: ritiro sotto casa un giorno fisso, lavaggio e stiro, riconsegna in 3 giorni. Da 160 €/mese, tutto incluso.",
+    "Lavanderia a domicilio a Milano in abbonamento: ritiro sotto casa un giorno fisso, lavaggio e stiro, riconsegna in 3 giorni. Da 122 €/mese, tutto incluso.",
   alternates: { canonical: "/" },
   openGraph: {
     title: "WashLoop — Lavanderia a domicilio a Milano",
@@ -279,7 +279,7 @@ export default async function Home() {
             </p>
             <CapCheck />
             <p className="mt-5 font-display text-sm font-bold text-white/45">
-              Piani da 160 €/mese · ritiro e consegna inclusi
+              Piani da 122 €/mese · ritiro e consegna inclusi
             </p>
           </div>
 

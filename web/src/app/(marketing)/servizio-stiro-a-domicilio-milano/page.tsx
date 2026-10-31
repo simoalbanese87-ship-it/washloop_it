@@ -3,7 +3,7 @@ import Image from "next/image";
 import { ButtonLink } from "@/components/ui/Button";
 import { Bubbles } from "@/components/marketing/Bubbles";
 import { JsonLd } from "@/components/marketing/JsonLd";
-import { ZONE_SERVITE, COMUNI_SERVITI, graficoPagina } from "@/lib/area-servita";
+import { ZONE_SERVITE, COMUNI_SERVITI, graficoPagina, PREZZO_STIRO } from "@/lib/area-servita";
 import { CAP_MILANO, CAP_COMUNI } from "@/lib/copertura";
 import { VerificaCap } from "@/components/lead/VerificaCap";
 import { createClient } from "@/lib/supabase/server";
@@ -124,6 +124,7 @@ export default async function ServizioStiroADomicilioMilano() {
           descrizione:
             "Servizio di stiro a domicilio a Milano in abbonamento: ritiro settimanale sotto casa dei capi già lavati, stiratura professionale e riconsegna piegata in 48 ore.",
           url: URL_PAGINA,
+          prezzo: PREZZO_STIRO,
           faq: FAQ_PAGINA,
         })}
       />
