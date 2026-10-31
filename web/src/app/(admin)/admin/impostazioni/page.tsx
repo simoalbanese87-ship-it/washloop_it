@@ -38,6 +38,7 @@ const GRUPPI: { titolo: string; nota: string; voci: { href: string; label: strin
       // quello che si cerca davvero quando si apre Impostazioni.
       { href: "/admin/seo", label: "Cantiere SEO", sub: "I lavori per farsi trovare: cosa manca, chi lo fa, dove si controlla" },
       { href: "/admin/crescita", label: "Crescita", sub: "Il perché: guide SEO, AISO e social" },
+      { href: "/admin/recensioni", label: "Recensioni Google", sub: "Chi ha ricevuto l'invito, e chi l'automatismo non raggiunge più" },
       { href: "/admin/inviti", label: "Porta un amico", sub: "Chi ha portato chi, i premi maturati e quelli da sistemare" },
       { href: "/admin/email", label: "Email inviate", sub: "Log delle consegne (Brevo)" },
       { href: "/admin/domande", label: "Cosa ci chiedono", sub: "Le domande fatte all'assistente, e quelle a cui non ha saputo rispondere" },
