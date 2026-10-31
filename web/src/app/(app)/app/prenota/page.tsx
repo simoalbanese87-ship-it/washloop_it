@@ -6,7 +6,7 @@ import { pickupCounts, deliveryCounts } from "@/lib/slots";
 import { oreDiLavorazione } from "@/lib/turnaround";
 import { dirittoAPrenotare, ritiriPerSettimana } from "@/lib/diritto-a-prenotare";
 import { settimanaRoma, giornoEsteso } from "@/lib/settimana-roma";
-import { puoPrenotare } from "@/lib/puo-prenotare";
+import { puoPrenotare, canoneACadenzaLibera } from "@/lib/puo-prenotare";
 import { compraUnRitiro, chiediAbbonamento } from "@/lib/actions/ritiri";
 import { fasciaPermessa } from "@/lib/servizio-fascia";
 import { isTipoServizio } from "@/lib/tipo-servizio";
@@ -103,6 +103,13 @@ export default async function PrenotaPage() {
   // quando tornano.
   const rinnovoDaAspettare = !!diritto && !active && diritto.abbonamentoARitiri === true;
   const ritiriInCassa = diritto?.ritiri ?? 0;
+  // Come paga i sacchi: lo legge una didascalia sola, ma dirlo sbagliato
+  // significa promettere «compreso» a chi compreso non ce l'ha. L'ordine conta:
+  // chi ha un canone a cadenza libera lo paga col canone; chi ha un numero di
+  // ritiri — comprati o compresi in un abbonamento — li paga con quelli; il
+  // resto è il cliente a consumo, che paga a listino.
+  const comePaga: "abbonamento" | "ritiri" | "consumo" =
+    diritto && canoneACadenzaLibera(diritto) ? "abbonamento" : (diritto?.ritiri ?? 0) > 0 || diritto?.abbonamentoARitiri ? "ritiri" : aConsumo ? "consumo" : "abbonamento";
   const noAddress = !addresses || addresses.length === 0;
   const sofferenza = !aConsumo && (sub?.status === "past_due" || sub?.status === "unpaid");
 
@@ -200,7 +207,7 @@ export default async function PrenotaPage() {
               consuma uno quando prenoti, e se annulli te lo restituiamo.
             </section>
           )}
-          <BookFlow addresses={addresses!} slots={slots ?? []} deliverySlots={deliverySlots} turnaroundHours={turnaroundHours} categories={categories} />
+          <BookFlow addresses={addresses!} slots={slots ?? []} deliverySlots={deliverySlots} turnaroundHours={turnaroundHours} categories={categories} comePaga={comePaga} />
         </>
       )}
     </div>

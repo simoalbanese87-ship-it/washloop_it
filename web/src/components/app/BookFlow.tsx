@@ -49,6 +49,7 @@ export function BookFlow({
   deliverySlots,
   turnaroundHours,
   categories,
+  comePaga,
 }: {
   addresses: Address[];
   slots: Slot[];
@@ -57,6 +58,12 @@ export function BookFlow({
   /** Ore di lavorazione del piano: 48 di norma, 24 su Plus/Family. */
   turnaroundHours: number;
   categories: SpecialCategory[];
+  /** Come paga questo cliente i sacchi del ritiro. Serve a una riga sola — la
+   *  didascalia sotto «Quanti sacchi?» — ma è una riga che fino al 31 ottobre
+   *  2026 diceva «inclusi nel tuo abbonamento» a tutti, compreso chi un
+   *  abbonamento non ce l'ha: chi compra ritiri e chi paga a consumo. Una
+   *  frase falsa proprio nel momento in cui si preme Conferma. */
+  comePaga: "abbonamento" | "ritiri" | "consumo";
 }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -492,7 +499,13 @@ export function BookFlow({
             <div>
               <div className="font-display text-sm font-extrabold text-navy">Quanti sacchi?</div>
               <div className="text-xs font-medium text-muted">
-                {bags === 0 ? "Nessun sacco: porti solo i capi segnati" : "Inclusi nel tuo abbonamento"}
+                {bags === 0
+                  ? "Nessun sacco: porti solo i capi segnati"
+                  : comePaga === "ritiri"
+                    ? "Compresi nel ritiro che hai comprato"
+                    : comePaga === "consumo"
+                      ? "Li paghi a listino, quando la lavanderia li conta"
+                      : "Inclusi nel tuo abbonamento"}
               </div>
             </div>
             <div className="flex items-center gap-3">
