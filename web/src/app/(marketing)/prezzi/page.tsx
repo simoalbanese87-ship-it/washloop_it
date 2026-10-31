@@ -260,7 +260,7 @@ export default async function Prezzi() {
             <strong className="font-bold text-white">già dentro</strong>: non si paga a capo, non si paga il
             ritiro, non c&apos;è un carrello da riempire.
           </p>
-          <div className="mx-auto mt-9 max-w-xl text-left">
+          <div className="mx-auto mt-9 max-w-md text-left">
             <VerificaCap />
           </div>
           {minimo != null && (
@@ -732,7 +732,7 @@ export default async function Prezzi() {
           <p className="mx-auto mt-4 max-w-lg text-lg font-medium text-white/85">
             Verifichiamo se passiamo da te. Nessun pagamento prima dell&apos;attivazione.
           </p>
-          <div className="mx-auto mt-8 max-w-xl text-left">
+          <div className="mx-auto mt-8 max-w-md text-left">
             <VerificaCap />
           </div>
         </div>

@@ -198,7 +198,7 @@ export default async function ComeFunziona() {
             Dieci passi: i primi quattro succedono una volta sola, gli altri si ripetono da soli. In fondo
             trovi le domande che ci fanno più spesso.
           </p>
-          <div className="mx-auto mt-9 max-w-xl text-left">
+          <div className="mx-auto mt-9 max-w-md text-left">
             <VerificaCap />
           </div>
         </div>
