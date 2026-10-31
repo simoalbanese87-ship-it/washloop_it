@@ -44,6 +44,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
     // Contatti: non porta ricerche, ma è la pagina che si cerca dopo aver letto
     // le altre, e la sua assenza era un buco di fiducia.
+    { url: `${base}/chi-siamo`, changeFrequency: "yearly", priority: 0.6, lastModified: oggi },
     { url: `${base}/contatti`, changeFrequency: "yearly", priority: 0.5, lastModified: oggi },
 
     { url: `${base}/guide`, changeFrequency: "monthly", priority: 0.7, lastModified: oggi },

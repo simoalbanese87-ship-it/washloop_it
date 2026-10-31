@@ -73,12 +73,39 @@ export function attivitaJsonLd() {
       { "@type": "City", name: "Milano" },
       ...COMUNI_SERVITI.map((c) => ({ "@type": "City", name: c })),
     ],
+    // Chi c'è dietro, con un nodo suo.
+    //
+    // Un servizio a cui si consegnano i vestiti di casa si sceglie anche per
+    // questo: un'azienda senza una persona in cima è un'azienda che, se
+    // qualcosa va storto, non si sa a chi chiedere. Il nodo ha un `@id` così
+    // la pagina Chi siamo può parlare della stessa persona invece di
+    // dichiararne una seconda con lo stesso nome.
+    founder: { "@id": FONDATORE_ID },
     // `sameAs` e `hasMap` sono la frase «questo sito e quella scheda Google
     // sono la stessa azienda». Finché mancano, per Google sono due entità che
     // si assomigliano: il sito non aiuta la scheda a salire nella mappa, e la
     // scheda non presta al sito la fiducia delle sue recensioni. Costano due
     // righe e sono la metà del lavoro del punto «collega la scheda».
     ...(scheda ? { sameAs: [scheda], hasMap: scheda } : {}),
+  };
+}
+
+/** L'identificativo del fondatore nel grafo. Una costante perché lo citano in
+ *  due: l'azienda, che lo indica come `founder`, e la pagina Chi siamo, che lo
+ *  descrive. */
+export const FONDATORE_ID = "https://washloop.it/chi-siamo#simone";
+
+/** Il fondatore, descritto. Lo emette solo la pagina Chi siamo: nelle altre
+ *  basta il rimando, se no si dichiarerebbe la stessa persona su ogni pagina
+ *  del sito. */
+export function fondatoreJsonLd() {
+  return {
+    "@type": "Person",
+    "@id": FONDATORE_ID,
+    name: "Simone Albanese",
+    jobTitle: "Fondatore",
+    worksFor: { "@id": "https://washloop.it/#attivita" },
+    url: "https://washloop.it/chi-siamo",
   };
 }
 

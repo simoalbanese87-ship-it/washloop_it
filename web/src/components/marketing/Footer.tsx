@@ -41,6 +41,7 @@ export function Footer() {
         <div>
           <div className="mb-4 font-display text-xs font-extrabold uppercase tracking-[0.2em] text-cyan">Azienda</div>
           <ul className="space-y-2.5 text-sm font-medium text-white/70">
+            <li><Link href="/chi-siamo" className="hover:text-white">Chi siamo</Link></li>
             <li><Link href="/login" className="hover:text-white">Area clienti</Link></li>
             <li><a href="mailto:info@washloop.it" className="hover:text-white">info@washloop.it</a></li>
             <li><Link href="/privacy" className="hover:text-white">Privacy</Link></li>
